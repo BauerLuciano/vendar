@@ -9,7 +9,6 @@ class Producto extends Model
 {
     use HasFactory;
 
-    // 1. Damos permiso para guardar masivamente
     protected $fillable = [
         'categoria_id',
         'marca_id',
@@ -22,15 +21,20 @@ class Producto extends Model
         'imagen',
     ];
 
-    // 2. Relación: Un Producto PERTENECE A una Categoría
     public function categoria()
     {
         return $this->belongsTo(Categoria::class);
     }
 
-    // 3. Relación: Un Producto PERTENECE A una Marca
     public function marca()
     {
         return $this->belongsTo(Marca::class);
+    }
+
+    public function branches()
+    {
+        return $this->belongsToMany(Branch::class, 'branch_producto')
+                    ->withPivot('cantidad_fisica', 'cantidad_reservada')
+                    ->withTimestamps();
     }
 }

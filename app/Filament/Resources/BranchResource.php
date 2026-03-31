@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BranchResource\Pages;
+use App\Filament\Resources\BranchResource\RelationManagers;
 use App\Models\Branch;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -23,6 +24,9 @@ class BranchResource extends Resource
     protected static ?string $navigationIcon = 'heroicon-o-building-storefront';
     
     protected static ?string $navigationLabel = 'Sucursales';
+    protected static ?string $modelLabel = 'Sucursal';
+    protected static ?string $pluralModelLabel = 'Sucursales';
+    protected static ?string $navigationGroup = 'Gestión Comercial';
 
     public static function form(Form $form): Form
     {
@@ -105,7 +109,7 @@ class BranchResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            RelationManagers\ProductosRelationManager::class,
         ];
     }
 

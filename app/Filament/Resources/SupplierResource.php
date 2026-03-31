@@ -12,7 +12,6 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-// Importaciones agregadas para los campos y columnas:
 use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
 
@@ -20,11 +19,12 @@ class SupplierResource extends Resource
 {
     protected static ?string $model = Supplier::class;
 
-    // Le ponemos un icono de camioncito
     protected static ?string $navigationIcon = 'heroicon-o-truck';
     
-    // Le cambiamos el nombre en el menú
     protected static ?string $navigationLabel = 'Proveedores';
+    protected static ?string $modelLabel = 'Proveedor';
+    protected static ?string $pluralModelLabel = 'Proveedores';
+    protected static ?string $navigationGroup = 'Gestión Comercial';
 
     public static function form(Form $form): Form
     {

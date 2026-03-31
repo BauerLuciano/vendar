@@ -41,14 +41,17 @@ class UserResource extends Resource
                 TextInput::make('password')
                     ->label('Contraseña')
                     ->password()
+                    // Si se escribe algo, lo hashea. Si no, no hace nada (no pisa la anterior)
                     ->dehydrateStateUsing(fn ($state) => Hash::make($state))
                     ->dehydrated(fn ($state) => filled($state))
-                    ->required(fn (string $context): bool => $context === 'create'),
+                    // Solo es obligatoria cuando estás creando un usuario nuevo
+                    ->required(fn (string $context): bool => $context === 'create')
+                    ->maxLength(255),
                 Select::make('roles')
                     ->label('Rol del Usuario')
                     ->relationship('roles', 'name') 
                     ->multiple()
-                    ->maxItems(1)
+                    ->maxItems(1) // Limitado a uno como pediste
                     ->preload()
                     ->searchable()
                     ->required(),
@@ -65,7 +68,7 @@ class UserResource extends Resource
                 TextColumn::make('email')
                     ->label('Email')
                     ->searchable(),
-                TextColumn::make('roles.name') // Muestra los roles que tiene
+                TextColumn::make('roles.name') // Muestra el badge del rol
                     ->label('Roles')
                     ->badge()
                     ->color('success')
