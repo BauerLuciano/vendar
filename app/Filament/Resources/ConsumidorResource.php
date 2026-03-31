@@ -43,6 +43,11 @@ class ConsumidorResource extends Resource
                     ->default(0)
                     ->prefix('$')
                     ->label('Límite de Fiado (CC)'),
+                Forms\Components\TextInput::make('puntos_acumulados')
+                    ->required()
+                    ->numeric()
+                    ->default(0)
+                    ->label('Puntos de Fidelidad'),
             ]);
     }
 
@@ -61,6 +66,13 @@ class ConsumidorResource extends Resource
                     ->money('ARS')
                     ->sortable()
                     ->label('Límite Permitido'),
+                
+                Tables\Columns\TextColumn::make('puntos_acumulados')
+                    ->numeric()
+                    ->sortable()
+                    ->badge()
+                    ->color('info')
+                    ->label('Puntos'),
 
                 // Magia Pura: Traemos el saldo desde la tabla de cuentas_corrientes
                 Tables\Columns\TextColumn::make('cuentaCorriente.saldo_deudor')
@@ -74,6 +86,33 @@ class ConsumidorResource extends Resource
                 //
             ])
             ->actions([
+                Tables\Actions\Action::make('canjear_puntos')
+                    ->label('Canjear Puntos')
+                    ->icon('heroicon-o-gift')
+                    ->color('warning')
+                    // Solo se muestra si el cliente tiene al menos 1 punto
+                    ->visible(fn (Consumidor $record) => $record->puntos_acumulados > 0)
+                    ->form([
+                        Forms\Components\TextInput::make('puntos_a_descontar')
+                            ->label('Puntos a canjear (Premio)')
+                            ->numeric()
+                            ->required()
+                            // No puede canjear más puntos de los que tiene
+                            ->maxValue(fn (Consumidor $record) => $record->puntos_acumulados)
+                            ->helperText(fn (Consumidor $record) => 'Puntos disponibles: ' . $record->puntos_acumulados),
+                    ])
+                    ->action(function (array $data, Consumidor $record): void {
+                        // Restamos los puntos
+                        $record->update([
+                            'puntos_acumulados' => $record->puntos_acumulados - $data['puntos_a_descontar'],
+                        ]);
+
+                        // Notificación de éxito
+                        \Filament\Notifications\Notification::make()
+                            ->title('Premio canjeado con éxito')
+                            ->success()
+                            ->send();
+                    }),
                 Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([

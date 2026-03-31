@@ -17,6 +17,7 @@ class Consumidor extends Model
         'telefono',
         'direccion',
         'limite_cuenta_corriente',
+        'puntos_acumulados',
     ];
 
     // Magia: Cuando se crea un Consumidor, le creamos su Cuenta Corriente en 0
@@ -33,5 +34,11 @@ class Consumidor extends Model
     public function cuentaCorriente()
     {
         return $this->hasOne(CuentaCorriente::class);
+    }
+
+    public static function calcularPuntosPorCompra($montoCompra)
+    {
+        // Usamos floor() para redondear para abajo (ej: si gasta $199, suma 1 punto, no 2)
+        return floor($montoCompra / 100);
     }
 }
