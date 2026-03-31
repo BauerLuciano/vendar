@@ -32,5 +32,5 @@ Construido bajo una arquitectura **SaaS Multi-Tenant**, permite que un solo cód
 
 1. **Clonar el repositorio:**
    ```bash
-   git clone [https://github.com/tu-usuario/vendar.git](https://github.com/tu-usuario/vendar.git)
+   git clone (https://github.com/tu-usuario/vendar.git)
    cd vendar
