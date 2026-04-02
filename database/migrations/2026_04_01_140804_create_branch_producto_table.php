@@ -6,27 +6,29 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     */
     public function up(): void
     {
-        Schema::dropIfExists('sucursal_producto');
-
-        Schema::create('sucursal_producto', function (Blueprint $table) {
+        Schema::create('branch_producto', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
+            $table->foreignId('producto_id')->constrained('productos')->cascadeOnDelete();
             
-            $table->foreignId('sucursal_id')->constrained('sucursales');
-            $table->foreignId('producto_id')->constrained('productos');
-            
+            // CAMBIAMOS LOS NOMBRES DE ESTAS COLUMNAS:
             $table->integer('cantidad_fisica')->default(0);
             $table->integer('cantidad_reservada')->default(0);
-
-            $table->unique(['sucursal_id', 'producto_id'], 'uidx_sucursal_producto_unique');
             
             $table->timestamps();
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
-        Schema::dropIfExists('sucursal_producto');
+        Schema::dropIfExists('branch_producto');
     }
 };

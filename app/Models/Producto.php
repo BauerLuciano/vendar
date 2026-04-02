@@ -37,4 +37,9 @@ class Producto extends Model
                     ->withPivot('cantidad_fisica', 'cantidad_reservada')
                     ->withTimestamps();
     }
+
+    public function reglasLiquidacion()
+    {
+        return $this->hasMany(ReglaLiquidacion::class);
+    }
 }
