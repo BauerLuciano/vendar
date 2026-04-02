@@ -19,6 +19,7 @@ class Producto extends Model
         'precio_venta',
         'stock_minimo',
         'imagen',
+        'estado',
     ];
 
     public function categoria()

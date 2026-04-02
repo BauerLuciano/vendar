@@ -2,14 +2,8 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
-use App\Models\Producto;
-use App\Observers\ProductoObserver;
-use App\Models\BranchProducto;
-use App\Observers\BranchProductoObserver;
-
-use App\Models\IngresoDetalle;
-use App\Observers\IngresoDetalleObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -26,10 +20,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Producto::observe(ProductoObserver::class);
-
-        BranchProducto::observe(BranchProductoObserver::class);
-
-        IngresoDetalle::observe(IngresoDetalleObserver::class);
+        Vite::prefetch(concurrency: 3);
     }
 }
