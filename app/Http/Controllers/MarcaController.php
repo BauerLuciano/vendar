@@ -21,7 +21,7 @@ class MarcaController extends Controller
     {
         $validados = $request->validate([
             'nombreMarca' => 'required|string|max:255|unique:marcas,nombreMarca',
-            'imagen'      => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'imagen'      => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
 
         if ($request->hasFile('imagen')) {

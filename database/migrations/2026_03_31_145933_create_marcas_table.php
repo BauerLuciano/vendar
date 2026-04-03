@@ -14,7 +14,9 @@ return new class extends Migration
     Schema::create('marcas', function (Blueprint $table) {
         $table->id();
         $table->string('nombreMarca');
+        $table->string('slug')->unique()->nullable();
         $table->string('imagen')->nullable();
+        $table->boolean('estado')->default(true);
         $table->timestamps();
     });
 }

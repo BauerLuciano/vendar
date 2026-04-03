@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB; // Importado para cruzar tablas
 use Inertia\Inertia;
+use App\Http\Controllers\TransferenciaSugeridaController;
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
@@ -70,6 +71,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/marcas', [MarcaController::class, 'store'])->name('marcas.store');
     Route::post('/marcas/{marca}', [MarcaController::class, 'update'])->name('marcas.update');
     Route::patch('/marcas/{marca}/status', [MarcaController::class, 'status'])->name('marcas.status');
+
+    // Rutas de Transferencias
+    Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
+    Route::post('/transferencias-sugeridas/{transferencia}/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
 });
 
 require __DIR__.'/auth.php';
