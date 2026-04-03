@@ -6,7 +6,7 @@ const links = [
     { nombre: 'Productos', ruta: 'productos.index', icono: 'productos' },
     { nombre: 'Categorías', ruta: 'categorias.index', icono: 'categorias' },
     { nombre: 'Marcas', ruta: 'marcas.index', icono: 'marcas' }, 
-    { nombre: 'Ventas (POS)', ruta: '#', icono: 'ventas' },
+    { nombre: 'Ventas (POS)', ruta: 'pos.index', icono: 'ventas' },
 ];
 </script>
 

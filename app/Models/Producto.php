@@ -41,4 +41,9 @@ class Producto extends Model
                     ->withPivot('cantidad_fisica', 'cantidad_reservada')
                     ->withTimestamps();
     }
+
+    public function branch_productos()
+    {
+        return $this->hasMany(BranchProducto::class);
+    }
 }

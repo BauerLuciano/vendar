@@ -4,12 +4,14 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\MarcaController;
+use App\Http\Controllers\VentaController;
 use App\Models\CuentaCorriente; // Importado para el cálculo de deudas
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB; // Importado para cruzar tablas
 use Inertia\Inertia;
 use App\Http\Controllers\TransferenciaSugeridaController;
+use App\Http\Controllers\IngresoMercaderiaController;
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
@@ -75,6 +77,13 @@ Route::middleware('auth')->group(function () {
     // Rutas de Transferencias
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
     Route::post('/transferencias-sugeridas/{transferencia}/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
+
+    // Ruta de Ingreso de Mercadería
+    Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
+
+    // Rutas de Ventas
+    Route::get('/pos', [VentaController::class, 'index'])->name('pos.index');
+    Route::post('/pos', [VentaController::class, 'store'])->name('ventas.store');   
 });
 
 require __DIR__.'/auth.php';
