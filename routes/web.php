@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BranchController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\CategoriaController;
@@ -42,6 +43,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/marcas', [MarcaController::class, 'store'])->name('marcas.store');
     Route::post('/marcas/{marca}', [MarcaController::class, 'update'])->name('marcas.update');
     Route::patch('/marcas/{marca}/status', [MarcaController::class, 'status'])->name('marcas.status');
+    //Ruta de sucursales
+    Route::get('/sucursales', [BranchController::class, 'index'])->name('sucursales.index');
+    Route::post('/sucursales', [BranchController::class, 'store'])->name('sucursales.store');
+    Route::put('/sucursales/{branch}', [BranchController::class, 'update'])->name('sucursales.update');
+    Route::patch('/sucursales/{branch}/status', [BranchController::class, 'status'])->name('sucursales.status');
 });
 
 require __DIR__.'/auth.php';
