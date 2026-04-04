@@ -25,7 +25,8 @@ class ProductoController extends Controller
     {
         $validados = $request->validate([
             'nombre'        => 'required|string|max:255',
-            'codigo_barras' => 'required|string|max:50|unique:productos,codigo_barras',
+            // Agregamos min:8, max:14 y el regex para puros números
+            'codigo_barras' => 'required|string|min:8|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
             'categoria_id'  => 'required|exists:categorias,id',
             'marca_id'      => 'required|exists:marcas,id',
             'unidad_medida' => 'required|in:Unidad,Kg,Gramos',
@@ -35,6 +36,11 @@ class ProductoController extends Controller
             'stock_minimo'  => 'required|integer|min:0',
             'descripcion'   => 'nullable|string',
             'imagen'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048', 
+        ], [
+            // Mensajes personalizados para que el cajero entienda el error
+            'codigo_barras.regex' => 'El código de barras solo puede contener números.',
+            'codigo_barras.min' => 'El código debe tener al menos 8 números.',
+            'codigo_barras.max' => 'El código no puede superar los 14 números.',
         ]);
 
         if ($request->hasFile('imagen')) {
@@ -52,7 +58,7 @@ class ProductoController extends Controller
     {
         $validados = $request->validate([
             'nombre'        => 'required|string|max:255',
-            'codigo_barras' => ['required', 'string', 'max:50', Rule::unique('productos')->ignore($producto->id)],
+            'codigo_barras' => ['required', 'string', 'min:8', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
             'categoria_id'  => 'required|exists:categorias,id',
             'marca_id'      => 'required|exists:marcas,id',
             'unidad_medida' => 'required|in:Unidad,Kg,Gramos',

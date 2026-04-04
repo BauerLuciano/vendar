@@ -3,26 +3,23 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class IngresoDetalle extends Model
 {
     protected $table = 'ingreso_detalles';
-
+    
     protected $fillable = [
-        'ingreso_id',
-        'producto_id',
-        'cantidad_recibida',
-        'precio_costo_actualizado',
+        'ingreso_mercaderia_id', 
+        'producto_id', 
+        'cantidad_recibida', 
+        'costo_unitario'
     ];
 
-    public function ingreso(): BelongsTo
-    {
-        return $this->belongsTo(IngresoMercaderia::class, 'ingreso_id');
+    public function ingreso() { 
+        return $this->belongsTo(IngresoMercaderia::class, 'ingreso_mercaderia_id'); 
     }
-
-    public function producto(): BelongsTo
-    {
-        return $this->belongsTo(Producto::class, 'producto_id');
+    
+    public function producto() { 
+        return $this->belongsTo(Producto::class, 'producto_id'); 
     }
 }

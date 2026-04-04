@@ -90,7 +90,17 @@ const guardar = () => {
 
                 <div>
                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Cód. Barras</label>
-                    <input v-model="formulario.codigo_barras" type="text" @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-mono" :class="{'border-rose-500': formulario.errors.codigo_barras}" required>
+                    <input 
+                        v-model="formulario.codigo_barras" 
+                        type="text" 
+                        minlength="8" 
+                        maxlength="14" 
+                        @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')" 
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-mono" 
+                        :class="{'border-rose-500': formulario.errors.codigo_barras}" 
+                        placeholder="Ej: 7791234567890"
+                        required
+                    >
                     <p v-if="formulario.errors.codigo_barras" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.codigo_barras }}</p>
                 </div>
 

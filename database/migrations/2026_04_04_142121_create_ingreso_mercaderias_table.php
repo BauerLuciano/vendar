@@ -10,10 +10,14 @@ return new class extends Migration
     {
         Schema::create('ingresos_mercaderias', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('proveedor_id')->constrained('suppliers')->restrictOnDelete();
+            // Asumo que tenés una tabla proveedores (si no la tenés, sacale el constrained por ahora)
+            $table->foreignId('proveedor_id')->nullable()->constrained('proveedores')->restrictOnDelete();
             $table->foreignId('sucursal_id')->constrained('sucursales')->restrictOnDelete();
-            $table->date('fecha_comprobante');
-            $table->decimal('total_factura', 12, 2)->default(0);
+            
+            $table->string('numero_remito')->nullable();
+            $table->date('fecha_ingreso');
+            $table->decimal('total_costo', 12, 2)->default(0);
+            
             $table->timestamps();
         });
     }

@@ -12,6 +12,7 @@ use App\Http\Controllers\IngresoMercaderiaController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ConsumidorController;
 use App\Models\CuentaCorriente;
+use App\Http\Controllers\ProveedorController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
@@ -64,17 +65,13 @@ Route::middleware('auth')->group(function () {
     // Rutas de Ingreso de Mercadería
     Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
 
-    // ==========================================
-    // RUTAS DE VENTAS (HISTORIAL Y POS)
-    // ==========================================
-    Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index'); // Historial
-    Route::get('/pos', [VentaController::class, 'create'])->name('pos.index');      // Caja de Ricky
-    Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');// Guardar venta
+    // RUTAS DE VENTAS
+    Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index'); 
+    Route::get('/pos', [VentaController::class, 'create'])->name('pos.index');     
+    Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::post('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar'); 
-    
-    // ==========================================
-    // Rutas de Sucursales (REFACORIZADO AL ESPAÑOL)
-    // ==========================================
+ 
+    // Rutas de Sucursales 
     Route::get('/sucursales', [SucursalController::class, 'index'])->name('sucursales.index');
     Route::post('/sucursales', [SucursalController::class, 'store'])->name('sucursales.store');
     Route::put('/sucursales/{sucursal}', [SucursalController::class, 'update'])->name('sucursales.update');
@@ -84,6 +81,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
     Route::post('/clientes', [ConsumidorController::class, 'store'])->name('consumidores.store');
     Route::put('/clientes/{consumidor}', [ConsumidorController::class, 'update'])->name('consumidores.update');
+
+    // Rutas de Proveedores
+    Route::get('/proveedores', [ProveedorController::class, 'index'])->name('proveedores.index');
+    Route::post('/proveedores', [ProveedorController::class, 'store'])->name('proveedores.store');
+    Route::put('/proveedores/{proveedore}', [ProveedorController::class, 'update'])->name('proveedores.update');
+    Route::patch('/proveedores/{proveedore}/status', [ProveedorController::class, 'status'])->name('proveedores.status');
+
+    // Rutas de Ingreso de Mercadería (Stock)
+    Route::get('/ingresos', [IngresoMercaderiaController::class, 'index'])->name('ingresos.index');
+    Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
 });
 
 require __DIR__.'/auth.php';

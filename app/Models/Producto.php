@@ -46,7 +46,7 @@ class Producto extends Model
     public function marca() { return $this->belongsTo(Marca::class, 'marca_id'); }
     
     public function sucursales() {
-        return $this->belongsToMany(Sucursal::class, 'branch_producto')
+        return $this->belongsToMany(Sucursal::class, 'producto_sucursal')
                     ->withPivot('cantidad_fisica', 'cantidad_reservada')
                     ->withTimestamps();
     }

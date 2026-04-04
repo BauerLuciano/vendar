@@ -12,20 +12,20 @@ class DashboardController extends Controller
     public function index()
     {
         // 1. Cálculo de Deuda Total en la calle
-        // El ?? 0 es por si la tabla está vacía y devuelve null, para que no explote la vista
         $deudaTotal = CuentaCorriente::sum('saldo_deudor') ?? 0;
 
-        // 2. Cálculo de Productos con Bajo Stock (Cruce de tablas)
+        // 2. Cálculo de Productos con Bajo Stock (Cruce de tablas ACTUALIZADO)
         $productosBajoStock = DB::table('productos')
-            ->join('branch_producto', 'productos.id', '=', 'branch_producto.producto_id')
-            ->join('sucursales', 'sucursales.id', '=', 'branch_producto.branch_id')
+            ->join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
+            ->join('sucursales', 'sucursales.id', '=', 'producto_sucursal.sucursal_id')
             ->select(
                 'productos.nombre as producto',
                 'productos.stock_minimo',
-                'branch_producto.cantidad_fisica',
+                // ¡ACÁ ESTÁ LA CLAVE! Le forzamos el alias para que Vue lo encuentre.
+                'producto_sucursal.cantidad_fisica as cantidad_fisica', 
                 'sucursales.nombre as sucursal' 
             )
-            ->whereRaw('branch_producto.cantidad_fisica <= productos.stock_minimo')
+            ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo')
             ->get();
 
         // 3. Le mandamos la data servida a Vue

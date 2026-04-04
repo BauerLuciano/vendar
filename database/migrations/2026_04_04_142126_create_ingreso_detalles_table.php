@@ -10,10 +10,12 @@ return new class extends Migration
     {
         Schema::create('ingreso_detalles', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('ingreso_id')->constrained('ingresos_mercaderias')->cascadeOnDelete();
+            $table->foreignId('ingreso_mercaderia_id')->constrained('ingresos_mercaderias')->cascadeOnDelete();
             $table->foreignId('producto_id')->constrained('productos')->restrictOnDelete();
+            
             $table->integer('cantidad_recibida');
-            $table->decimal('precio_costo_actualizado', 10, 2)->nullable();
+            $table->decimal('costo_unitario', 10, 2); // A cuánto nos cobró el proveedor hoy
+            
             $table->timestamps();
         });
     }

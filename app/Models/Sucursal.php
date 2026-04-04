@@ -24,10 +24,9 @@ class Sucursal extends Model
     ];
 
     // Relación con Productos (La tabla pivot debería llamarse producto_sucursal luego)
-    public function productos()
-    {
+    public function productos() {
         return $this->belongsToMany(Producto::class, 'producto_sucursal')
-                    ->withPivot('stock_fisico', 'stock_minimo')
+                    ->withPivot('cantidad_fisica', 'cantidad_reservada')
                     ->withTimestamps();
     }
 }
