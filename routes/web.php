@@ -5,13 +5,14 @@ use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\VentaController;
-use App\Models\CuentaCorriente; // Importado para el cálculo de deudas
-use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\DB; // Importado para cruzar tablas
-use Inertia\Inertia;
 use App\Http\Controllers\TransferenciaSugeridaController;
 use App\Http\Controllers\IngresoMercaderiaController;
+use App\Http\Controllers\BranchController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ConsumidorController;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
@@ -22,32 +23,10 @@ Route::get('/', function () {
     ]);
 });
 
-// TU NUEVO DASHBOARD
-Route::get('/dashboard', function () {
-    
-    // 1. Cálculo de Deuda Total en la calle
-    $deudaTotal = CuentaCorriente::sum('saldo_deudor');
-
-    // 2. Cálculo de Productos con Bajo Stock (Cruce de tablas)
-    $productosBajoStock = DB::table('productos')
-        ->join('branch_producto', 'productos.id', '=', 'branch_producto.producto_id')
-        ->join('branches', 'branches.id', '=', 'branch_producto.branch_id')
-        ->select(
-            'productos.nombre as producto', 
-            'productos.stock_minimo', 
-            'branch_producto.cantidad_fisica', 
-            'branches.name as sucursal'
-        )
-        ->whereRaw('branch_producto.cantidad_fisica <= productos.stock_minimo')
-        ->get();
-
-    // 3. Le mandamos la data servida a Vue
-    return Inertia::render('Dashboard', [
-        'deudaTotal' => $deudaTotal,
-        'productosBajoStock' => $productosBajoStock
-    ]);
-    
-})->middleware(['auth', 'verified'])->name('dashboard');
+// DASHBOARD (Limpiado y apuntando a su controlador)
+Route::get('/dashboard', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 
 Route::middleware('auth')->group(function () {
@@ -86,10 +65,15 @@ Route::middleware('auth')->group(function () {
     Route::post('/pos', [VentaController::class, 'store'])->name('ventas.store');  
     
     // Rutas de Sucursales
-    Route::get('/branches', [App\Http\Controllers\BranchController::class, 'index'])->name('branches.index');
-    Route::post('/branches', [App\Http\Controllers\BranchController::class, 'store'])->name('branches.store');
-    Route::put('/branches/{branch}', [App\Http\Controllers\BranchController::class, 'update'])->name('branches.update');
-    Route::put('/branches/{branch}/status', [App\Http\Controllers\BranchController::class, 'status'])->name('branches.status');
-    });
+    Route::get('/branches', [BranchController::class, 'index'])->name('branches.index');
+    Route::post('/branches', [BranchController::class, 'store'])->name('branches.store');
+    Route::put('/branches/{branch}', [BranchController::class, 'update'])->name('branches.update');
+    Route::put('/branches/{branch}/status', [BranchController::class, 'status'])->name('branches.status');
+
+    // Rutas de Clientes (Consumidores)
+    Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
+    Route::post('/clientes', [ConsumidorController::class, 'store'])->name('consumidores.store');
+    Route::put('/clientes/{consumidor}', [ConsumidorController::class, 'update'])->name('consumidores.update');
+});
 
 require __DIR__.'/auth.php';
