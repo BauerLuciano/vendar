@@ -6,7 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
-use Illuminate\Database\Eloquent\Relations\BelongsTo; // <-- Importante
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Sucursal;
 
 class User extends Authenticatable
 {
@@ -16,7 +17,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'branch_id', // <-- AGREGAMOS ESTO
+        'branch_id', 
     ];
 
     protected $hidden = [
@@ -32,9 +33,8 @@ class User extends Authenticatable
         ];
     }
 
-    
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class, 'branch_id');
+        return $this->belongsTo(Sucursal::class, 'branch_id');
     }
 }

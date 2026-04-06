@@ -1,5 +1,6 @@
 <?php
 
+<<<<<<< HEAD
 use App\Http\Controllers\SucursalController; 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProductoController;
@@ -15,27 +16,36 @@ use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\CajaController; 
 use App\Http\Controllers\CajaDiariaController; 
+=======
+use App\Http\Controllers\{
+    SucursalController, ProfileController, ProductoController,
+    CategoriaController, MarcaController, VentaController,
+    TransferenciaSugeridaController, IngresoMercaderiaController,
+    DashboardController, ConsumidorController, ProveedorController,
+    PosController, RoleController, UsuarioController
+};
+>>>>>>> f40729119a84a63619d4ddbaa68366e6c7e7d7f9
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
+// --- RUTA PÚBLICA ---
 Route::get('/', function () {
     return redirect()->route('login');
 });
 
-// DASHBOARD 
-Route::get('/dashboard', [DashboardController::class, 'index'])
-    ->middleware(['auth', 'verified'])
-    ->name('dashboard');
-
-Route::middleware('auth')->group(function () {
+// --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
+Route::middleware(['auth', 'verified'])->group(function () {
     
-    // Perfil de usuario
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Perfil (Todos pueden editar su propia cuenta)
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
 
+<<<<<<< HEAD
     // ------------------------------------------------------------------
     // RUTAS DEL PUNTO DE VENTA Y CAJAS FÍSICAS (CRUD)
     // ------------------------------------------------------------------
@@ -73,10 +83,23 @@ Route::middleware('auth')->group(function () {
     // ------------------------------------------------------------------
     // RESTO DEL SISTEMA (Ventas, Productos, Stock, etc.)
     // ------------------------------------------------------------------
+=======
+// --- ZONA COMERCIAL (Admins, Cajeros y Encargados) ---
+Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargado'])->group(function () {
+    
+    // POS y Ventas
+    Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
+    Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
+>>>>>>> f40729119a84a63619d4ddbaa68366e6c7e7d7f9
     Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index'); 
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
-    Route::post('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar'); 
+    
+    // Clientes
+    Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
+    Route::post('/clientes', [ConsumidorController::class, 'store'])->name('consumidores.store');
+    Route::put('/clientes/{consumidor}', [ConsumidorController::class, 'update'])->name('consumidores.update');
 
+<<<<<<< HEAD
     Route::get('/productos', [ProductoController::class, 'index'])->name('productos.index');
     Route::post('/productos', [ProductoController::class, 'store'])->name('productos.store');
     Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
@@ -99,11 +122,44 @@ Route::middleware('auth')->group(function () {
     Route::get('/ingresos', [IngresoMercaderiaController::class, 'index'])->name('ingresos.index');
     Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
  
+=======
+    // Consultar Productos (Ver precios/stock)
+    Route::get('/productos', [ProductoController::class, 'index'])->name('productos.index');
+});
+
+// --- ZONA DE GESTIÓN (Solo Admins y Encargados) ---
+Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
+    
+    // Stock e Ingresos
+    Route::get('/ingresos', [IngresoMercaderiaController::class, 'index'])->name('ingresos.index');
+    Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
+    
+    // Catálogo
+    Route::resource('categorias', CategoriaController::class);
+    Route::resource('marcas', MarcaController::class);
+    Route::resource('proveedores', ProveedorController::class);
+    
+    // Edición de Productos
+    Route::post('/productos', [ProductoController::class, 'store'])->name('productos.store');
+    Route::post('/productos/{producto}', [ProductoController::class, 'update'])->name('productos.update');
+    Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
+
+    // Transferencias
+    Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
+    Route::post('/transferencias-sugeridas/{transferencia}/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
+});
+
+// --- ZONA DE PODER ABSOLUTO (Solo Dueños y Devs) ---
+Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(function () {
+    
+    // Sucursales
+>>>>>>> f40729119a84a63619d4ddbaa68366e6c7e7d7f9
     Route::get('/sucursales', [SucursalController::class, 'index'])->name('sucursales.index');
     Route::post('/sucursales', [SucursalController::class, 'store'])->name('sucursales.store');
     Route::put('/sucursales/{sucursal}', [SucursalController::class, 'update'])->name('sucursales.update');
     Route::patch('/sucursales/{sucursal}/status', [SucursalController::class, 'status'])->name('sucursales.status');
 
+<<<<<<< HEAD
     Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
     Route::post('/clientes', [ConsumidorController::class, 'store'])->name('consumidores.store');
     Route::put('/clientes/{consumidor}', [ConsumidorController::class, 'update'])->name('consumidores.update');
@@ -113,6 +169,14 @@ Route::middleware('auth')->group(function () {
     Route::put('/proveedores/{proveedore}', [ProveedorController::class, 'update'])->name('proveedores.update');
     Route::patch('/proveedores/{proveedore}/status', [ProveedorController::class, 'status'])->name('proveedores.status');
 
+=======
+    // Seguridad y Usuarios
+    Route::resource('roles', RoleController::class);
+    Route::resource('usuarios', UsuarioController::class);
+    
+    // Cancelar Ventas (Solo el jefe puede anular un ticket)
+    Route::post('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar'); 
+>>>>>>> f40729119a84a63619d4ddbaa68366e6c7e7d7f9
 });
 
 require __DIR__.'/auth.php';
