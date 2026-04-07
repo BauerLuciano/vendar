@@ -10,13 +10,17 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        User::updateOrCreate(
+        $user = User::updateOrCreate(
             ['email' => 'luciano@gmail.com'], // Busca por este email
             [
-                'name' => 'Luciano', // Ojo: si tu columna se llama 'nombre' en vez de 'name', cambialo acá
+                'name' => 'Luciano', 
                 'password' => Hash::make('123456'),
-                'sucursal_id' => 1, // Descomentá esto si tu usuario necesita estar atado a una sucursal!
+                'branch_id' => 1, // Atado a la Sucursal Central
             ]
         );
+
+        // ¡ACÁ ESTÁ LA MAGIA DE SPATIE!
+        // Le damos el poder absoluto. (Asegurate de que el nombre coincida exacto con cómo lo creaste en tu RoleSeeder)
+        $user->assignRole('SuperAdmin'); 
     }
 }

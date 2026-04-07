@@ -10,10 +10,11 @@ class CajaSeeder extends Seeder
 {
     public function run(): void
     {
-        // Buscamos la primera sucursal que exista en tu BD
+        // Como arreglamos el orden en DatabaseSeeder, esto ahora sí encuentra a la "Casa Central"
         $sucursal = Sucursal::first(); 
 
         if ($sucursal) {
+            // Volvemos a usar 'sucursal_id' que es el nombre real de la columna en tu BD
             Caja::updateOrCreate(
                 ['nombre' => 'Caja Principal', 'sucursal_id' => $sucursal->id],
                 ['estado' => true]
