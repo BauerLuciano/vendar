@@ -6,38 +6,51 @@ use App\Models\Caja;
 use App\Models\Sucursal;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Validation\Rule; // <-- Importante: Agregamos esto para la validación del depósito
 
 class CajaController extends Controller
 {
     public function index()
-{
-    $user = auth()->user();
-    
-    // 1. Verificamos si es un "Jefe" (SuperAdmin o Admin Global)
-    $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
-    
-    $query = Caja::with('sucursal');
-    
-    if (!$esJefe && $user->branch_id) {
-        $query->where('sucursal_id', $user->branch_id);
+    {
+        $user = auth()->user();
+        
+        // 1. Verificamos si es un "Jefe" (SuperAdmin o Admin Global)
+        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
+        
+        $query = Caja::with('sucursal');
+        
+        // Si NO es jefe y tiene sucursal, solo ve las cajas de su sucursal
+        if (!$esJefe && $user->branch_id) {
+            $query->where('sucursal_id', $user->branch_id);
+        }
+        $cajas = $query->orderBy('id', 'desc')->get();
+
+        // 3. Lógica para el Selector (el modal de creación)
+        // Solo traemos las sucursales que sean Puntos de Venta (ignoramos depósitos)
+        $sucursales = $esJefe 
+            ? Sucursal::where('tipo', 'punto_de_venta')->get() 
+            : Sucursal::where('id', $user->branch_id)->where('tipo', 'punto_de_venta')->get();
+
+        return Inertia::render('Cajas/Index', [
+            'cajas' => $cajas,
+            'sucursales' => $sucursales
+        ]);
     }
-    $cajas = $query->orderBy('id', 'desc')->get();
-
-    $sucursales = $esJefe 
-        ? Sucursal::all() 
-        : Sucursal::where('id', $user->branch_id)->get();
-
-    return Inertia::render('Cajas/Index', [
-        'cajas' => $cajas,
-        'sucursales' => $sucursales
-    ]);
-}
 
     public function store(Request $request)
     {
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
-            'sucursal_id' => 'required|exists:sucursales,id',
+            'sucursal_id' => [
+                'required',
+                // Validamos que exista y que además sea un punto de venta
+                Rule::exists('sucursales', 'id')->where(function ($query) {
+                    return $query->where('tipo', 'punto_de_venta');
+                }),
+            ],
+        ], [
+            // Mensaje de error personalizado si intentan inyectar un ID de depósito
+            'sucursal_id.exists' => 'La sucursal seleccionada no es válida o es un depósito.' 
         ]);
 
         Caja::create($validated);
