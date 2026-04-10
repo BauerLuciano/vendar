@@ -13,9 +13,10 @@ class UsuarioController extends Controller
 {
     public function index()
     {
-        // Traemos a los usuarios con su sucursal y sus roles asignados
-        $usuarios = User::with(['branch', 'roles'])->get();
-        $roles = Role::all();
+        $usuarios = User::withoutRole('cliente')->with(['branch', 'roles'])->get();
+        
+        $roles = Role::where('name', '!=', 'cliente')->get();
+        
         $sucursales = Sucursal::all();
 
         return Inertia::render('Usuarios/Index', [

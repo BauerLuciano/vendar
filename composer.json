@@ -9,6 +9,7 @@
         "inertiajs/inertia-laravel": "^2.0",
         "laravel/framework": "^11.0",
         "laravel/sanctum": "^4.0",
+        "laravel/socialite": "^5.26",
         "laravel/tinker": "^2.9",
         "nyholm/psr7": "^1.8",
         "railsware/mailtrap-php": "^3.11",

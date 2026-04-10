@@ -21,9 +21,11 @@ use App\Http\Controllers\{
     ReposicionController,
 };
 use App\Models\CuentaCorriente;
+use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
 
 // --- RUTA PÚBLICA ---
 Route::get('/', function () {
@@ -40,6 +42,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
+
+// ==========================================
+// RUTAS PARA LOGIN CON GOOGLE
+// ==========================================
+Route::get('/auth/google', [GoogleLoginController::class, 'redirect'])->name('auth.google');
+Route::get('/auth/google/callback', [GoogleLoginController::class, 'callback']);
 
 // ------------------------------------------------------------------
 // RUTAS DEL PUNTO DE VENTA Y CAJAS FÍSICAS (CRUD)
