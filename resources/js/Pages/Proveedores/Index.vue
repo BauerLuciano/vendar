@@ -109,7 +109,7 @@ const toggleEstado = (p) => {
         <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
                 <div>
-                    <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Directorio de Proveedores</h1>
+                    <h1 class="text-2xl font-black text-slate-800 tracking-tight">Directorio de Proveedores</h1>
                     <div class="h-1 w-12 bg-sky-500 mt-1"></div>
                 </div>
                 <button 
@@ -153,7 +153,7 @@ const toggleEstado = (p) => {
                 <div class="overflow-visible">
                     <table class="w-full text-left border-collapse">
                         <thead>
-                            <tr class="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-400">
+                            <tr class="bg-slate-50 border-b border-slate-100 text-xs tracking-widest text-slate-400">
                                 <th class="p-4 font-black rounded-tl-3xl">ID</th>
                                 <th class="p-4 font-black">Razón Social</th>
                                 <th class="p-4 font-black">CUIT</th>
@@ -167,7 +167,7 @@ const toggleEstado = (p) => {
                             </tr>
                             <tr v-for="p in proveedores.data" :key="p.id" class="hover:bg-slate-50/50 transition-colors group" :class="{'opacity-50 grayscale bg-slate-50': !p.estado}">
                                 <td class="p-4 font-bold text-slate-400">#{{ p.id }}</td>
-                                <td class="p-4 font-bold text-slate-800 uppercase">{{ p.razon_social }}</td>
+                                <td class="p-4 font-bold text-slate-800">{{ p.razon_social }}</td>
                                 <td class="p-4 font-mono font-bold text-sky-800">{{ p.cuit }}</td>
                                 <td class="p-4 text-center">
                                     <span :class="p.estado ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'" class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
@@ -208,7 +208,7 @@ const toggleEstado = (p) => {
                 </div>
 
                 <div v-if="proveedores.links && proveedores.data.length > 0" class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <span class="text-sm text-slate-500 font-medium">
+                    <span class="text-sm text-gray-500 font-medium">
                         Mostrando {{ proveedores.from }} a {{ proveedores.to }} de {{ proveedores.total }} proveedores
                     </span>
                     <div class="flex flex-wrap justify-center gap-1">
