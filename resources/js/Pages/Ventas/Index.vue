@@ -230,7 +230,7 @@ const confirmarAnulacion = (v) => {
                             :key="index"
                             :href="link.url"
                             @click.prevent="link.url ? router.get(link.url, formFiltros, { preserveState: true }) : null"
-                            v-html="link.label"
+                            v-html="link.label.replace('Previous', 'Anterior').replace('Next', 'Siguiente')"
                             class="px-3 py-1.5 text-sm rounded-lg transition-colors border"
                             :class="[
                                 link.active ? 'bg-sky-600 text-white font-bold border-sky-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100',

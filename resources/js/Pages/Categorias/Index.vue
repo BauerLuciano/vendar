@@ -140,7 +140,7 @@ const toggleEstado = (c) => {
                         <button v-if="formFiltros.search || formFiltros.estado !== 'all'" @click="limpiarFiltros" class="text-sm text-gray-500 hover:text-rose-500 font-bold px-4 transition-colors">
                             Limpiar Filtros
                         </button>
-                        <button @click="abrirNuevo" class="bg-sky-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg hover:bg-sky-700 hover:-translate-y-0.5 transition-all active:scale-95 whitespace-nowrap">
+                        <button @click="abrirNuevo" class="bg-sky-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-md hover:bg-sky-700 hover:-translate-y-0.5 transition-all active:scale-95 whitespace-nowrap">
                             + Nueva Categoría
                         </button>
                     </div>
@@ -184,7 +184,7 @@ const toggleEstado = (c) => {
 
                                         <div v-if="menuAbierto === c.id" class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150">
                                             <button @click="abrirDetalle(c)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                                 Ver Detalles
                                             </button>
 
@@ -220,7 +220,7 @@ const toggleEstado = (c) => {
                                 :key="index"
                                 :href="link.url"
                                 @click.prevent="link.url ? router.get(link.url, formFiltros, { preserveState: true }) : null"
-                                v-html="link.label"
+                                v-html="link.label.replace('Previous', 'Anterior').replace('Next', 'Siguiente')"
                                 class="px-3 py-1.5 text-sm rounded-lg transition-colors border"
                                 :class="[
                                     link.active ? 'bg-sky-600 text-white font-bold border-sky-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100',
