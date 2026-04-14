@@ -116,7 +116,6 @@ class ProductoController extends Controller
             }
             $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
         } else {
-            // No pisar la imagen si no se envía una nueva
             unset($validados['imagen']);
         }
 
@@ -189,5 +188,18 @@ class ProductoController extends Controller
             ->get();
 
         return response()->json($movimientos);
+    }
+
+    public function generarPlu()
+    {
+        $maxPlu = DB::table('productos')
+            ->whereRaw("codigo_barras ~ '^[0-9]{1,5}$'") 
+            ->max(DB::raw('codigo_barras::integer'));
+
+        $proximo = $maxPlu ? $maxPlu + 1 : 1000;
+
+        $pluFormateado = str_pad($proximo, 4, '0', STR_PAD_LEFT);
+
+        return response()->json(['plu_sugerido' => $pluFormateado]);
     }
 }

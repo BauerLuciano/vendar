@@ -2,6 +2,7 @@
 import { useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch } from 'vue';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 
 const props = defineProps({
     mostrar: Boolean,
@@ -73,6 +74,23 @@ const alSeleccionarImagen = (e) => {
     }
 };
 
+const autogenerarPlu = async () => {
+    try {
+        const respuesta = await axios.get(route('productos.generar-plu'));
+        formulario.codigo_barras = respuesta.data.plu_sugerido;
+    } catch (error) {
+        console.error("Error al generar PLU", error);
+        Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'error',
+            title: 'Error al generar el código',
+            showConfirmButton: false,
+            timer: 3000
+        });
+    }
+};
+
 const guardar = () => {
     if (formulario.unidad_medida === 'Kg' && formulario.unidad_peso_visual === 'Gramos') {
         formulario.stock_minimo = formulario.stock_minimo_visual / 1000;
@@ -85,8 +103,6 @@ const guardar = () => {
     const esEdicion = !!formulario.id;
     const ruta = esEdicion ? route('productos.update', formulario.id) : route('productos.store');
     
-    // IMPORTANTE: Mandamos como POST directo sin spoofing porque la ruta en web.php es POST
-    // Esto es lo más seguro para subir imágenes en Laravel + Inertia
     formulario.post(ruta, {
         forceFormData: true,
         onSuccess: () => {
@@ -137,7 +153,18 @@ const guardar = () => {
 
                     <div class="col-span-1 md:col-span-6">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Cód. Barras o PLU *</label>
-                        <input v-model="formulario.codigo_barras" type="text" minlength="2" maxlength="13" @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-2.5 font-mono focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.codigo_barras}" placeholder="Ej: 7791237290126 o PLU (15)" required>
+                        <div class="flex gap-2">
+                            <input v-model="formulario.codigo_barras" type="text" minlength="2" maxlength="14" 
+                                @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')" 
+                                class="flex-1 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-2.5 font-mono focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" 
+                                :class="{'border-rose-500': formulario.errors.codigo_barras}" 
+                                placeholder="Ej: 7791237290126 o PLU" required>
+                                
+                            <button type="button" @click="autogenerarPlu" title="Generar código interno (PLU)"
+                                class="bg-sky-100 text-sky-700 hover:bg-sky-200 hover:text-sky-800 border border-sky-200 rounded-xl px-3 flex items-center justify-center transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                            </button>
+                        </div>
                         <p v-if="formulario.errors.codigo_barras" class="text-rose-500 text-xs mt-1 font-medium">{{ formulario.errors.codigo_barras }}</p>
                     </div>
 

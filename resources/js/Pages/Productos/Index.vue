@@ -1,180 +1,3 @@
-<script setup>
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import ModalProducto from './Componentes/ModalProducto.vue'; 
-import DetalleProducto from './Componentes/DetalleProducto.vue'; 
-import { Head, router, useForm, usePage } from '@inertiajs/vue3';
-import { ref, watch, computed } from 'vue';
-import Swal from 'sweetalert2';
-import axios from 'axios';
-
-const props = defineProps({ 
-    productos: Array, 
-    categorias: Array, 
-    marcas: Array,
-    proveedores: Array,
-    sucursales: Array
-});
-
-const page = usePage();
-const verModal = ref(false);
-const verDetalle = ref(false);
-const verStock = ref(false); 
-const seleccionado = ref(null);
-
-const verAjuste = ref(false);
-const verAuditoria = ref(false);
-const movimientos = ref([]);
-
-const menuAbierto = ref(null);
-
-// --- Filtros ---
-const busqueda = ref('');
-const filtroCategoria = ref('');
-const filtroMarca = ref('');
-const filtroEstado = ref('');
-
-const productosFiltrados = computed(() => {
-    return props.productos.filter(p => {
-        const matchBusqueda = busqueda.value === '' ||
-            p.nombre.toLowerCase().includes(busqueda.value.toLowerCase()) ||
-            p.codigo_barras?.toLowerCase().includes(busqueda.value.toLowerCase());
-        const matchCategoria = filtroCategoria.value === '' || p.categoria?.id == filtroCategoria.value;
-        const matchMarca = filtroMarca.value === '' || p.marca?.id == filtroMarca.value;
-        const matchEstado = filtroEstado.value === '' || 
-            (filtroEstado.value === 'activo' && p.estado) || 
-            (filtroEstado.value === 'inactivo' && !p.estado);
-        return matchBusqueda && matchCategoria && matchMarca && matchEstado;
-    });
-});
-
-const hayFiltrosActivos = computed(() => 
-    busqueda.value !== '' || filtroCategoria.value !== '' || filtroMarca.value !== '' || filtroEstado.value !== ''
-);
-
-const limpiarFiltros = () => {
-    busqueda.value = '';
-    filtroCategoria.value = '';
-    filtroMarca.value = '';
-    filtroEstado.value = '';
-};
-
-// --- 🚀 LÓGICA DE PAGINACIÓN ---
-const paginaActual = ref(1);
-const itemsPorPagina = ref(7); // 7 por defecto, como pediste
-
-// Si cambia algún filtro o la cantidad por página, volvemos a la página 1
-watch([busqueda, filtroCategoria, filtroMarca, filtroEstado, itemsPorPagina], () => {
-    paginaActual.value = 1;
-});
-
-const totalPaginas = computed(() => {
-    return Math.ceil(productosFiltrados.value.length / itemsPorPagina.value) || 1;
-});
-
-const productosPaginados = computed(() => {
-    const inicio = (paginaActual.value - 1) * itemsPorPagina.value;
-    const fin = inicio + itemsPorPagina.value;
-    return productosFiltrados.value.slice(inicio, fin);
-});
-
-const paginaAnterior = () => {
-    if (paginaActual.value > 1) paginaActual.value--;
-};
-
-const paginaSiguiente = () => {
-    if (paginaActual.value < totalPaginas.value) paginaActual.value++;
-};
-// --------------------------------
-
-const toggleMenu = (id) => {
-    menuAbierto.value = menuAbierto.value === id ? null : id;
-};
-
-const cerrarMenu = () => {
-    menuAbierto.value = null;
-};
-
-const calcularTotalStock = (producto) => {
-    if (!producto.sucursales) return 0;
-    return producto.sucursales.reduce((acc, suc) => acc + Number(suc.pivot?.cantidad_fisica || 0), 0);
-};
-
-const formAjuste = useForm({
-    sucursal_id: '',
-    tipo_ajuste: 'Restar',
-    cantidad: '',
-    motivo: 'Rotura o Daño',
-});
-
-watch(() => page.props.flash, (nuevo) => {
-    if (nuevo.exito) Swal.fire({ title: '¡Éxito!', text: nuevo.exito, icon: 'success', timer: 3000, showConfirmButton: false });
-    if (nuevo.error) Swal.fire({ title: 'Error', text: nuevo.error, icon: 'error' });
-}, { deep: true });
-
-const abrirAjuste = (p) => {
-    seleccionado.value = p;
-    formAjuste.reset();
-    if (props.sucursales && props.sucursales.length === 1) formAjuste.sucursal_id = props.sucursales[0].id;
-    cerrarMenu();
-    verAjuste.value = true;
-};
-
-const guardarAjuste = () => {
-    formAjuste.post(route('productos.ajustar', seleccionado.value.id), {
-        preserveScroll: true,
-        onSuccess: () => { verAjuste.value = false; }
-    });
-};
-
-const abrirAuditoria = async (p) => {
-    seleccionado.value = p;
-    cerrarMenu();
-    verAuditoria.value = true;
-    movimientos.value = [];
-    try {
-        const respuesta = await axios.get(route('productos.auditoria', p.id));
-        movimientos.value = respuesta.data;
-    } catch (error) {
-        Swal.fire('Error', 'No se pudo cargar el historial', 'error');
-    }
-};
-
-const formatearCantidad = (cantidad) => {
-    if (!cantidad) return '0';
-    return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 }).format(parseFloat(cantidad));
-};
-
-const abrirNuevo = () => { seleccionado.value = null; verModal.value = true; };
-const abrirEditar = (p) => { seleccionado.value = p; cerrarMenu(); verModal.value = true; };
-const abrirDetalle = (p) => { seleccionado.value = p; cerrarMenu(); verDetalle.value = true; };
-const abrirStock = (p) => { seleccionado.value = p; cerrarMenu(); verStock.value = true; };
-const cerrarModalGlobal = () => { verModal.value = false; seleccionado.value = null; };
-
-const toggleEstado = (p) => {
-    cerrarMenu();
-    const accion = p.estado ? 'desactivar' : 'activar';
-    const resultado = p.estado ? 'desactivado' : 'activado';
-    const colorConfirm = p.estado ? '#ef4444' : '#10b981';
-
-    Swal.fire({
-        title: `¿${accion.toUpperCase()} producto?`,
-        text: `El producto "${p.nombre}" cambiará su estado a ${resultado}.`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: colorConfirm,
-        cancelButtonColor: '#6b7280',
-        confirmButtonText: `Sí, ${accion}`,
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            router.patch(route('productos.status', p.id), {}, {
-                onSuccess: () => Swal.fire({ title: '¡Listo!', text: `Producto ${resultado}.`, icon: 'success', confirmButtonColor: '#0284c7' })
-            });
-        }
-    });
-};
-</script>
-
 <template>
     <Head title="Gestión de Productos" />
 
@@ -381,16 +204,17 @@ const toggleEstado = (p) => {
                                     </td>
 
                                     <td class="px-5 py-4 text-center relative opacity-100">
+                                        <!-- Botón de acciones: solo ícono tres puntos (igual a órdenes de compra) -->
                                         <button @click.stop="toggleMenu(p.id)"
-                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                                             </svg>
-                                            Opciones
                                         </button>
 
+                                        <!-- Menú desplegable con posición ajustada -->
                                         <div v-if="menuAbierto === p.id"
-                                            class="absolute right-[80%] top-0 mr-2 w-52 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] py-1.5 overflow-hidden">
+                                            class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] py-1.5 overflow-hidden">
 
                                             <div class="px-4 py-2 border-b border-slate-50 mb-1">
                                                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest truncate">{{ p.nombre }}</p>
@@ -442,31 +266,34 @@ const toggleEstado = (p) => {
                         </table>
                     </div>
 
+                    <!-- Paginación modificada para que coincida con el estilo de Órdenes de Compra -->
                     <div v-if="productosFiltrados.length > 0" class="px-5 py-4 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-4">
-                        
-                        <div class="flex items-center gap-3">
-                            <p class="text-xs text-slate-500 font-medium">
-                                Viendo del <span class="font-bold text-slate-700">{{ (paginaActual - 1) * itemsPorPagina + 1 }}</span> al 
-                                <span class="font-bold text-slate-700">{{ Math.min(paginaActual * itemsPorPagina, productosFiltrados.length) }}</span> de 
-                                <span class="font-bold text-slate-700">{{ productosFiltrados.length }}</span>
-                            </p>
-                        </div>
-
-                        <div class="flex items-center gap-2">
+                        <span class="text-sm text-slate-500 font-medium">
+                            Mostrando 
+                            {{ (paginaActual - 1) * itemsPorPagina + 1 }} 
+                            a 
+                            {{ Math.min(paginaActual * itemsPorPagina, productosFiltrados.length) }} 
+                            de 
+                            {{ productosFiltrados.length }} productos
+                        </span>
+                        <div class="flex flex-wrap justify-center gap-1">
                             <button @click="paginaAnterior" :disabled="paginaActual === 1"
-                                class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm">
+                                class="px-3 py-1.5 text-sm rounded-lg transition-colors border"
+                                :class="paginaActual === 1 
+                                    ? 'opacity-50 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200' 
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'">
                                 Anterior
                             </button>
-                            <span class="text-xs font-bold text-slate-500 px-2">
-                                Pág. {{ paginaActual }} de {{ totalPaginas }}
-                            </span>
                             <button @click="paginaSiguiente" :disabled="paginaActual === totalPaginas"
-                                class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm">
+                                class="px-3 py-1.5 text-sm rounded-lg transition-colors border"
+                                :class="paginaActual === totalPaginas 
+                                    ? 'opacity-50 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200' 
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'">
                                 Siguiente
                             </button>
                         </div>
-
                     </div>
+
                 </div>
 
             </div>
@@ -629,3 +456,180 @@ const toggleEstado = (p) => {
 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 20px; }
 .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
 </style>
+
+<script setup>
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import ModalProducto from './Componentes/ModalProducto.vue'; 
+import DetalleProducto from './Componentes/DetalleProducto.vue'; 
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
+import { ref, watch, computed } from 'vue';
+import Swal from 'sweetalert2';
+import axios from 'axios';
+
+const props = defineProps({ 
+    productos: Array, 
+    categorias: Array, 
+    marcas: Array,
+    proveedores: Array,
+    sucursales: Array
+});
+
+const page = usePage();
+const verModal = ref(false);
+const verDetalle = ref(false);
+const verStock = ref(false); 
+const seleccionado = ref(null);
+
+const verAjuste = ref(false);
+const verAuditoria = ref(false);
+const movimientos = ref([]);
+
+const menuAbierto = ref(null);
+
+// --- Filtros ---
+const busqueda = ref('');
+const filtroCategoria = ref('');
+const filtroMarca = ref('');
+const filtroEstado = ref('');
+
+const productosFiltrados = computed(() => {
+    return props.productos.filter(p => {
+        const matchBusqueda = busqueda.value === '' ||
+            p.nombre.toLowerCase().includes(busqueda.value.toLowerCase()) ||
+            p.codigo_barras?.toLowerCase().includes(busqueda.value.toLowerCase());
+        const matchCategoria = filtroCategoria.value === '' || p.categoria?.id == filtroCategoria.value;
+        const matchMarca = filtroMarca.value === '' || p.marca?.id == filtroMarca.value;
+        const matchEstado = filtroEstado.value === '' || 
+            (filtroEstado.value === 'activo' && p.estado) || 
+            (filtroEstado.value === 'inactivo' && !p.estado);
+        return matchBusqueda && matchCategoria && matchMarca && matchEstado;
+    });
+});
+
+const hayFiltrosActivos = computed(() => 
+    busqueda.value !== '' || filtroCategoria.value !== '' || filtroMarca.value !== '' || filtroEstado.value !== ''
+);
+
+const limpiarFiltros = () => {
+    busqueda.value = '';
+    filtroCategoria.value = '';
+    filtroMarca.value = '';
+    filtroEstado.value = '';
+};
+
+// --- 🚀 LÓGICA DE PAGINACIÓN ---
+const paginaActual = ref(1);
+const itemsPorPagina = ref(7); // 7 por defecto, como pediste
+
+// Si cambia algún filtro o la cantidad por página, volvemos a la página 1
+watch([busqueda, filtroCategoria, filtroMarca, filtroEstado, itemsPorPagina], () => {
+    paginaActual.value = 1;
+});
+
+const totalPaginas = computed(() => {
+    return Math.ceil(productosFiltrados.value.length / itemsPorPagina.value) || 1;
+});
+
+const productosPaginados = computed(() => {
+    const inicio = (paginaActual.value - 1) * itemsPorPagina.value;
+    const fin = inicio + itemsPorPagina.value;
+    return productosFiltrados.value.slice(inicio, fin);
+});
+
+const paginaAnterior = () => {
+    if (paginaActual.value > 1) paginaActual.value--;
+};
+
+const paginaSiguiente = () => {
+    if (paginaActual.value < totalPaginas.value) paginaActual.value++;
+};
+// --------------------------------
+
+const toggleMenu = (id) => {
+    menuAbierto.value = menuAbierto.value === id ? null : id;
+};
+
+const cerrarMenu = () => {
+    menuAbierto.value = null;
+};
+
+const calcularTotalStock = (producto) => {
+    if (!producto.sucursales) return 0;
+    return producto.sucursales.reduce((acc, suc) => acc + Number(suc.pivot?.cantidad_fisica || 0), 0);
+};
+
+const formAjuste = useForm({
+    sucursal_id: '',
+    tipo_ajuste: 'Restar',
+    cantidad: '',
+    motivo: 'Rotura o Daño',
+});
+
+watch(() => page.props.flash, (nuevo) => {
+    if (nuevo.exito) Swal.fire({ title: '¡Éxito!', text: nuevo.exito, icon: 'success', timer: 3000, showConfirmButton: false });
+    if (nuevo.error) Swal.fire({ title: 'Error', text: nuevo.error, icon: 'error' });
+}, { deep: true });
+
+const abrirAjuste = (p) => {
+    seleccionado.value = p;
+    formAjuste.reset();
+    if (props.sucursales && props.sucursales.length === 1) formAjuste.sucursal_id = props.sucursales[0].id;
+    cerrarMenu();
+    verAjuste.value = true;
+};
+
+const guardarAjuste = () => {
+    formAjuste.post(route('productos.ajustar', seleccionado.value.id), {
+        preserveScroll: true,
+        onSuccess: () => { verAjuste.value = false; }
+    });
+};
+
+const abrirAuditoria = async (p) => {
+    seleccionado.value = p;
+    cerrarMenu();
+    verAuditoria.value = true;
+    movimientos.value = [];
+    try {
+        const respuesta = await axios.get(route('productos.auditoria', p.id));
+        movimientos.value = respuesta.data;
+    } catch (error) {
+        Swal.fire('Error', 'No se pudo cargar el historial', 'error');
+    }
+};
+
+const formatearCantidad = (cantidad) => {
+    if (!cantidad) return '0';
+    return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 }).format(parseFloat(cantidad));
+};
+
+const abrirNuevo = () => { seleccionado.value = null; verModal.value = true; };
+const abrirEditar = (p) => { seleccionado.value = p; cerrarMenu(); verModal.value = true; };
+const abrirDetalle = (p) => { seleccionado.value = p; cerrarMenu(); verDetalle.value = true; };
+const abrirStock = (p) => { seleccionado.value = p; cerrarMenu(); verStock.value = true; };
+const cerrarModalGlobal = () => { verModal.value = false; seleccionado.value = null; };
+
+const toggleEstado = (p) => {
+    cerrarMenu();
+    const accion = p.estado ? 'desactivar' : 'activar';
+    const resultado = p.estado ? 'desactivado' : 'activado';
+    const colorConfirm = p.estado ? '#ef4444' : '#10b981';
+
+    Swal.fire({
+        title: `¿${accion.toUpperCase()} producto?`,
+        text: `El producto "${p.nombre}" cambiará su estado a ${resultado}.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: colorConfirm,
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: `Sí, ${accion}`,
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.patch(route('productos.status', p.id), {}, {
+                onSuccess: () => Swal.fire({ title: '¡Listo!', text: `Producto ${resultado}.`, icon: 'success', confirmButtonColor: '#0284c7' })
+            });
+        }
+    });
+};
+</script>

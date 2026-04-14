@@ -102,6 +102,9 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::put('/clientes/{consumidor}', [ConsumidorController::class, 'update'])->name('consumidores.update');
     Route::post('/consumidores/{consumidor}/cobrar', [ConsumidorController::class, 'cobrarDeuda'])->name('consumidores.cobrar');
 
+    // PLU CODIGO DE BARRAS
+    Route::get('/productos/generar-plu', [\App\Http\Controllers\ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
+
     // Productos (Rutas unificadas para evitar conflictos)
     Route::get('/productos', [ProductoController::class, 'index'])->name('productos.index');
     Route::post('/productos', [ProductoController::class, 'store'])->name('productos.store');
