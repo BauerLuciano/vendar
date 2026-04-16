@@ -11,18 +11,42 @@ use Inertia\Inertia;
 
 class UsuarioController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $usuarios = User::withoutRole('cliente')->with(['branch', 'roles'])->get();
+        $search = $request->input('search');
+        $sucursal_id = $request->input('sucursal_id', 'all');
+        $rol = $request->input('rol', 'all');
+
+        $query = User::withoutRole('cliente')->with(['branch', 'roles']);
+
+        $query->when($search, function ($q, $search) {
+            $q->where(function ($sub) use ($search) {
+                $sub->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('email', 'LIKE', "%{$search}%")
+                    ->orWhere('id', 'LIKE', "%{$search}%");
+            });
+        });
+
+        $query->when($sucursal_id !== 'all', function ($q) use ($sucursal_id) {
+            $q->where('branch_id', $sucursal_id);
+        });
+
+        $query->when($rol !== 'all', function ($q) use ($rol) {
+            $q->whereHas('roles', function ($sub) use ($rol) {
+                $sub->where('name', $rol);
+            });
+        });
+
+        $usuarios = $query->orderBy('id', 'desc')->paginate(10)->withQueryString();
         
         $roles = Role::where('name', '!=', 'cliente')->get();
-        
         $sucursales = Sucursal::all();
 
         return Inertia::render('Usuarios/Index', [
             'usuarios' => $usuarios,
             'roles' => $roles,
-            'sucursales' => $sucursales
+            'sucursales' => $sucursales,
+            'filtros' => $request->only(['search', 'sucursal_id', 'rol'])
         ]);
     }
 

@@ -170,10 +170,6 @@ const submit = () => {
                     </div>
                 </form>
             </div>
-
-            <div class="w-full text-center mt-12">
-                <p class="text-[11px] font-medium text-slate-500 tracking-wider">Copyright © VendAR</p>
-            </div>
         </div>
     </div>
 </template>

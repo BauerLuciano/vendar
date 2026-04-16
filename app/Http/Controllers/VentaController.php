@@ -13,6 +13,7 @@ use App\Models\MovimientoCaja;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use Carbon\Carbon;
 
 class VentaController extends Controller
 {
@@ -61,8 +62,22 @@ class VentaController extends Controller
             'metodo_pago'   => 'required|string',
         ]);
 
-        if ($request->metodo_pago === 'Cuenta Corriente' && !$request->consumidor_id) {
-            return redirect()->back()->withErrors(['error' => 'Debe seleccionar un cliente para fiar.']);
+        // 🛑 VALIDACIÓN DE CUENTA CORRIENTE (FIADO)
+        if ($request->metodo_pago === 'Cuenta Corriente') {
+            if (!$request->consumidor_id) {
+                return redirect()->back()->withErrors(['error' => 'Debe seleccionar un cliente para realizar una venta en cuenta corriente.']);
+            }
+
+            $consumidor = Consumidor::with('cuentaCorriente')->findOrFail($request->consumidor_id);
+            $deudaActual = $consumidor->cuentaCorriente ? $consumidor->cuentaCorriente->saldo_deudor : 0;
+            $disponible = $consumidor->limite_cuenta_corriente - $deudaActual;
+
+            if ($request->total > $disponible) {
+                $montoFormateado = number_format($disponible, 2, ',', '.');
+                return redirect()->back()->withErrors([
+                    'error' => "Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado."
+                ]);
+            }
         }
 
         try {
@@ -71,6 +86,7 @@ class VentaController extends Controller
             $turno = TurnoCaja::with('caja')->findOrFail($request->turno_caja_id);
             $sucursalId = $turno->caja->sucursal_id;
 
+            // 🛑 VALIDACIÓN DE STOCK ANTES DE CREAR LA VENTA
             foreach ($request->items as $item) {
                 $stockActual = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
@@ -85,6 +101,7 @@ class VentaController extends Controller
                 }
             }
 
+            // 1. Crear la Venta
             $venta = Venta::create([
                 'turno_caja_id' => $request->turno_caja_id,
                 'consumidor_id' => $request->consumidor_id,
@@ -93,6 +110,7 @@ class VentaController extends Controller
                 'estado'        => 'Completada',
             ]);
 
+            // 2. Lógica Financiera (CC o Movimiento de Caja)
             if ($request->metodo_pago === 'Cuenta Corriente') {
                 $cuenta = CuentaCorriente::firstOrCreate(
                     ['consumidor_id' => $request->consumidor_id],
@@ -122,6 +140,7 @@ class VentaController extends Controller
                 ]);
             }
 
+            // 3. Procesar Detalle, Descuento de Stock y Auditoría
             foreach ($request->items as $item) {
                 DetalleVenta::create([
                     'venta_id'        => $venta->id,
@@ -131,11 +150,13 @@ class VentaController extends Controller
                     'subtotal'        => $item['cantidad'] * $item['precio_venta'],
                 ]);
 
+                // Descuento físico de stock
                 DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId) 
                     ->decrement('cantidad_fisica', $item['cantidad']);
                 
+                // Registro en historial de movimientos (Auditoría)
                 DB::table('movimientos_stock')->insert([
                     'producto_id' => $item['id'],
                     'sucursal_id' => $sucursalId,
@@ -169,6 +190,7 @@ class VentaController extends Controller
             $venta->load('turno.caja', 'detalles');
             $sucursalId = $venta->turno->caja->sucursal_id;
 
+            // 1. Devolver Stock
             foreach ($venta->detalles as $detalle) {
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
@@ -176,6 +198,7 @@ class VentaController extends Controller
                     ->increment('cantidad_fisica', $detalle->cantidad);
             }
 
+            // 2. Ajustar dinero (Revertir deuda o egreso de caja)
             if ($venta->metodo_pago === 'Cuenta Corriente' && $venta->consumidor_id) {
                 $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)->first();
                 if ($cuenta) {

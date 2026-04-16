@@ -8,10 +8,28 @@ use Inertia\Inertia;
 
 class SucursalController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $search = $request->input('search');
+        $estado = $request->input('estado', 'all');
+
+        $sucursales = Sucursal::when($search, function ($q, $search) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->where('nombre', 'LIKE', "%{$search}%")
+                        ->orWhere('direccion', 'LIKE', "%{$search}%")
+                        ->orWhere('id', 'LIKE', "%{$search}%");
+                });
+            })
+            ->when($estado !== 'all', function ($q) use ($estado) {
+                $q->where('estado', $estado === 'activas' ? true : false);
+            })
+            ->orderBy('id', 'asc')
+            ->paginate(10)
+            ->withQueryString();
+
         return Inertia::render('Sucursales/Index', [
-            'sucursales' => Sucursal::orderBy('id', 'asc')->get()
+            'sucursales' => $sucursales,
+            'filtros' => $request->only(['search', 'estado'])
         ]);
     }
 

@@ -40,6 +40,26 @@ const clienteActivoObj = computed(() => {
     return props.clientes.find(c => c.id === clienteSeleccionado.value);
 });
 
+// NUEVO: Computed para saber cuánto saldo disponible tiene el cliente para fiar
+const disponibleCliente = computed(() => {
+    if (!clienteActivoObj.value) return 0;
+    const limite = parseFloat(clienteActivoObj.value.limite_cuenta_corriente) || 0;
+    const deuda = clienteActivoObj.value.cuenta_corriente ? parseFloat(clienteActivoObj.value.cuenta_corriente.saldo_deudor) : 0;
+    return limite - deuda;
+});
+
+const totalVenta = computed(() => {
+    return carrito.value.reduce((acc, item) => acc + (item.precio_venta * item.cantidad), 0);
+});
+
+// NUEVO: Computed para saber si hay que bloquear el botón de cobro por falta de saldo
+const bloqueoPorSaldo = computed(() => {
+    if (metodoPago.value === 'Cuenta Corriente' && clienteActivoObj.value) {
+        return totalVenta.value > disponibleCliente.value;
+    }
+    return false;
+});
+
 const productosFiltrados = computed(() => {
     if (buscar.value.length < 2) return [];
     return props.productos.filter(p => 
@@ -48,7 +68,6 @@ const productosFiltrados = computed(() => {
     );
 });
 
-// 🚀 LÓGICA DE CÓDIGO DE BARRAS Y PESO
 const procesarBusquedaEnter = () => {
     const query = buscar.value.trim();
     if (!query) return;
@@ -105,7 +124,6 @@ const clickEnProducto = async (producto) => {
                     return false;
                 }
                 
-                // 🛑 VALIDACIÓN STOCK EN MODAL
                 if (cantCalculada > producto.stock_actual) {
                     Swal.showValidationMessage(`Stock insuficiente (Disponible: ${producto.stock_actual}kg)`);
                     return false;
@@ -131,7 +149,6 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     const existe = carrito.value.find(item => item.id === producto.id);
     const nuevaCantidad = existe ? existe.cantidad + cantidadAgregada : cantidadAgregada;
 
-    // 🛑 VALIDACIÓN STOCK AL AGREGAR
     if (nuevaCantidad > producto.stock_actual) {
         Swal.fire('Stock Insuficiente', `Solo hay ${producto.stock_actual} disponibles.`, 'warning');
         return;
@@ -149,7 +166,6 @@ const incrementarCantidad = (index) => {
     const isKg = item.unidad_medida === 'Kg';
     const incremento = isKg ? 0.1 : 1;
     
-    // 🛑 VALIDACIÓN STOCK BOTÓN +
     if (item.cantidad + incremento > item.stock_actual) {
         Swal.fire({ title: 'Límite de Stock', text: `No podés agregar más de ${item.stock_actual}`, icon: 'info', timer: 1500, showConfirmButton: false });
         return;
@@ -172,7 +188,6 @@ const validarCantidad = (index) => {
         item.cantidad = item.unidad_medida === 'Kg' ? 0.1 : 1; 
     } 
 
-    // 🛑 VALIDACIÓN STOCK INPUT MANUAL
     if (item.cantidad > item.stock_actual) {
         item.cantidad = item.stock_actual;
         Swal.fire('Stock Ajustado', 'Se ajustó a la disponibilidad máxima.', 'warning');
@@ -181,13 +196,15 @@ const validarCantidad = (index) => {
 
 const eliminarDelCarrito = (index) => carrito.value.splice(index, 1);
 
-const totalVenta = computed(() => {
-    return carrito.value.reduce((acc, item) => acc + (item.precio_venta * item.cantidad), 0);
-});
-
 const finalizarVenta = () => {
     if (carrito.value.length === 0) return;
     
+    // Doble chequeo por si me hacen trampa con el HTML
+    if (metodoPago.value === 'Cuenta Corriente' && !clienteSeleccionado.value) {
+        Swal.fire('Falta Cliente', 'Tenés que seleccionar a quién le vas a fiar.', 'warning');
+        return;
+    }
+
     Swal.fire({
         title: 'Procesando cobro...',
         text: 'Registrando salida de stock...',
@@ -302,7 +319,8 @@ const finalizarVenta = () => {
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 flex flex-col h-[calc(100vh-140px)] sticky top-6 border border-slate-200 overflow-hidden">
                         
-                        <div class="p-5 border-b border-dashed border-slate-300 bg-slate-50 flex flex-col gap-4">
+                        <div class="p-5 border-b border-dashed border-slate-300 bg-slate-50 flex flex-col gap-4 z-20">
+                            
                             <div class="flex justify-between items-center relative" @click.stop>
                                 <h2 class="text-lg font-black text-slate-800 flex items-center gap-2 uppercase tracking-widest">
                                     TICKET #---
@@ -372,17 +390,29 @@ const finalizarVenta = () => {
                                     </div>
                                 </label>
                             </div>
+
+                            <div v-if="metodoPago === 'Cuenta Corriente' && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Crédito Disponible</p>
+                                    <p class="font-bold text-sm">${{ disponibleCliente.toFixed(2) }}</p>
+                                </div>
+                                <svg v-if="bloqueoPorSaldo" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <div v-else-if="metodoPago === 'Cuenta Corriente' && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                                <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
+                            </div>
+
                         </div>
 
-                        <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-                            
+                        <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 z-10">
                             <div v-if="carrito.length === 0" class="h-full flex flex-col items-center justify-center text-slate-300 opacity-70">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                                 <p class="font-bold text-lg">Ticket Vacío</p>
                             </div>
 
                             <div v-for="(item, index) in carrito" :key="item.id" class="flex flex-col p-3 bg-white border border-slate-200 rounded-2xl shadow-sm relative group hover:border-sky-200 transition-colors">
-                                
                                 <div class="flex justify-between items-start mb-2">
                                     <div class="pr-6">
                                         <span class="font-bold text-slate-800 text-sm block">{{ item.nombre }}</span>
@@ -412,18 +442,18 @@ const finalizarVenta = () => {
                             </div>
                         </div>
 
-                        <div class="p-5 bg-white border-t border-dashed border-slate-300">
+                        <div class="p-5 bg-white border-t border-dashed border-slate-300 z-20 relative">
                             <div class="flex justify-between items-end mb-4">
                                 <span class="text-slate-400 font-black uppercase tracking-widest text-xs">Total</span>
-                                <span class="text-4xl font-black text-slate-900 tracking-tighter leading-none">${{ totalVenta.toFixed(2) }}</span>
+                                <span class="text-4xl font-black text-slate-900 tracking-tighter leading-none" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
                             </div>
 
                             <button 
                                 @click="finalizarVenta"
-                                :disabled="carrito.length === 0"
-                                class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 text-white font-black py-4 rounded-2xl shadow-xl uppercase tracking-widest active:scale-95"
+                                :disabled="carrito.length === 0 || bloqueoPorSaldo || (metodoPago === 'Cuenta Corriente' && !clienteActivoObj)"
+                                class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-4 rounded-2xl shadow-xl uppercase tracking-widest active:scale-95 transition-all"
                             >
-                                Cobrar Ticket
+                                {{ bloqueoPorSaldo ? 'SALDO INSUFICIENTE' : 'Cobrar Ticket' }}
                             </button>
                         </div>
                     </div>

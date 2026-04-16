@@ -1,8 +1,9 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm, router } from '@inertiajs/vue3';
-import { ref, watch, reactive } from 'vue';
+import { ref, watch, reactive, computed } from 'vue';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 
 const props = defineProps({
     consumidores: Object,
@@ -14,7 +15,9 @@ const isEditing = ref(false);
 const currentId = ref(null);
 
 const isCobroModalOpen = ref(false);
+const isHistorialModalOpen = ref(false);
 const clienteSeleccionado = ref(null);
+const historialMovimientos = ref([]);
 
 const menuAbierto = ref(null);
 
@@ -53,10 +56,24 @@ const form = useForm({
     estado: true,
 });
 
+// 🔥 NUEVO FORMULARIO MULTI-PAGO
 const formCobro = useForm({
-    monto: '',
-    metodo_pago: 'EFECTIVO'
+    pagos: [
+        { monto: '', metodo_pago: 'EFECTIVO' }
+    ]
 });
+
+const totalPagando = computed(() => {
+    return formCobro.pagos.reduce((acc, p) => acc + (parseFloat(p.monto) || 0), 0);
+});
+
+const agregarFilaPago = () => {
+    formCobro.pagos.push({ monto: '', metodo_pago: 'TRANSFERENCIA' });
+};
+
+const quitarFilaPago = (index) => {
+    formCobro.pagos.splice(index, 1);
+};
 
 const toggleMenu = (id) => {
     menuAbierto.value = menuAbierto.value === id ? null : id;
@@ -117,7 +134,7 @@ const openCobroModal = (cliente) => {
     cerrarMenu();
     clienteSeleccionado.value = cliente;
     formCobro.reset();
-    formCobro.monto = cliente.cuenta_corriente?.saldo_deudor || 0;
+    formCobro.pagos = [{ monto: cliente.cuenta_corriente?.saldo_deudor || 0, metodo_pago: 'EFECTIVO' }];
     isCobroModalOpen.value = true;
 };
 
@@ -128,13 +145,18 @@ const closeCobroModal = () => {
 };
 
 const submitCobro = () => {
+    if (totalPagando.value > clienteSeleccionado.value?.cuenta_corriente?.saldo_deudor) {
+        Swal.fire('Atención', 'El total pagando es mayor a la deuda del cliente.', 'warning');
+        return;
+    }
+
     formCobro.post(route('consumidores.cobrar', clienteSeleccionado.value.id), {
         onSuccess: () => {
             closeCobroModal();
             Swal.fire({ 
                 icon: 'success', 
                 title: 'Cobro Registrado', 
-                text: 'El pago impactó en la cuenta del cliente y en tu caja abierta.',
+                text: 'El pago múltiple impactó en la cuenta y en tu caja abierta.',
                 timer: 4000
             });
         },
@@ -144,6 +166,21 @@ const submitCobro = () => {
             }
         }
     });
+};
+
+// 🔥 NUEVO: ABRIR HISTORIAL
+const openHistorial = async (cliente) => {
+    cerrarMenu();
+    clienteSeleccionado.value = cliente;
+    historialMovimientos.value = [];
+    isHistorialModalOpen.value = true;
+
+    try {
+        const res = await axios.get(route('consumidores.cuenta', cliente.id));
+        historialMovimientos.value = res.data;
+    } catch (e) {
+        Swal.fire('Error', 'No se pudo cargar el historial de cuenta.', 'error');
+    }
 };
 
 const toggleEstado = (c) => {
@@ -174,6 +211,10 @@ const toggleEstado = (c) => {
 
 const formatearDinero = (monto) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto || 0);
+};
+
+const formatearFecha = (fecha) => {
+    return new Date(fecha).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute:'2-digit' });
 };
 
 const calcularDisponible = (limite, deuda) => {
@@ -237,33 +278,35 @@ const calcularDisponible = (limite, deuda) => {
                 </div>
             </div>
 
-            <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-4">
-                <div class="overflow-visible">
+            <div class="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-visible p-4">
+                <div class="overflow-visible relative">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-400">
-                                <th class="p-4 font-black rounded-l-xl">ID</th>
+                                <th class="p-4 font-black rounded-tl-3xl">ID</th>
                                 <th class="p-4 font-black">Cliente</th>
                                 <th class="p-4 font-black">Contacto</th>
                                 <th class="p-4 font-black text-right">Límite Cta. Cte.</th>
                                 <th class="p-4 font-black text-right">Deuda Actual</th>
                                 <th class="p-4 font-black text-right">Disponible</th>
-                                <th class="p-4 font-black text-center rounded-r-xl">Acciones</th>
+                                <th class="p-4 font-black text-center rounded-tr-3xl">Acciones</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             <tr v-if="consumidores.data.length === 0">
                                 <td colspan="7" class="p-8 text-center text-slate-400 font-bold">No se encontraron clientes con esos filtros.</td>
                             </tr>
-                            <tr v-for="cliente in consumidores.data" :key="cliente.id" class="hover:bg-slate-50/50 transition-colors group" :class="{'opacity-50 grayscale bg-slate-50': !cliente.estado}">
-                                <td class="p-4 font-bold text-slate-400">#{{ cliente.id }}</td>
-                                <td class="p-4">
+                            
+                            <tr v-for="(cliente, index) in consumidores.data" :key="cliente.id" class="hover:bg-slate-50/50 transition-colors group" :class="{'bg-slate-50': !cliente.estado, 'relative z-50': menuAbierto === cliente.id}">
+                                
+                                <td class="p-4 font-bold text-slate-400" :class="{'opacity-50 grayscale': !cliente.estado}">#{{ cliente.id }}</td>
+                                <td class="p-4" :class="{'opacity-50 grayscale': !cliente.estado}">
                                     <div class="font-bold text-slate-800">{{ cliente.nombre }} {{ cliente.apellido }}</div>
                                     <div class="text-xs font-medium mt-1" :class="cliente.estado ? 'text-emerald-500' : 'text-rose-500'">
                                         {{ cliente.estado ? 'Activo' : 'Inactivo' }}
                                     </div>
                                 </td>
-                                <td class="p-4">
+                                <td class="p-4" :class="{'opacity-50 grayscale': !cliente.estado}">
                                     <div class="text-xs text-slate-500 font-medium space-y-1">
                                         <div v-if="cliente.documento" title="Documento"><span class="font-bold text-slate-400">DOC:</span> {{ cliente.documento }}</div>
                                         <div v-if="cliente.telefono" title="Teléfono"><span class="font-bold text-slate-400">TEL:</span> {{ cliente.telefono }}</div>
@@ -271,28 +314,35 @@ const calcularDisponible = (limite, deuda) => {
                                     </div>
                                 </td>
                                 
-                                <td class="p-4 font-bold text-slate-600 text-right">
+                                <td class="p-4 font-bold text-slate-600 text-right" :class="{'opacity-50 grayscale': !cliente.estado}">
                                     {{ formatearDinero(cliente.limite_cuenta_corriente) }}
                                 </td>
                                 
-                                <td class="p-4 font-black text-right" :class="cliente.cuenta_corriente?.saldo_deudor > 0 ? 'text-rose-600' : 'text-slate-400'">
+                                <td class="p-4 font-black text-right" :class="[{'opacity-50 grayscale': !cliente.estado}, cliente.cuenta_corriente?.saldo_deudor > 0 ? 'text-rose-600' : 'text-slate-400']">
                                     {{ formatearDinero(cliente.cuenta_corriente?.saldo_deudor) }}
                                 </td>
                                 
-                                <td class="p-4 font-black text-right" :class="calcularDisponible(cliente.limite_cuenta_corriente, cliente.cuenta_corriente?.saldo_deudor) <= 0 ? 'text-rose-500' : 'text-emerald-600'">
+                                <td class="p-4 font-black text-right" :class="[{'opacity-50 grayscale': !cliente.estado}, calcularDisponible(cliente.limite_cuenta_corriente, cliente.cuenta_corriente?.saldo_deudor) <= 0 ? 'text-rose-500' : 'text-emerald-600']">
                                     {{ formatearDinero(calcularDisponible(cliente.limite_cuenta_corriente, cliente.cuenta_corriente?.saldo_deudor)) }}
                                 </td>
 
-                                <td class="p-4 text-center relative">
+                                <td class="p-4 text-center relative" :class="{'z-50': menuAbierto === cliente.id}">
                                     <button @click.stop="toggleMenu(cliente.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
                                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
                                     </button>
 
-                                    <div v-if="menuAbierto === cliente.id" class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150">
+                                    <div v-if="menuAbierto === cliente.id" 
+                                         class="absolute right-10 w-52 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 py-2 animate-in fade-in zoom-in-95 duration-150"
+                                         :class="index === consumidores.data.length - 1 && consumidores.data.length > 2 ? 'bottom-8' : 'top-10'">
                                         
                                         <button v-if="cliente.cuenta_corriente?.saldo_deudor > 0" @click="openCobroModal(cliente)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             Cobrar Deuda
+                                        </button>
+
+                                        <button v-if="cliente.cuenta_corriente" @click="openHistorial(cliente)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                            Estado de Cuenta
                                         </button>
 
                                         <button @click="openModal(cliente)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
@@ -335,6 +385,59 @@ const calcularDisponible = (limite, deuda) => {
                             ]"
                         />
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="isHistorialModalOpen" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div class="bg-white rounded-3xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50 shrink-0">
+                    <div>
+                        <h3 class="text-lg font-black text-indigo-900 uppercase tracking-tight flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Estado de Cuenta
+                        </h3>
+                        <p class="text-sm font-medium text-indigo-700 mt-1">{{ clienteSeleccionado?.nombre }} {{ clienteSeleccionado?.apellido }}</p>
+                    </div>
+                    <button @click="isHistorialModalOpen = false" class="text-slate-400 hover:text-rose-500 transition-colors bg-white p-2 rounded-xl shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                <div class="overflow-y-auto flex-1 p-6 bg-slate-50">
+                    <table class="w-full text-left border-collapse bg-white rounded-xl shadow-sm border border-slate-100">
+                        <thead class="bg-slate-100">
+                            <tr class="text-[10px] uppercase tracking-widest text-slate-500 border-b border-slate-200">
+                                <th class="p-3 font-black rounded-tl-xl">Fecha</th>
+                                <th class="p-3 font-black">Concepto / Detalle</th>
+                                <th class="p-3 font-black text-right text-rose-600">Cargos (-)</th>
+                                <th class="p-3 font-black text-right text-emerald-600">Abonos (+)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <tr v-if="historialMovimientos.length === 0">
+                                <td colspan="4" class="p-8 text-center text-slate-400 font-bold">No hay movimientos registrados en esta cuenta.</td>
+                            </tr>
+                            <tr v-for="mov in historialMovimientos" :key="mov.id" class="hover:bg-slate-50 transition-colors">
+                                <td class="p-3 font-medium text-slate-600 text-xs">{{ formatearFecha(mov.created_at) }}</td>
+                                <td class="p-3">
+                                    <div class="text-sm font-bold text-slate-800">{{ mov.descripcion }}</div>
+                                    <div v-if="mov.venta" class="text-[10px] font-black text-sky-600 uppercase tracking-widest mt-1">Ticket #{{ mov.venta_id }}</div>
+                                </td>
+                                <td class="p-3 font-black text-right text-rose-600">
+                                    {{ mov.tipo === 'cargo' ? formatearDinero(mov.monto) : '-' }}
+                                </td>
+                                <td class="p-3 font-black text-right text-emerald-600">
+                                    {{ mov.tipo === 'abono' ? formatearDinero(mov.monto) : '-' }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="p-4 border-t border-slate-200 bg-white flex justify-between items-center shrink-0">
+                    <span class="text-xs font-black uppercase tracking-widest text-slate-400">Saldo Deudor Total</span>
+                    <span class="text-2xl font-black text-rose-600">{{ formatearDinero(clienteSeleccionado?.cuenta_corriente?.saldo_deudor) }}</span>
                 </div>
             </div>
         </div>
@@ -482,44 +585,65 @@ const calcularDisponible = (limite, deuda) => {
                 </div>
 
                 <div class="p-6">
-                    <p class="text-sm text-slate-500 mb-4">
-                        Estás a punto de registrar un pago para <strong>{{ clienteSeleccionado?.nombre }} {{ clienteSeleccionado?.apellido }}</strong>.
-                        <br>Deuda actual: <span class="font-bold text-rose-600">{{ formatearDinero(clienteSeleccionado?.cuenta_corriente?.saldo_deudor) }}</span>
-                    </p>
+                    <div class="bg-slate-50 border border-slate-100 rounded-xl p-4 mb-4">
+                        <p class="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">Cliente</p>
+                        <p class="font-bold text-slate-800 text-lg">{{ clienteSeleccionado?.nombre }} {{ clienteSeleccionado?.apellido }}</p>
+                        <div class="flex justify-between items-center mt-2 pt-2 border-t border-slate-200">
+                            <span class="text-sm font-medium text-slate-500">Deuda Total:</span>
+                            <span class="font-black text-rose-600 text-xl">{{ formatearDinero(clienteSeleccionado?.cuenta_corriente?.saldo_deudor) }}</span>
+                        </div>
+                    </div>
 
                     <form @submit.prevent="submitCobro" class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-bold text-slate-700 mb-1">Monto a abonar</label>
-                            <div class="relative">
-                                <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
-                                <input 
-                                    v-model="formCobro.monto" 
-                                    type="number" 
-                                    step="0.01" 
-                                    min="1"
-                                    :max="clienteSeleccionado?.cuenta_corriente?.saldo_deudor"
-                                    class="w-full pl-8 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-emerald-500 focus:border-emerald-500 font-bold text-slate-800" 
-                                    required
-                                >
+                        
+                        <div v-for="(pago, idx) in formCobro.pagos" :key="idx" class="flex items-start gap-2 bg-white border border-emerald-100 p-3 rounded-xl relative">
+                            
+                            <div class="flex-1 space-y-2">
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Monto ($)</label>
+                                    <input 
+                                        v-model="pago.monto" 
+                                        type="number" step="0.01" min="1"
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500 font-bold text-slate-800 text-sm" 
+                                        required
+                                    >
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Medio de Pago</label>
+                                    <select v-model="pago.metodo_pago" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500 font-medium text-slate-700 text-sm">
+                                        <option value="EFECTIVO">Efectivo</option>
+                                        <option value="MERCADO_PAGO">Mercado Pago</option>
+                                        <option value="TRANSFERENCIA">Transferencia Bancaria</option>
+                                        <option value="TARJETA_CREDITO">Tarjeta de Crédito</option>
+                                        <option value="TARJETA_DEBITO">Tarjeta de Débito</option>
+                                    </select>
+                                </div>
                             </div>
-                            <p v-if="formCobro.errors.monto" class="mt-1 text-xs text-rose-500 font-bold">{{ formCobro.errors.monto }}</p>
-                        </div>
 
-                        <div>
-                            <label class="block text-sm font-bold text-slate-700 mb-1">Medio de Pago</label>
-                            <select v-model="formCobro.metodo_pago" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-emerald-500 focus:border-emerald-500 font-medium text-slate-700">
-                                <option value="EFECTIVO">Efectivo</option>
-                                <option value="MERCADO_PAGO">Mercado Pago</option>
-                                <option value="TRANSFERENCIA">Transferencia Bancaria</option>
-                            </select>
-                        </div>
-
-                        <div class="pt-4 flex justify-end gap-3 mt-4">
-                            <button type="button" @click="closeCobroModal" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">Cancelar</button>
-                            <button type="submit" :disabled="formCobro.processing" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-2 px-6 rounded-xl shadow-sm shadow-emerald-600/30 transition-all flex items-center gap-2">
-                                <span v-if="formCobro.processing">Procesando...</span>
-                                <span v-else>Confirmar Pago</span>
+                            <button v-if="formCobro.pagos.length > 1" @click.prevent="quitarFilaPago(idx)" type="button" class="mt-6 text-rose-400 hover:text-rose-600 bg-rose-50 p-2 rounded-lg">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
+                        </div>
+
+                        <button type="button" @click="agregarFilaPago" class="w-full py-2 border-2 border-dashed border-emerald-200 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-50 transition-colors uppercase tracking-widest">
+                            + Agregar pago mixto
+                        </button>
+
+                        <div class="pt-4 mt-4 border-t border-slate-100">
+                            <div class="flex justify-between items-center mb-4">
+                                <span class="text-sm font-bold text-slate-600">Total a Pagar:</span>
+                                <span class="font-black text-xl" :class="totalPagando > clienteSeleccionado?.cuenta_corriente?.saldo_deudor ? 'text-rose-600' : 'text-emerald-600'">
+                                    {{ formatearDinero(totalPagando) }}
+                                </span>
+                            </div>
+
+                            <div class="flex justify-end gap-3">
+                                <button type="button" @click="closeCobroModal" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">Cancelar</button>
+                                <button type="submit" :disabled="formCobro.processing || totalPagando <= 0" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-2.5 px-6 rounded-xl shadow-sm shadow-emerald-600/30 transition-all flex items-center gap-2">
+                                    <span v-if="formCobro.processing">Procesando...</span>
+                                    <span v-else>Confirmar Pago</span>
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </div>

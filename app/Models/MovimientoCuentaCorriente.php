@@ -17,4 +17,9 @@ class MovimientoCuentaCorriente extends Model
         'tipo',
         'descripcion',
     ];
+
+    public function venta()
+    {
+        return $this->belongsTo(Venta::class);
+    }
 }

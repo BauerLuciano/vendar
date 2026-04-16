@@ -8,7 +8,8 @@ const props = defineProps({
     ventasHoy: { type: Number, default: 0 },
     cajasActivas: { type: Number, default: 0 },
     productosBajoStock: { type: Array, default: () => [] },
-    esJefe: { type: Boolean, default: false }
+    esJefe: { type: Boolean, default: false },
+    sucursalUsuario: { type: String, default: 'Sin Asignar' }
 });
 
 // Función para formatear plata
@@ -26,13 +27,23 @@ const formatearDinero = (monto) => {
     <AuthenticatedLayout>
         <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
             
-            <div class="mb-8 flex justify-between items-end">
+            <div class="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                 <div>
                     <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Panel de Control</h1>
                     <div class="h-1 w-12 bg-sky-500 mt-1"></div>
                 </div>
-                <div class="text-right">
+                
+                <div class="flex flex-col items-start sm:items-end gap-2">
                     <p class="text-sm font-bold text-slate-500">{{ new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }}</p>
+                    
+                    <div class="flex items-center gap-2 bg-sky-100 text-sky-800 px-3 py-1.5 rounded-lg border border-sky-200 shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                        <span class="text-[10px] font-black uppercase tracking-widest leading-none">
+                            SUCURSAL: <span class="text-sky-600">{{ sucursalUsuario }}</span>
+                        </span>
+                    </div>
                 </div>
             </div>
 

@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Consumidor;
 use App\Models\TurnoCaja;
 use App\Models\MovimientoCaja;
+use App\Models\MovimientoCuentaCorriente;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ConsumidorController extends Controller
 {
@@ -95,45 +97,85 @@ class ConsumidorController extends Controller
 
     public function status(Consumidor $consumidor)
     {
-        $consumidor->update(['estado' => !$consumidor->estado]);
+        $consumidor->estado = !$consumidor->estado;
+        $consumidor->save();
+        
         return redirect()->back()->with('success', 'Estado del cliente modificado.');
     }
 
+    // 🔥 NUEVO: DEVUELVE EL HISTORIAL DE LA CUENTA
+    public function estadoCuenta(Consumidor $consumidor)
+    {
+        $cuenta = $consumidor->cuentaCorriente;
+        if (!$cuenta) {
+            return response()->json([]);
+        }
+
+        // Buscamos los movimientos ordenados de más nuevo a más viejo
+        $movimientos = MovimientoCuentaCorriente::where('cuenta_corriente_id', $cuenta->id)
+            ->with('venta') // Por si fue un cargo de una venta
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($movimientos);
+    }
+
+    // 🔥 ACTUALIZADO: ACEPTA PAGOS MIXTOS Y REGISTRA EN EL HISTORIAL
     public function cobrarDeuda(Request $request, Consumidor $consumidor)
     {
         $request->validate([
-            'monto' => 'required|numeric|min:1',
-            'metodo_pago' => 'required|string|in:EFECTIVO,MERCADO_PAGO,TRANSFERENCIA'
+            'pagos' => 'required|array|min:1',
+            'pagos.*.monto' => 'required|numeric|min:0.01',
+            'pagos.*.metodo_pago' => 'required|string'
         ]);
 
         $cuenta = $consumidor->cuentaCorriente;
+        
+        // Sumamos todos los pagos que mandó el cajero
+        $totalAbono = collect($request->pagos)->sum('monto');
 
-        if (!$cuenta || $cuenta->saldo_deudor < $request->monto) {
-            return back()->withErrors(['monto' => 'El monto ingresado es mayor a la deuda actual del cliente.']);
+        if (!$cuenta || $cuenta->saldo_deudor < $totalAbono) {
+            return back()->withErrors(['monto' => 'El monto total a abonar supera la deuda actual del cliente.']);
         }
 
         DB::beginTransaction();
 
         try {
-            $cuenta->saldo_deudor -= $request->monto;
+            // 1. Restar la deuda de la cuenta
+            $cuenta->saldo_deudor -= $totalAbono;
             $cuenta->fecha_ultimo_movimiento = now();
             $cuenta->save();
 
+            // 2. Registrar en la caja (Un movimiento por cada método de pago)
             $user = auth()->user();
             $turno = TurnoCaja::where('user_id', $user->id)
                         ->where('estado', 'Abierto')
                         ->first();
 
+            $detallesPago = [];
+
             if ($turno) {
-                MovimientoCaja::create([
-                    'turno_caja_id' => $turno->id,
-                    'tipo'          => 'INGRESO',
-                    'concepto'      => 'COBRO_CUENTA_CORRIENTE',
-                    'metodo_pago'   => $request->metodo_pago,
-                    'monto'         => $request->monto,
-                    'descripcion'   => 'Pago fiado: ' . $consumidor->nombre . ' ' . $consumidor->apellido
-                ]);
+                foreach ($request->pagos as $pago) {
+                    MovimientoCaja::create([
+                        'turno_caja_id' => $turno->id,
+                        'tipo'          => 'INGRESO',
+                        'concepto'      => 'COBRO_CUENTA_CORRIENTE',
+                        'metodo_pago'   => $pago['metodo_pago'],
+                        'monto'         => $pago['monto'],
+                        'descripcion'   => 'Pago deuda: ' . $consumidor->nombre . ' ' . $consumidor->apellido
+                    ]);
+
+                    $detallesPago[] = $pago['metodo_pago'] . ': $' . number_format($pago['monto'], 2, ',', '.');
+                }
             }
+
+            // 3. Dejar registro en el historial de la cuenta corriente del cliente
+            MovimientoCuentaCorriente::create([
+                'cuenta_corriente_id' => $cuenta->id,
+                'monto'               => $totalAbono,
+                'tipo'                => 'abono',
+                'descripcion'         => 'Abono a cuenta (' . implode(' | ', $detallesPago) . ')',
+            ]);
 
             DB::commit();
             return back()->with('success', 'Cobro registrado exitosamente.');

@@ -39,10 +39,15 @@ class PosController extends Controller
                     return $p;
                 });
 
+            // CORRECCIÓN: Traemos SOLO clientes activos y anexamos su cuenta corriente
+            $clientesActivos = Consumidor::with('cuentaCorriente')
+                ->where('estado', true)
+                ->get();
+
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
-                'clientes' => Consumidor::all()
+                'clientes' => $clientesActivos
             ]);
         }
 

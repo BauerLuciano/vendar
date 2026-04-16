@@ -13,6 +13,7 @@ class DashboardController extends Controller
     public function index()
     {
         $user = auth()->user();
+        $user->load('branch'); // Cargamos la info de la sucursal del usuario
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
 
         // 1. Cálculo de Deuda Total en la calle
@@ -54,7 +55,8 @@ class DashboardController extends Controller
             'ventasHoy' => (float) $ventasHoy,
             'cajasActivas' => $cajasActivas,
             'productosBajoStock' => $productosBajoStock,
-            'esJefe' => $esJefe
+            'esJefe' => $esJefe,
+            'sucursalUsuario' => $user->branch ? $user->branch->nombre : 'Sede Central'
         ]);
     }
 }
