@@ -31,7 +31,12 @@ class VentaController extends Controller
                 $q->where('sucursal_id', $sucursalId);
             })
             ->when($search, function ($q, $search) {
-                $q->where('id', 'LIKE', "%{$search}%");
+                // 🔥 BUSCAR POR ID DE VENTA O POR NOMBRE/APELLIDO DEL CLIENTE
+                $q->where('id', 'LIKE', "%{$search}%")
+                ->orWhereHas('consumidor', function ($sub) use ($search) {
+                    $sub->where('nombre', 'LIKE', "%{$search}%")
+                        ->orWhere('apellido', 'LIKE', "%{$search}%");
+                });
             })
             ->when($estado !== 'all', function ($q) use ($estado) {
                 $q->where('estado', $estado);
@@ -51,7 +56,6 @@ class VentaController extends Controller
             'filtros' => $request->only(['search', 'estado', 'fecha_desde', 'fecha_hasta'])
         ]);
     }
-
     public function store(Request $request)
     {
         $request->validate([

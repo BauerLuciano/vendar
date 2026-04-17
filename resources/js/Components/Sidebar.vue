@@ -139,19 +139,6 @@ const toggleSeccion = (titulo) => {
             </template>
         </nav>
 
-        <div class="p-4 border-t border-slate-800 bg-slate-950/50">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 bg-sky-500 rounded-full flex items-center justify-center text-[10px] font-black text-white uppercase shadow-lg shadow-sky-500/20">
-                    {{ $page.props.auth.user.name.charAt(0) }}
-                </div>
-                <div class="flex flex-col overflow-hidden">
-                    <span class="text-white text-xs font-bold truncate tracking-tight">{{ $page.props.auth.user.name }}</span>
-                    <Link :href="route('logout')" method="post" as="button" class="text-slate-500 text-[10px] hover:text-rose-500 text-left font-bold uppercase transition-colors tracking-widest">
-                        Cerrar Sesión
-                    </Link>
-                </div>
-            </div>
-        </div>
     </div>
 </template>
 
