@@ -4,6 +4,8 @@ namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use App\Models\Configuracion;
+use Illuminate\Support\Facades\Schema;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -31,6 +33,7 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
+            
             'auth' => [
                 'user' => $request->user() ? [
                     'id' => $request->user()->id,
@@ -43,10 +46,18 @@ class HandleInertiaRequests extends Middleware
                     'permissions' => $request->user()->getAllPermissions()->pluck('name'),
                 ] : null,
             ],
-            // Si usás mensajes de sesión (flash), podés agregarlos acá también
+
+            // 🔥 NUEVO: CONFIGURACIONES GLOBALES DE LA EMPRESA
+            // Lo envolvemos en fn() para que sea de carga diferida y validamos que la tabla exista
+            'empresa' => fn () => Schema::hasTable('configuraciones') 
+                            ? Configuracion::pluck('valor', 'clave')->toArray() 
+                            : [],
+
+            // Mensajes de sesión (flash)
             'flash' => [
                 'exito' => fn () => $request->session()->get('exito'),
                 'error' => fn () => $request->session()->get('error'),
+                'success' => fn () => $request->session()->get('success'), // Lo agrego por si usás with('success') en algún lado
             ],
         ];
     }
