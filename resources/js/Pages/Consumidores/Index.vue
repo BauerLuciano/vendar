@@ -56,7 +56,56 @@ const form = useForm({
     estado: true,
 });
 
-// 🔥 NUEVO FORMULARIO MULTI-PAGO
+// ----- VALIDACIÓN EN TIEMPO REAL DEL DNI -----
+const documentoStatus = ref(null); // null, 'checking', 'available', 'unavailable'
+let documentoDebounceTimer = null;
+
+const checkDocumento = async () => {
+    const dni = form.documento?.trim();
+    
+    if (!dni) {
+        documentoStatus.value = null;
+        return;
+    }
+
+    if (!/^\d{7,8}$/.test(dni)) {
+        documentoStatus.value = 'unavailable';
+        return;
+    }
+
+    documentoStatus.value = 'checking';
+    
+    try {
+        const response = await axios.get(route('consumidores.checkDocumento'), {
+            params: {
+                documento: dni,
+                ignore_id: isEditing.value ? currentId.value : null
+            }
+        });
+        
+        documentoStatus.value = response.data.available ? 'available' : 'unavailable';
+    } catch (error) {
+        console.error('Error verificando DNI:', error);
+        documentoStatus.value = null;
+    }
+};
+
+watch(() => form.documento, () => {
+    if (documentoDebounceTimer) clearTimeout(documentoDebounceTimer);
+    documentoDebounceTimer = setTimeout(() => {
+        checkDocumento();
+    }, 500);
+});
+
+// Lista de métodos de pago
+const paymentMethods = [
+    { value: 'EFECTIVO', label: 'Efectivo' },
+    { value: 'MERCADO_PAGO', label: 'Mercado pago' },
+    { value: 'TRANSFERENCIA', label: 'Transferencia bancaria' },
+    { value: 'TARJETA_CREDITO', label: 'Tarjeta de crédito' },
+    { value: 'TARJETA_DEBITO', label: 'Tarjeta de débito' }
+];
+
 const formCobro = useForm({
     pagos: [
         { monto: '', metodo_pago: 'EFECTIVO' }
@@ -67,12 +116,86 @@ const totalPagando = computed(() => {
     return formCobro.pagos.reduce((acc, p) => acc + (parseFloat(p.monto) || 0), 0);
 });
 
+const isExcediendoDeuda = computed(() => {
+    if (!clienteSeleccionado.value) return false;
+    const deuda = clienteSeleccionado.value.cuenta_corriente?.saldo_deudor || 0;
+    return totalPagando.value > deuda;
+});
+
+let alertaExcedenteMostrada = false;
+watch(isExcediendoDeuda, (excede) => {
+    if (excede && !alertaExcedenteMostrada) {
+        Swal.fire({
+            icon: 'warning',
+            title: '¡Atención!',
+            text: 'El total a pagar supera la deuda del cliente. Revisá los montos.',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000
+        });
+        alertaExcedenteMostrada = true;
+    } else if (!excede) {
+        alertaExcedenteMostrada = false;
+    }
+});
+
+const usedMethodsExcept = (excludeIndex = -1) => {
+    return formCobro.pagos
+        .map((p, idx) => (idx !== excludeIndex ? p.metodo_pago : null))
+        .filter(m => m !== null);
+};
+
+const availableMethodsForRow = (index) => {
+    const used = usedMethodsExcept(index);
+    return paymentMethods.filter(m => !used.includes(m.value));
+};
+
+const fixDuplicateMethods = () => {
+    let modified = false;
+    const used = new Set();
+    const newPagos = [...formCobro.pagos];
+
+    for (let i = 0; i < newPagos.length; i++) {
+        const method = newPagos[i].metodo_pago;
+        if (used.has(method)) {
+            const available = paymentMethods.find(m => !used.has(m.value));
+            if (available) {
+                newPagos[i].metodo_pago = available.value;
+                used.add(available.value);
+                modified = true;
+            } else {
+                Swal.fire('Atención', 'No hay más métodos de pago disponibles para esta fila.', 'warning');
+            }
+        } else {
+            used.add(method);
+        }
+    }
+
+    if (modified) {
+        formCobro.pagos = newPagos;
+    }
+};
+
+watch(() => formCobro.pagos, () => {
+    fixDuplicateMethods();
+}, { deep: true });
+
 const agregarFilaPago = () => {
-    formCobro.pagos.push({ monto: '', metodo_pago: 'TRANSFERENCIA' });
+    const used = usedMethodsExcept();
+    const availableMethod = paymentMethods.find(m => !used.includes(m.value));
+    
+    if (!availableMethod) {
+        Swal.fire('Límite alcanzado', 'Ya estás usando todos los métodos de pago disponibles.', 'warning');
+        return;
+    }
+    
+    formCobro.pagos.push({ monto: '', metodo_pago: availableMethod.value });
 };
 
 const quitarFilaPago = (index) => {
     formCobro.pagos.splice(index, 1);
+    fixDuplicateMethods();
 };
 
 const toggleMenu = (id) => {
@@ -86,6 +209,7 @@ const cerrarMenu = () => {
 const openModal = (cliente = null) => {
     cerrarMenu();
     form.clearErrors();
+    documentoStatus.value = null; // Resetear estado del DNI
     if (cliente) {
         isEditing.value = true;
         currentId.value = cliente.id;
@@ -107,12 +231,28 @@ const openModal = (cliente = null) => {
 };
 
 const closeModal = () => {
+    if (documentoDebounceTimer) clearTimeout(documentoDebounceTimer);
+    documentoStatus.value = null;
     isModalOpen.value = false;
     form.reset();
     form.clearErrors();
 };
 
 const submitForm = () => {
+    // Bloquear si el DNI no está disponible (y no es edición del mismo cliente)
+    if (form.documento && documentoStatus.value !== 'available') {
+        Swal.fire({
+            icon: 'warning',
+            title: 'DNI no disponible',
+            text: 'El documento ingresado ya pertenece a otro cliente o tiene un formato inválido.',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000
+        });
+        return;
+    }
+
     if (isEditing.value) {
         form.put(route('consumidores.update', currentId.value), {
             onSuccess: () => {
@@ -135,6 +275,7 @@ const openCobroModal = (cliente) => {
     clienteSeleccionado.value = cliente;
     formCobro.reset();
     formCobro.pagos = [{ monto: cliente.cuenta_corriente?.saldo_deudor || 0, metodo_pago: 'EFECTIVO' }];
+    alertaExcedenteMostrada = false;
     isCobroModalOpen.value = true;
 };
 
@@ -145,6 +286,14 @@ const closeCobroModal = () => {
 };
 
 const submitCobro = () => {
+    const metodosElegidos = formCobro.pagos.map(p => p.metodo_pago);
+    const metodosUnicos = new Set(metodosElegidos);
+    
+    if (metodosElegidos.length !== metodosUnicos.size) {
+        Swal.fire('Atención', 'No puedes seleccionar el mismo método de pago más de una vez.', 'warning');
+        return; 
+    }
+
     if (totalPagando.value > clienteSeleccionado.value?.cuenta_corriente?.saldo_deudor) {
         Swal.fire('Atención', 'El total pagando es mayor a la deuda del cliente.', 'warning');
         return;
@@ -163,12 +312,13 @@ const submitCobro = () => {
         onError: (errors) => {
             if(errors.monto) {
                 Swal.fire('Atención', errors.monto, 'warning');
+            } else if (errors['pagos.0.metodo_pago'] || errors['pagos.1.metodo_pago']) {
+                Swal.fire('Atención', 'Revisa los métodos de pago ingresados.', 'warning');
             }
         }
     });
 };
 
-// 🔥 NUEVO: ABRIR HISTORIAL
 const openHistorial = async (cliente) => {
     cerrarMenu();
     clienteSeleccionado.value = cliente;
@@ -389,6 +539,7 @@ const calcularDisponible = (limite, deuda) => {
             </div>
         </div>
 
+        <!-- Modal Historial -->
         <div v-if="isHistorialModalOpen" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div class="bg-white rounded-3xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50 shrink-0">
@@ -442,6 +593,7 @@ const calcularDisponible = (limite, deuda) => {
             </div>
         </div>
 
+        <!-- Modal ABM Cliente -->
         <div v-if="isModalOpen" class="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div class="bg-white rounded-3xl shadow-xl w-full max-w-2xl overflow-hidden transform transition-all">
                 <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -484,19 +636,47 @@ const calcularDisponible = (limite, deuda) => {
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
+                        <!-- Campo Documento con validación en tiempo real -->
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Documento</label>
-                            <input 
-                                v-model="form.documento" 
-                                @input="form.documento = form.documento.replace(/\D/g, '')"
-                                maxlength="8"
-                                type="text" 
-                                placeholder="Ej: 30123456" 
-                                class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.documento}"
-                            >
+                            <div class="relative">
+                                <input 
+                                    v-model="form.documento" 
+                                    @input="form.documento = form.documento.replace(/\D/g, '')"
+                                    maxlength="8"
+                                    type="text" 
+                                    placeholder="Ej: 30123456" 
+                                    class="w-full bg-slate-50 border rounded-xl px-4 py-2.5 pr-10 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
+                                    :class="{
+                                        'border-rose-500': form.errors.documento || documentoStatus === 'unavailable',
+                                        'border-emerald-500': documentoStatus === 'available' && !form.errors.documento,
+                                        'border-slate-200': documentoStatus !== 'available' && documentoStatus !== 'unavailable' && !form.errors.documento
+                                    }"
+                                >
+                                <div class="absolute inset-y-0 right-0 flex items-center pr-3">
+                                    <svg v-if="documentoStatus === 'checking'" class="w-5 h-5 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <svg v-else-if="documentoStatus === 'available'" class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <svg v-else-if="documentoStatus === 'unavailable'" class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </div>
+                            </div>
                             <p v-if="form.errors.documento" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.documento }}</p>
+                            <p v-if="documentoStatus === 'available' && !form.errors.documento" class="mt-1 text-xs text-emerald-600 font-bold flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                DNI disponible
+                            </p>
+                            <p v-if="documentoStatus === 'unavailable' && !form.errors.documento" class="mt-1 text-xs text-rose-500 font-bold flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                Este DNI ya está registrado
+                            </p>
                         </div>
+
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Email</label>
                             <input 
@@ -572,6 +752,7 @@ const calcularDisponible = (limite, deuda) => {
             </div>
         </div>
 
+        <!-- Modal Cobro -->
         <div v-if="isCobroModalOpen" class="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
                 <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-emerald-50">
@@ -595,9 +776,7 @@ const calcularDisponible = (limite, deuda) => {
                     </div>
 
                     <form @submit.prevent="submitCobro" class="space-y-4">
-                        
                         <div v-for="(pago, idx) in formCobro.pagos" :key="idx" class="flex items-start gap-2 bg-white border border-emerald-100 p-3 rounded-xl relative">
-                            
                             <div class="flex-1 space-y-2">
                                 <div>
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Monto ($)</label>
@@ -611,15 +790,16 @@ const calcularDisponible = (limite, deuda) => {
                                 <div>
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Medio de Pago</label>
                                     <select v-model="pago.metodo_pago" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500 font-medium text-slate-700 text-sm">
-                                        <option value="EFECTIVO">Efectivo</option>
-                                        <option value="MERCADO_PAGO">Mercado Pago</option>
-                                        <option value="TRANSFERENCIA">Transferencia Bancaria</option>
-                                        <option value="TARJETA_CREDITO">Tarjeta de Crédito</option>
-                                        <option value="TARJETA_DEBITO">Tarjeta de Débito</option>
+                                        <option 
+                                            v-for="metodo in availableMethodsForRow(idx)" 
+                                            :key="metodo.value" 
+                                            :value="metodo.value"
+                                        >
+                                            {{ metodo.label }}
+                                        </option>
                                     </select>
                                 </div>
                             </div>
-
                             <button v-if="formCobro.pagos.length > 1" @click.prevent="quitarFilaPago(idx)" type="button" class="mt-6 text-rose-400 hover:text-rose-600 bg-rose-50 p-2 rounded-lg">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
@@ -632,14 +812,19 @@ const calcularDisponible = (limite, deuda) => {
                         <div class="pt-4 mt-4 border-t border-slate-100">
                             <div class="flex justify-between items-center mb-4">
                                 <span class="text-sm font-bold text-slate-600">Total a Pagar:</span>
-                                <span class="font-black text-xl" :class="totalPagando > clienteSeleccionado?.cuenta_corriente?.saldo_deudor ? 'text-rose-600' : 'text-emerald-600'">
+                                <span class="font-black text-xl" :class="isExcediendoDeuda ? 'text-rose-600' : 'text-emerald-600'">
                                     {{ formatearDinero(totalPagando) }}
                                 </span>
                             </div>
 
+                            <div v-if="isExcediendoDeuda" class="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm font-bold flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                El monto total supera la deuda del cliente. Reducí algún importe.
+                            </div>
+
                             <div class="flex justify-end gap-3">
                                 <button type="button" @click="closeCobroModal" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">Cancelar</button>
-                                <button type="submit" :disabled="formCobro.processing || totalPagando <= 0" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-2.5 px-6 rounded-xl shadow-sm shadow-emerald-600/30 transition-all flex items-center gap-2">
+                                <button type="submit" :disabled="formCobro.processing || totalPagando <= 0 || isExcediendoDeuda" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-2.5 px-6 rounded-xl shadow-sm shadow-emerald-600/30 transition-all flex items-center gap-2">
                                     <span v-if="formCobro.processing">Procesando...</span>
                                     <span v-else>Confirmar Pago</span>
                                 </button>
@@ -649,6 +834,5 @@ const calcularDisponible = (limite, deuda) => {
                 </div>
             </div>
         </div>
-
     </AuthenticatedLayout>
 </template>

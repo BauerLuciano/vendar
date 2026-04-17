@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 import ModalRol from './Componentes/ModalRol.vue';
 import DetalleRol from './Componentes/DetalleRol.vue';
@@ -13,60 +13,95 @@ const props = defineProps({
     permisos: Array
 });
 
-// Estados para Roles
+// Pestaña Activa
+const tabActiva = ref('roles'); // 'roles' o 'permisos'
+
+// Menús de acciones (3 puntitos)
+const menuAbierto = ref(null);
+
+const toggleMenu = (id) => {
+    menuAbierto.value = menuAbierto.value === id ? null : id;
+};
+
+const cerrarMenu = () => {
+    menuAbierto.value = null;
+};
+
+// ================= ESTADOS Y LÓGICA DE ROLES =================
 const mostrarModalRol = ref(false);
 const mostrarDetalleRol = ref(false);
 const rolSeleccionado = ref(null);
+const busquedaRol = ref('');
 
-// Estados para Permisos
-const mostrarModalPermiso = ref(false);
-const mostrarDetallePermiso = ref(false);
-const permisoSeleccionado = ref(null);
+const rolesFiltrados = computed(() => {
+    if (!busquedaRol.value) return props.roles;
+    return props.roles.filter(r => r.name.toLowerCase().includes(busquedaRol.value.toLowerCase()));
+});
 
-// Acciones de Roles
-const abrirNuevoRol = () => {
-    rolSeleccionado.value = null;
-    mostrarModalRol.value = true;
+const abrirNuevoRol = () => { 
+    rolSeleccionado.value = null; 
+    mostrarModalRol.value = true; 
 };
 
-const editarRol = (rol) => {
-    rolSeleccionado.value = rol;
-    mostrarModalRol.value = true;
+const editarRol = (rol) => { 
+    cerrarMenu();
+    rolSeleccionado.value = rol; 
+    mostrarModalRol.value = true; 
 };
 
-const verRol = (rol) => {
-    rolSeleccionado.value = rol;
-    mostrarDetalleRol.value = true;
+const verRol = (rol) => { 
+    cerrarMenu();
+    rolSeleccionado.value = rol; 
+    mostrarDetalleRol.value = true; 
 };
 
 const eliminarRol = (rol) => {
+    cerrarMenu();
     Swal.fire({
         title: '¿Eliminar Rol?',
-        text: `Se borrará el rol ${rol.name}.`,
+        text: `Se borrará el rol "${rol.name}". Esto puede afectar a los usuarios que lo tengan asignado.`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#6b7280',
         confirmButtonText: 'Sí, eliminar',
         cancelButtonText: 'Cancelar'
     }).then((result) => {
         if (result.isConfirmed) {
             router.delete(route('roles.destroy', rol.id), {
-                onSuccess: () => Swal.fire('Eliminado', 'Rol borrado con éxito', 'success'),
-                onError: (err) => Swal.fire('Error', err.error, 'error')
+                onSuccess: () => Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Rol eliminado', showConfirmButton: false, timer: 3000 }),
+                onError: (err) => Swal.fire('Acción denegada', err.error, 'error')
             });
         }
     });
 };
 
-// Acciones de Permisos
-const abrirNuevoPermiso = () => {
-    permisoSeleccionado.value = null;
+// ================= ESTADOS Y LÓGICA DE PERMISOS =================
+const mostrarModalPermiso = ref(false);
+const mostrarDetallePermiso = ref(false);
+const permisoSeleccionado = ref(null);
+const busquedaPermiso = ref('');
+
+const permisosFiltrados = computed(() => {
+    if (!busquedaPermiso.value) return props.permisos;
+    return props.permisos.filter(p => p.name.toLowerCase().includes(busquedaPermiso.value.toLowerCase()));
+});
+
+const abrirNuevoPermiso = () => { 
+    permisoSeleccionado.value = null; 
+    mostrarModalPermiso.value = true; 
+};
+
+const editarPermiso = (permiso) => {
+    cerrarMenu();
+    permisoSeleccionado.value = permiso;
     mostrarModalPermiso.value = true;
 };
 
-const verPermiso = (permiso) => {
-    permisoSeleccionado.value = permiso;
-    mostrarDetallePermiso.value = true;
+const verPermiso = (permiso) => { 
+    cerrarMenu();
+    permisoSeleccionado.value = permiso; 
+    mostrarDetallePermiso.value = true; 
 };
 </script>
 
@@ -74,85 +109,179 @@ const verPermiso = (permiso) => {
     <Head title="Control de Seguridad" />
 
     <AuthenticatedLayout>
-        <div class="py-8 px-6 sm:px-10 bg-slate-50 min-h-screen font-sans">
+        <!-- Overlay para cerrar menús: z-40 para quedar debajo del dropdown (z-50) pero sobre el resto -->
+        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-40"></div>
+
+        <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
             
-            <div class="mb-10 border-b border-slate-200 pb-4">
-                <h1 class="text-xl font-bold text-slate-800 uppercase tracking-widest">Control de Seguridad</h1>
+            <div class="mb-8">
+                <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Control de Seguridad</h1>
+                <div class="h-1 w-16 bg-sky-500 mt-2"></div>
+                <p class="text-sm text-slate-500 mt-2 font-medium">Gestioná los perfiles y niveles de acceso de tu equipo.</p>
             </div>
 
-            <div class="mb-12">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                    <h2 class="text-sm font-bold text-slate-600 uppercase tracking-widest">Listado de Roles</h2>
-                    <button @click="abrirNuevoRol" class="bg-[#0284c7] text-white px-5 py-2.5 rounded-lg text-sm font-semibold shadow-sm hover:bg-sky-700 transition-colors">
-                        + Nuevo Rol
+            <div class="flex gap-4 border-b border-slate-200 mb-6">
+                <button 
+                    @click="tabActiva = 'roles'" 
+                    class="pb-3 text-sm font-bold uppercase tracking-widest transition-colors border-b-2"
+                    :class="tabActiva === 'roles' ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-400 hover:text-slate-600'">
+                    Roles de Usuario
+                </button>
+                <button 
+                    @click="tabActiva = 'permisos'" 
+                    class="pb-3 text-sm font-bold uppercase tracking-widest transition-colors border-b-2"
+                    :class="tabActiva === 'permisos' ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-400 hover:text-slate-600'">
+                    Catálogo de Permisos
+                </button>
+            </div>
+
+            <!-- ===================== TAB ROLES ===================== -->
+            <div v-show="tabActiva === 'roles'" class="animate-in fade-in duration-300">
+                
+                <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <div class="relative w-full sm:w-1/2">
+                        <input 
+                            v-model="busquedaRol" 
+                            type="text" 
+                            placeholder="Buscar rol..." 
+                            class="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 transition-all font-medium text-sm"
+                        >
+                        <svg class="w-5 h-5 text-slate-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <button @click="abrirNuevoRol" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm shadow-sky-600/30 transition-all flex items-center justify-center gap-2 w-full sm:w-auto">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                        Nuevo Rol
                     </button>
                 </div>
 
-                <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-100">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-[#f0f8fa] text-[#0369a1] uppercase text-[11px] font-bold tracking-wider">
-                                    <th class="p-4 rounded-l-xl w-1/3">Rol / Perfil</th>
-                                    <th class="p-4 text-center w-1/3">Permisos Asignados</th>
-                                    <th class="p-4 text-center rounded-r-xl w-1/3">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-50">
-                                <tr v-for="rol in roles" :key="rol.id" class="hover:bg-slate-50 transition-colors">
-                                    <td class="p-4 font-semibold text-slate-700 text-sm">{{ rol.name }}</td>
-                                    <td class="p-4 text-center">
-                                        <span class="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100">
-                                            {{ rol.permissions?.length || 0 }} accesos
-                                        </span>
-                                    </td>
-                                    <td class="p-4 flex justify-center gap-3">
-                                        <button @click="verRol(rol)" class="w-8 h-8 rounded-full bg-sky-50 text-sky-500 flex items-center justify-center hover:bg-sky-100 transition-colors" title="Ver Detalle">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                <!-- Sin overflow-hidden para que el dropdown no quede cortado -->
+                <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-4">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-400">
+                                <th class="p-4 font-black rounded-tl-3xl">Rol / Perfil</th>
+                                <th class="p-4 font-black text-center">Permisos Asignados</th>
+                                <th class="p-4 font-black text-center rounded-tr-3xl">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <tr v-if="rolesFiltrados.length === 0">
+                                <td colspan="3" class="p-8 text-center text-slate-400 font-bold">No se encontraron roles.</td>
+                            </tr>
+                            <tr v-for="(rol, index) in rolesFiltrados" :key="rol.id" class="hover:bg-slate-50/50 transition-colors">
+                                
+                                <td class="p-4">
+                                    <div class="font-bold text-slate-800">{{ rol.name }}</div>
+                                    <div v-if="['Administrador Global', 'SuperAdmin'].includes(rol.name)" class="text-[10px] font-black text-rose-500 uppercase tracking-widest mt-0.5">Rol de Sistema (Intocable)</div>
+                                </td>
+                                
+                                <td class="p-4 text-center">
+                                    <span class="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                                        {{ rol.permissions?.length || 0 }} permisos
+                                    </span>
+                                </td>
+
+                                <td class="p-4 text-center relative" :style="menuAbierto === 'rol_'+rol.id ? 'z-index: 50;' : ''">
+                                    <button @click.stop="toggleMenu('rol_'+rol.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                    </button>
+
+                                    <div v-if="menuAbierto === 'rol_'+rol.id" 
+                                         class="absolute right-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 py-2 animate-in fade-in zoom-in-95 duration-150"
+                                         :class="index >= rolesFiltrados.length - 2 && rolesFiltrados.length > 2 ? 'bottom-8' : 'top-10'">
+                                        
+                                        <button @click="verRol(rol)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                            Ver Detalles
                                         </button>
-                                        <button @click="editarRol(rol)" class="w-8 h-8 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center hover:bg-amber-100 transition-colors" title="Editar">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
+
+                                        <button @click="editarRol(rol)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            Editar Rol
                                         </button>
-                                        <button @click="eliminarRol(rol)" class="w-8 h-8 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Eliminar">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+
+                                        <template v-if="!['Administrador Global', 'SuperAdmin'].includes(rol.name)">
+                                            <div class="border-t border-slate-100 my-1"></div>
+                                            <button @click="eliminarRol(rol)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-3 transition-colors">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                Eliminar Rol
+                                            </button>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <div>
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                    <h2 class="text-sm font-bold text-slate-600 uppercase tracking-widest">Catálogo de Permisos</h2>
-                    <button @click="abrirNuevoPermiso" class="bg-slate-800 text-white px-5 py-2.5 rounded-lg text-sm font-semibold shadow-sm hover:bg-slate-900 transition-colors">
-                        + Nuevo Permiso
+            <!-- ===================== TAB PERMISOS ===================== -->
+            <div v-show="tabActiva === 'permisos'" class="animate-in fade-in duration-300">
+                
+                <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <div class="relative w-full sm:w-1/2">
+                        <input 
+                            v-model="busquedaPermiso" 
+                            type="text" 
+                            placeholder="Buscar identificador de permiso..." 
+                            class="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium text-sm"
+                        >
+                        <svg class="w-5 h-5 text-slate-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <button @click="abrirNuevoPermiso" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 w-full sm:w-auto">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                        Nuevo Permiso
                     </button>
                 </div>
 
-                <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-100 max-w-4xl">
-                    <div class="overflow-y-auto max-h-[500px]">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-[#f0f8fa] text-[#0369a1] uppercase text-[11px] font-bold tracking-wider">
-                                    <th class="p-4 rounded-l-xl w-3/4">Identificador del Permiso</th>
-                                    <th class="p-4 text-center rounded-r-xl w-1/4">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-50">
-                                <tr v-for="permiso in permisos" :key="permiso.id" class="hover:bg-slate-50 transition-colors">
-                                    <td class="p-4 font-mono text-sm font-semibold text-slate-600">{{ permiso.name }}</td>
-                                    <td class="p-4 flex justify-center gap-3">
-                                        <button @click="verPermiso(permiso)" class="w-8 h-8 rounded-full bg-sky-50 text-sky-500 flex items-center justify-center hover:bg-sky-100 transition-colors" title="Ver Detalle">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                <!-- Sin overflow-hidden para que el dropdown no quede cortado -->
+                <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-4">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-400">
+                                <th class="p-4 font-black rounded-tl-3xl w-1/3">Identificador del Permiso</th>
+                                <th class="p-4 font-black w-1/2">Descripción</th>
+                                <th class="p-4 font-black text-center rounded-tr-3xl w-auto">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <tr v-if="permisosFiltrados.length === 0">
+                                <td colspan="3" class="p-8 text-center text-slate-400 font-bold">No se encontraron permisos.</td>
+                            </tr>
+                            <tr v-for="(permiso, index) in permisosFiltrados" :key="permiso.id" class="hover:bg-slate-50/50 transition-colors">
+                                
+                                <td class="p-4">
+                                    <span class="font-mono text-sm font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">{{ permiso.name }}</span>
+                                </td>
+
+                                <td class="p-4">
+                                    <p class="text-xs text-slate-500 font-medium">{{ permiso.description || 'Sin descripción asignada.' }}</p>
+                                </td>
+
+                                <td class="p-4 text-center relative" :style="menuAbierto === 'permiso_'+permiso.id ? 'z-index: 50;' : ''">
+                                    <button @click.stop="toggleMenu('permiso_'+permiso.id)" class="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 transition-colors focus:outline-none">
+                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                    </button>
+
+                                    <div v-if="menuAbierto === 'permiso_'+permiso.id" 
+                                         class="absolute right-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 py-2 animate-in fade-in zoom-in-95 duration-150"
+                                         :class="index >= permisosFiltrados.length - 2 && permisosFiltrados.length > 2 ? 'bottom-8' : 'top-10'">
+                                        
+                                        <button @click="verPermiso(permiso)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                            Ver Detalles
                                         </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+
+                                        <button @click="editarPermiso(permiso)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            Editar Permiso
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

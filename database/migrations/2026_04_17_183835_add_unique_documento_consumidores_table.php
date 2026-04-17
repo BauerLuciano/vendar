@@ -26,7 +26,6 @@ return new class extends Migration
                 ->update(['documento' => null]);
         }
 
-        // 2. Agregar la restricción UNIQUE (solo si no existe)
         $indexExists = collect(DB::select("SELECT indexname FROM pg_indexes WHERE tablename = 'consumidores'"))
             ->pluck('indexname')
             ->contains('consumidores_documento_unique');

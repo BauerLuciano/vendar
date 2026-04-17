@@ -103,6 +103,9 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::post('/consumidores/{consumidor}/cobrar', [ConsumidorController::class, 'cobrarDeuda'])->name('consumidores.cobrar');
     Route::patch('/consumidores/{consumidor}/status', [ConsumidorController::class, 'status'])->name('consumidores.status');
     Route::get('/consumidores/{consumidor}/cuenta', [ConsumidorController::class, 'estadoCuenta'])->name('consumidores.cuenta');
+    
+    // 👇 NUEVA RUTA PARA VERIFICAR DISPONIBILIDAD DEL DNI EN TIEMPO REAL
+    Route::get('/consumidores/check-documento', [ConsumidorController::class, 'checkDocumento'])->name('consumidores.checkDocumento');
 
     // PLU CODIGO DE BARRAS
     Route::get('/productos/generar-plu', [\App\Http\Controllers\ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
@@ -159,6 +162,11 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
 
     // Seguridad y Usuarios
     Route::resource('roles', RoleController::class);
+    
+    // 🔥 RUTAS MANUALES PARA PERMISOS (Agregadas)
+    Route::post('/permisos', [RoleController::class, 'storePermiso'])->name('permisos.store');
+    Route::put('/permisos/{permiso}', [RoleController::class, 'updatePermiso'])->name('permisos.update');
+
     Route::resource('usuarios', UsuarioController::class);
 
     // Órdenes de Compra

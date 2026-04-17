@@ -21,8 +21,9 @@ const busquedaCliente = ref('');
 const mostrarDropdownClientes = ref(false);
 const inputBusqueda = ref(null);
 
+// Filtra clientes si hay al menos 2 caracteres
 const clientesFiltradosSelect = computed(() => {
-    if (!busquedaCliente.value) return props.clientes;
+    if (!busquedaCliente.value || busquedaCliente.value.length < 2) return [];
     return props.clientes.filter(c => 
         c.nombre.toLowerCase().includes(busquedaCliente.value.toLowerCase()) ||
         (c.documento && c.documento.includes(busquedaCliente.value))
@@ -40,7 +41,6 @@ const clienteActivoObj = computed(() => {
     return props.clientes.find(c => c.id === clienteSeleccionado.value);
 });
 
-// NUEVO: Computed para saber cuánto saldo disponible tiene el cliente para fiar
 const disponibleCliente = computed(() => {
     if (!clienteActivoObj.value) return 0;
     const limite = parseFloat(clienteActivoObj.value.limite_cuenta_corriente) || 0;
@@ -52,7 +52,6 @@ const totalVenta = computed(() => {
     return carrito.value.reduce((acc, item) => acc + (item.precio_venta * item.cantidad), 0);
 });
 
-// NUEVO: Computed para saber si hay que bloquear el botón de cobro por falta de saldo
 const bloqueoPorSaldo = computed(() => {
     if (metodoPago.value === 'Cuenta Corriente' && clienteActivoObj.value) {
         return totalVenta.value > disponibleCliente.value;
@@ -199,7 +198,6 @@ const eliminarDelCarrito = (index) => carrito.value.splice(index, 1);
 const finalizarVenta = () => {
     if (carrito.value.length === 0) return;
     
-    // Doble chequeo por si me hacen trampa con el HTML
     if (metodoPago.value === 'Cuenta Corriente' && !clienteSeleccionado.value) {
         Swal.fire('Falta Cliente', 'Tenés que seleccionar a quién le vas a fiar.', 'warning');
         return;
@@ -226,7 +224,7 @@ const finalizarVenta = () => {
             Swal.fire({
                 icon: 'success',
                 title: '¡Venta Registrada!',
-                text: 'El ticket se procesó correctamente.',
+                text: 'El cobro se procesó correctamente.',
                 timer: 2000,
                 showConfirmButton: false
             });
@@ -249,12 +247,12 @@ const finalizarVenta = () => {
     <Head title="Terminal POS - Kiosco" />
 
     <AuthenticatedLayout>
-        <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-100 min-h-screen" @click="mostrarDropdownClientes = false">
+        <div class="py-6 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen" @click="mostrarDropdownClientes = false">
             
             <div class="mb-6 flex justify-between items-end">
                 <div>
                     <div class="flex items-center gap-3 mb-2">
-                        <span class="bg-indigo-100 text-indigo-800 text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest border border-indigo-200">
+                        <span class="bg-indigo-100 text-indigo-800 text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest border border-indigo-200 shadow-sm">
                             {{ turno.caja.nombre }}
                         </span>
                         <span class="text-xs font-bold text-slate-500">
@@ -269,20 +267,22 @@ const finalizarVenta = () => {
             </div>
 
             <div class="grid grid-cols-12 gap-6">
+                <!-- Panel izquierdo: búsqueda y productos -->
                 <div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
                     
-                    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/20 transition-all overflow-hidden">
+                    <!-- Input de búsqueda mejorado -->
+                    <div class="bg-white rounded-2xl shadow-md border border-slate-200 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/20 transition-all overflow-hidden">
                         <div class="relative flex items-center">
                             <span class="absolute left-4 text-slate-400">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                             </span>
                             <input 
                                 ref="inputBusqueda"
                                 v-model="buscar"
                                 @keyup.enter="procesarBusquedaEnter"
                                 type="text" 
-                                placeholder="Escaneá código (Unidad o Balanza) o buscá por nombre..."
-                                class="w-full pl-16 pr-4 py-5 bg-transparent border-none focus:ring-0 text-xl font-bold text-slate-800 placeholder-slate-400"
+                                placeholder="Escaneá código o buscá por nombre..."
+                                class="w-full pl-14 pr-4 py-4 bg-transparent border-none focus:ring-0 text-lg font-bold text-slate-800 placeholder-slate-400"
                                 autofocus
                             />
                             <div class="absolute right-4 px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
@@ -291,11 +291,12 @@ const finalizarVenta = () => {
                         </div>
                     </div>
 
+                    <!-- Grid de productos -->
                     <div v-if="productosFiltrados.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         <div 
                             v-for="p in productosFiltrados" :key="p.id"
                             @click="clickEnProducto(p)"
-                            class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 hover:border-sky-500 hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group relative overflow-hidden"
+                            class="bg-white p-4 rounded-2xl shadow-md border border-slate-200 hover:border-sky-500 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden"
                         >
                             <div class="absolute top-0 right-0 px-2 py-1 rounded-bl-xl text-[10px] font-black uppercase tracking-widest" :class="p.stock_actual <= 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'">
                                 Stock: {{ p.stock_actual }}
@@ -316,81 +317,95 @@ const finalizarVenta = () => {
                     </div>
                 </div>
 
+                <!-- Panel derecho: carrito y cobro - ESTILOS CORREGIDOS (sin TICKET) -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 flex flex-col h-[calc(100vh-140px)] sticky top-6 border border-slate-200 overflow-hidden">
                         
-                        <div class="p-5 border-b border-dashed border-slate-300 bg-slate-50 flex flex-col gap-4 z-20">
-                            
-                            <div class="flex justify-between items-center relative" @click.stop>
-                                <h2 class="text-lg font-black text-slate-800 flex items-center gap-2 uppercase tracking-widest">
-                                    TICKET #---
-                                </h2>
+                        <!-- Cabecera del carrito: SOLO EL SELECTOR DE CLIENTE (ocupa todo el ancho) -->
+                        <div class="p-5 border-b border-slate-200 bg-slate-50">
+                            <!-- Selector de cliente a ancho completo -->
+                            <div class="relative w-full" @click.stop>
+                                <div 
+                                    @click="mostrarDropdownClientes = !mostrarDropdownClientes"
+                                    class="bg-white px-4 py-3 rounded-xl text-sm font-bold text-slate-700 cursor-pointer flex justify-between items-center border border-slate-200 hover:border-sky-400 transition-all shadow-sm"
+                                >
+                                    <span class="truncate flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-sky-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
+                                        {{ clienteActivoObj ? clienteActivoObj.nombre + ' ' + clienteActivoObj.apellido : 'Consumidor Final' }}
+                                    </span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
                                 
-                                <div class="relative w-48">
-                                    <div 
-                                        @click="mostrarDropdownClientes = !mostrarDropdownClientes"
-                                        class="bg-white px-3 py-2 rounded-xl text-xs font-bold text-slate-700 cursor-pointer flex justify-between items-center border border-slate-200 hover:border-sky-400 transition-colors shadow-sm"
-                                    >
-                                        <span class="truncate flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
-                                            {{ clienteActivoObj ? clienteActivoObj.nombre : 'C. Final' }}
+                                <!-- Dropdown de clientes más grande y mágico -->
+                                <div v-if="mostrarDropdownClientes" class="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 shadow-xl rounded-2xl z-50 overflow-hidden">
+                                    <div class="p-4 border-b border-slate-100 bg-slate-50 relative">
+                                        <span class="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                         </span>
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                        <input 
+                                            v-model="busquedaCliente" 
+                                            type="text" 
+                                            placeholder="Buscá por nombre o documento..." 
+                                            class="w-full pl-10 text-sm font-medium border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 py-2.5"
+                                            autofocus
+                                        >
                                     </div>
-                                    
-                                    <div v-if="mostrarDropdownClientes" class="absolute right-0 top-full mt-2 w-64 bg-white border border-slate-200 shadow-xl rounded-2xl z-50 overflow-hidden">
-                                        <div class="p-3 border-b border-slate-100 bg-slate-50">
-                                            <input 
-                                                v-model="busquedaCliente" 
-                                                type="text" 
-                                                placeholder="Buscar cliente..." 
-                                                class="w-full text-xs font-bold border-slate-200 rounded-lg focus:ring-sky-500 focus:border-sky-500 py-2"
-                                            >
-                                        </div>
-                                        <ul class="max-h-56 overflow-y-auto">
-                                            <li 
-                                                @click="seleccionarCliente(null)" 
-                                                class="px-4 py-3 text-xs font-bold text-slate-600 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50 flex items-center gap-2"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                                Consumidor Final
-                                            </li>
-                                            <li 
-                                                v-for="c in clientesFiltradosSelect" :key="c.id"
-                                                @click="seleccionarCliente(c)"
-                                                class="px-4 py-3 text-xs font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50"
-                                            >
-                                                {{ c.nombre }}
-                                            </li>
-                                        </ul>
-                                    </div>
+                                    <ul class="max-h-64 overflow-y-auto">
+                                        <li 
+                                            @click="seleccionarCliente(null)" 
+                                            class="px-4 py-3 text-sm font-bold text-slate-600 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50 flex items-center gap-2"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                            Consumidor Final
+                                        </li>
+                                        <li 
+                                            v-for="c in clientesFiltradosSelect" :key="c.id"
+                                            @click="seleccionarCliente(c)"
+                                            class="px-4 py-3 text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50"
+                                        >
+                                            <div class="flex justify-between items-center">
+                                                <span>{{ c.nombre }} {{ c.apellido }}</span>
+                                                <span v-if="c.documento" class="text-[10px] font-mono text-slate-400">{{ c.documento }}</span>
+                                            </div>
+                                        </li>
+                                        <li v-if="busquedaCliente.length >= 2 && clientesFiltradosSelect.length === 0" class="px-4 py-3 text-sm text-slate-400 italic text-center">
+                                            No se encontraron clientes
+                                        </li>
+                                        <li v-if="busquedaCliente.length > 0 && busquedaCliente.length < 2" class="px-4 py-3 text-xs text-amber-600 text-center">
+                                            Escribí al menos 2 caracteres
+                                        </li>
+                                    </ul>
                                 </div>
                             </div>
-                            
+                        </div>
+
+                        <!-- Métodos de pago y saldo (sin cambios, solo estilos) -->
+                        <div class="px-5 pt-4 pb-2 bg-slate-50 flex flex-col gap-3">
                             <div class="flex gap-2">
                                 <label class="flex-1 cursor-pointer">
                                     <input type="radio" v-model="metodoPago" value="Efectivo" class="peer sr-only">
-                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1">
+                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                                         Efectivo
                                     </div>
                                 </label>
                                 <label class="flex-1 cursor-pointer">
                                     <input type="radio" v-model="metodoPago" value="Débito" class="peer sr-only">
-                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-sky-500 peer-checked:bg-sky-50 peer-checked:text-sky-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1">
+                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-sky-500 peer-checked:bg-sky-50 peer-checked:text-sky-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
                                         Digital
                                     </div>
                                 </label>
                                 <label class="flex-1 cursor-pointer">
                                     <input type="radio" v-model="metodoPago" value="Cuenta Corriente" class="peer sr-only">
-                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1">
+                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                                         Fiado
                                     </div>
                                 </label>
                             </div>
 
+                            <!-- Info de saldo disponible -->
                             <div v-if="metodoPago === 'Cuenta Corriente' && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
                                 <div>
                                     <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Crédito Disponible</p>
@@ -403,16 +418,16 @@ const finalizarVenta = () => {
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
                                 <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
                             </div>
-
                         </div>
 
+                        <!-- Lista del carrito -->
                         <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 z-10">
                             <div v-if="carrito.length === 0" class="h-full flex flex-col items-center justify-center text-slate-300 opacity-70">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-                                <p class="font-bold text-lg">Ticket Vacío</p>
+                                <p class="font-bold text-lg">Carrito vacío</p>
                             </div>
 
-                            <div v-for="(item, index) in carrito" :key="item.id" class="flex flex-col p-3 bg-white border border-slate-200 rounded-2xl shadow-sm relative group hover:border-sky-200 transition-colors">
+                            <div v-for="(item, index) in carrito" :key="item.id" class="flex flex-col p-3 bg-white border border-slate-200 rounded-2xl shadow-sm relative group hover:border-sky-200 transition-all">
                                 <div class="flex justify-between items-start mb-2">
                                     <div class="pr-6">
                                         <span class="font-bold text-slate-800 text-sm block">{{ item.nombre }}</span>
@@ -442,18 +457,19 @@ const finalizarVenta = () => {
                             </div>
                         </div>
 
-                        <div class="p-5 bg-white border-t border-dashed border-slate-300 z-20 relative">
-                            <div class="flex justify-between items-end mb-4">
-                                <span class="text-slate-400 font-black uppercase tracking-widest text-xs">Total</span>
-                                <span class="text-4xl font-black text-slate-900 tracking-tighter leading-none" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
+                        <!-- Footer con total y botón de cobro -->
+                        <div class="p-5 bg-white border-t border-slate-200 z-20">
+                            <div class="flex justify-between items-baseline mb-4">
+                                <span class="text-slate-500 font-black uppercase tracking-widest text-xs">Total</span>
+                                <span class="text-3xl font-black text-slate-900 tracking-tight" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
                             </div>
 
                             <button 
                                 @click="finalizarVenta"
                                 :disabled="carrito.length === 0 || bloqueoPorSaldo || (metodoPago === 'Cuenta Corriente' && !clienteActivoObj)"
-                                class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-4 rounded-2xl shadow-xl uppercase tracking-widest active:scale-95 transition-all"
+                                class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-3.5 rounded-xl shadow-lg uppercase tracking-widest active:scale-95 transition-all text-sm"
                             >
-                                {{ bloqueoPorSaldo ? 'SALDO INSUFICIENTE' : 'Cobrar Ticket' }}
+                                {{ bloqueoPorSaldo ? 'SALDO INSUFICIENTE' : 'Cobrar' }}
                             </button>
                         </div>
                     </div>
