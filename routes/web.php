@@ -24,16 +24,62 @@ use App\Http\Controllers\{
     TicketController,
 };
 use App\Models\CuentaCorriente;
+use App\Models\Sucursal;
+use App\Models\Producto; // Importación necesaria para la API
 use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 
-// --- RUTA PÚBLICA ---
+// ==========================================
+// --- ZONA PÚBLICA (CATÁLOGO Y GPS) ---
+// ==========================================
+
 Route::get('/', function () {
-    return redirect()->route('login');
+    // Traemos id, nombre y las coordenadas para que el mapa de Leaflet funcione
+    // Aseguramos que traiga latitud y longitud de la base de datos
+    $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud')
+        ->where('estado', true)
+        ->get();
+
+    return Inertia::render('Welcome', [
+        'canLogin' => Route::has('login'),
+        'canRegister' => Route::has('register'),
+        'sucursalesBackend' => $sucursales 
+    ]);
 });
+
+// Ruta API corregida con tu relación Many-to-Many real
+Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
+    try {
+        $sucursal = Sucursal::find($sucursal_id);
+        
+        if (!$sucursal) {
+            return response()->json([]);
+        }
+
+        // Traemos los productos usando la relación BelongsToMany que tenés en el modelo
+        $productos = $sucursal->productos()->where('productos.estado', true)->get();
+
+        $productosMapeados = $productos->map(function ($prod) {
+            return [
+                'id'         => $prod->id,
+                'nombre'     => $prod->nombre,
+                // Usamos el precio_venta que vimos en tu migración
+                'precio'     => number_format($prod->precio_venta ?? 0, 2, ',', '.'),
+                // Usamos tu accessor url_imagen definido en el modelo Producto
+                'imagen_url' => $prod->url_imagen ?? $prod->imagen ?? null,
+            ];
+        });
+
+        return response()->json($productosMapeados);
+        
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -120,7 +166,6 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::post('/marcas/{marca}', [MarcaController::class, 'update'])->name('marcas.update');
     Route::patch('/marcas/{marca}/status', [MarcaController::class, 'status'])->name('marcas.status');
 
-    // 🔥 TARJETA 2: Transferencias Sugeridas
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
     Route::post('/transferencias-sugeridas/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
 
@@ -166,7 +211,6 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::get('/cotizar/{id}', [ReposicionController::class, 'verCotizacion'])->name('cotizar.ver');
     Route::post('/cotizar/{id}', [ReposicionController::class, 'guardarCotizacion'])->name('cotizar.guardar');
 
-    // 🔥 TARJETA 3: Configuración Global
     Route::get('/configuracion', [ConfiguracionController::class, 'index'])->name('configuracion.index');
     Route::post('/configuracion', [ConfiguracionController::class, 'update'])->name('configuracion.update');
 });
