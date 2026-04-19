@@ -196,6 +196,18 @@ const paginatedModalMovs = computed(() => {
 });
 const totalPagesModalMovs = computed(() => Math.ceil(movimientosHistorial.value.length / itemsPerPage));
 
+// Función para determinar el estilo del badge según el método de pago
+const getMetodoPagoBadgeClass = (metodo) => {
+  if (!metodo) return 'bg-gray-100 text-gray-700';
+  const metodoUpper = metodo.toUpperCase();
+  if (metodoUpper === 'EFECTIVO') return 'bg-emerald-100 text-emerald-700';
+  if (['MERCADO_PAGO', 'MERCADOPAGO', 'MP', 'TRANSFERENCIA', 'TRANSFER', 'DÉBITO', 'DEBITO', 'CRÉDITO', 'CREDITO', 'TARJETA'].some(m => metodoUpper.includes(m))) 
+    return 'bg-sky-100 text-sky-700';
+  if (metodoUpper.includes('CUENTA CORRIENTE') || metodoUpper.includes('FIADO') || metodoUpper === 'CTA CTE')
+    return 'bg-amber-100 text-amber-700';
+  return 'bg-gray-100 text-gray-700';
+};
+
 const inicializar = async () => {
   loading.value = true;
   try {
@@ -616,13 +628,14 @@ onUnmounted(() => detenerRadar());
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Tipo</th>
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Concepto</th>
+                      <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Método</th>
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Descripción</th>
                       <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase">Monto</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200">
                     <tr v-if="movimientos.length === 0">
-                      <td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay movimientos.</td>
+                      <td colspan="6" class="px-6 py-8 text-center text-gray-500">No hay movimientos.</td>
                     </tr>
                     <tr v-for="mov in paginatedMovs" :key="mov.id" class="hover:bg-slate-50">
                       <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600">{{ formatearHora(mov.fecha) }}</td>
@@ -632,6 +645,11 @@ onUnmounted(() => detenerRadar());
                         </span>
                       </td>
                       <td class="px-6 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{{ mov.concepto }}</td>
+                      <td class="px-6 py-3 whitespace-nowrap">
+                        <span :class="getMetodoPagoBadgeClass(mov.metodo_pago)" class="px-2 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide">
+                          {{ mov.metodo_pago || 'N/D' }}
+                        </span>
+                      </td>
                       <td class="px-6 py-3 text-sm text-slate-500 truncate max-w-[200px]">{{ mov.descripcion }}</td>
                       <td class="px-6 py-3 whitespace-nowrap text-sm font-black text-right" :class="mov.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'">
                         {{ mov.tipo === 'EGRESO' ? '-' : '+' }}{{ formatearMoneda(mov.monto) }}
@@ -652,6 +670,7 @@ onUnmounted(() => detenerRadar());
       </div>
     </div>
 
+    <!-- Modal Cierre de Caja -->
     <div v-if="mostrarModalCierre" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
         
@@ -756,6 +775,7 @@ onUnmounted(() => detenerRadar());
       </div>
     </div>
 
+    <!-- Modal Movimiento Manual -->
     <div v-if="mostrarModalGasto" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
         <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-50">
@@ -819,6 +839,7 @@ onUnmounted(() => detenerRadar());
       </div>
     </div>
 
+    <!-- Modal Detalle Historial -->
     <div v-if="mostrarModalDetalleHistorial" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
         
@@ -870,6 +891,7 @@ onUnmounted(() => detenerRadar());
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Tipo</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Concepto</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Método</th>
                 <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Monto</th>
               </tr>
             </thead>
@@ -882,12 +904,17 @@ onUnmounted(() => detenerRadar());
                   </span>
                 </td>
                 <td class="px-4 py-3 text-sm font-medium text-slate-700">{{ mov.concepto }}</td>
+                <td class="px-4 py-3">
+                  <span :class="getMetodoPagoBadgeClass(mov.metodo_pago)" class="px-2 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide">
+                    {{ mov.metodo_pago || 'N/D' }}
+                  </span>
+                </td>
                 <td class="px-4 py-3 text-right font-bold" :class="mov.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'">
                   {{ mov.tipo === 'EGRESO' ? '-' : '+' }}{{ formatearMoneda(mov.monto) }}
                 </td>
               </tr>
               <tr v-if="movimientosHistorial.length === 0">
-                <td colspan="4" class="text-center py-10 text-slate-500 font-medium border-t border-dashed">Sin movimientos registrados en esta sesión.</td>
+                <td colspan="5" class="text-center py-10 text-slate-500 font-medium border-t border-dashed">Sin movimientos registrados en esta sesión.</td>
               </tr>
             </tbody>
           </table>

@@ -10,7 +10,6 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class ConsumidorController extends Controller
 {
@@ -49,13 +48,28 @@ class ConsumidorController extends Controller
         ]);
     }
 
+    /**
+     * Convierte cadenas vacías a null para documento y email
+     */
+    private function normalizeInput(Request $request): void
+    {
+        if ($request->input('documento') === '') {
+            $request->merge(['documento' => null]);
+        }
+        if ($request->input('email') === '') {
+            $request->merge(['email' => null]);
+        }
+    }
+
     public function store(Request $request)
     {
+        $this->normalizeInput($request);
+
         $validated = $request->validate([
             'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
             'apellido' => 'required|string|max:50|regex:/^[^0-9]+$/',
             'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', 'unique:consumidores,documento'],
-            'email' => 'nullable|email|max:255|unique:consumidores,email',
+            'email' => ['nullable', 'email', 'max:255', 'unique:consumidores,email'],
             'telefono' => 'nullable|string|max:15|regex:/^\d+$/',
             'direccion' => 'nullable|string|max:255',
             'limite_cuenta_corriente' => 'required|numeric|min:0',
@@ -64,7 +78,9 @@ class ConsumidorController extends Controller
             'nombre.regex' => 'El nombre no puede contener números.',
             'apellido.regex' => 'El apellido no puede contener números.',
             'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
+            'documento.unique' => 'El documento ya está registrado por otro cliente.',
             'telefono.regex' => 'El teléfono solo puede contener números.',
+            'email.unique' => 'El email ya pertenece a otro cliente.',
         ]);
 
         Consumidor::create($validated);
@@ -74,6 +90,8 @@ class ConsumidorController extends Controller
 
     public function update(Request $request, Consumidor $consumidor)
     {
+        $this->normalizeInput($request);
+
         $validated = $request->validate([
             'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
             'apellido' => 'required|string|max:50|regex:/^[^0-9]+$/',
@@ -87,7 +105,9 @@ class ConsumidorController extends Controller
             'nombre.regex' => 'El nombre no puede contener números.',
             'apellido.regex' => 'El apellido no puede contener números.',
             'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
+            'documento.unique' => 'El documento ya está registrado por otro cliente.',
             'telefono.regex' => 'El teléfono solo puede contener números.',
+            'email.unique' => 'El email ya pertenece a otro cliente.',
         ]);
 
         $consumidor->update($validated);
@@ -103,7 +123,6 @@ class ConsumidorController extends Controller
         return redirect()->back()->with('success', 'Estado del cliente modificado.');
     }
 
-    // 🔥 NUEVO: DEVUELVE EL HISTORIAL DE LA CUENTA
     public function estadoCuenta(Consumidor $consumidor)
     {
         $cuenta = $consumidor->cuentaCorriente;
@@ -111,27 +130,25 @@ class ConsumidorController extends Controller
             return response()->json([]);
         }
 
-        // Buscamos los movimientos ordenados de más nuevo a más viejo
         $movimientos = MovimientoCuentaCorriente::where('cuenta_corriente_id', $cuenta->id)
-            ->with('venta') // Por si fue un cargo de una venta
+            ->with('venta')
             ->orderBy('created_at', 'desc')
             ->get();
 
         return response()->json($movimientos);
     }
 
-    // 🔥 ACTUALIZADO: ACEPTA PAGOS MIXTOS Y REGISTRA EN EL HISTORIAL
     public function cobrarDeuda(Request $request, Consumidor $consumidor)
     {
         $request->validate([
             'pagos' => 'required|array|min:1',
             'pagos.*.monto' => 'required|numeric|min:0.01',
-            'pagos.*.metodo_pago' => 'required|string'
+            'pagos.*.metodo_pago' => 'required|string|distinct'
+        ], [
+            'pagos.*.metodo_pago.distinct' => 'No puedes repetir el mismo método de pago.'
         ]);
 
         $cuenta = $consumidor->cuentaCorriente;
-        
-        // Sumamos todos los pagos que mandó el cajero
         $totalAbono = collect($request->pagos)->sum('monto');
 
         if (!$cuenta || $cuenta->saldo_deudor < $totalAbono) {
@@ -141,12 +158,10 @@ class ConsumidorController extends Controller
         DB::beginTransaction();
 
         try {
-            // 1. Restar la deuda de la cuenta
             $cuenta->saldo_deudor -= $totalAbono;
             $cuenta->fecha_ultimo_movimiento = now();
             $cuenta->save();
 
-            // 2. Registrar en la caja (Un movimiento por cada método de pago)
             $user = auth()->user();
             $turno = TurnoCaja::where('user_id', $user->id)
                         ->where('estado', 'Abierto')
@@ -162,14 +177,14 @@ class ConsumidorController extends Controller
                         'concepto'      => 'COBRO_CUENTA_CORRIENTE',
                         'metodo_pago'   => $pago['metodo_pago'],
                         'monto'         => $pago['monto'],
-                        'descripcion'   => 'Pago deuda: ' . $consumidor->nombre . ' ' . $consumidor->apellido
+                        // 🔥 MAGIA ACÁ: Ahora se guarda "Pago deuda: Juan Perez (Efectivo)"
+                        'descripcion'   => 'Pago deuda: ' . $consumidor->nombre . ' ' . $consumidor->apellido . ' (' . $pago['metodo_pago'] . ')'
                     ]);
 
                     $detallesPago[] = $pago['metodo_pago'] . ': $' . number_format($pago['monto'], 2, ',', '.');
                 }
             }
 
-            // 3. Dejar registro en el historial de la cuenta corriente del cliente
             MovimientoCuentaCorriente::create([
                 'cuenta_corriente_id' => $cuenta->id,
                 'monto'               => $totalAbono,
@@ -184,5 +199,30 @@ class ConsumidorController extends Controller
             DB::rollBack();
             return back()->withErrors(['monto' => 'Error de BD al procesar el pago: ' . $e->getMessage()]);
         }
+    }
+
+    public function checkDocumento(Request $request)
+    {
+        $request->validate([
+            'documento' => 'nullable|string|regex:/^\d{7,8}$/',
+            'ignore_id' => 'nullable|integer|exists:consumidores,id'
+        ]);
+
+        if (empty($request->documento)) {
+            return response()->json(['available' => true]);
+        }
+
+        $query = Consumidor::where('documento', $request->documento);
+        
+        if ($request->has('ignore_id')) {
+            $query->where('id', '!=', $request->ignore_id);
+        }
+        
+        $exists = $query->exists();
+        
+        return response()->json([
+            'available' => !$exists,
+            'message' => $exists ? 'Este DNI ya está registrado' : 'DNI disponible'
+        ]);
     }
 }
