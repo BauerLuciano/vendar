@@ -1,6 +1,6 @@
 <script setup>
 import { useForm } from '@inertiajs/vue3';
-import { watch } from 'vue';
+import { watch, computed } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
@@ -20,6 +20,11 @@ const form = useForm({
     rol: ''
 });
 
+// Propiedad computada para saber si necesita sucursal
+const requiereSucursal = computed(() => {
+    return form.rol !== 'Administrador Global';
+});
+
 // Resetea o llena el formulario cuando se abre el modal
 watch(() => props.mostrar, (mostrando) => {
     if (mostrando) {
@@ -27,7 +32,7 @@ watch(() => props.mostrar, (mostrando) => {
             form.name = props.usuario.name;
             form.email = props.usuario.email;
             form.password = ''; // Por seguridad no traemos la contraseña
-            form.branch_id = props.usuario.branch_id;
+            form.branch_id = props.usuario.branch_id || '';
             form.rol = props.usuario.roles?.length > 0 ? props.usuario.roles[0].name : '';
         } else {
             form.reset();
@@ -84,12 +89,13 @@ const guardar = () => {
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
-                    <div class="col-span-2 sm:col-span-1">
+                    <div class="col-span-2 sm:col-span-1" v-show="requiereSucursal">
                         <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Sucursal Base</label>
-                        <select v-model="form.branch_id" class="w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" required>
+                        <select v-model="form.branch_id" class="w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" :required="requiereSucursal">
                             <option value="" disabled>Seleccione...</option>
                             <option v-for="sucursal in sucursales" :key="sucursal.id" :value="sucursal.id">{{ sucursal.nombre }}</option>
                         </select>
+                        <span class="text-rose-500 text-xs" v-if="form.errors.branch_id">{{ form.errors.branch_id }}</span>
                     </div>
                     <div class="col-span-2 sm:col-span-1">
                         <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Rol / Perfil</label>

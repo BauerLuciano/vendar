@@ -45,6 +45,7 @@ class DatabaseSeeder extends Seeder
             FixDatosMaestrosSeeder::class, // 1ro: Crea la Sucursal y el Consumidor Final
             CajaSeeder::class,             // 2do: Crea las Cajas (ahora sí encuentra la sucursal)
             ConsumidorSeeder::class,       // 3ro: Crea el resto de los clientes
+            GlobalAdminSeeder::class,      // 4to: Crea el Admin Global (si no lo creaste antes)
         ]);
     }
 }

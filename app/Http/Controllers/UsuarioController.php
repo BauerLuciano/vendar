@@ -17,7 +17,11 @@ class UsuarioController extends Controller
         $sucursal_id = $request->input('sucursal_id', 'all');
         $rol = $request->input('rol', 'all');
 
-        $query = User::withoutRole('cliente')->with(['branch', 'roles']);
+        // 🔥 FILTRO DE INVISIBILIDAD: Nunca mostramos al Administrador Global ni a los clientes
+        $query = User::with(['branch', 'roles'])
+            ->whereDoesntHave('roles', function ($q) {
+                $q->whereIn('name', ['Administrador Global', 'cliente']);
+            });
 
         $query->when($search, function ($q, $search) {
             $q->where(function ($sub) use ($search) {
@@ -39,7 +43,8 @@ class UsuarioController extends Controller
 
         $usuarios = $query->orderBy('id', 'desc')->paginate(10)->withQueryString();
         
-        $roles = Role::where('name', '!=', 'cliente')->get();
+        // 🔥 Tampoco mostramos el rol de Administrador Global en el selector
+        $roles = Role::whereNotIn('name', ['cliente', 'Administrador Global'])->get();
         $sucursales = Sucursal::all();
 
         return Inertia::render('Usuarios/Index', [
@@ -56,7 +61,8 @@ class UsuarioController extends Controller
             'name'      => 'required|string|max:255',
             'email'     => 'required|string|email|max:255|unique:users',
             'password'  => 'required|string|min:8',
-            'branch_id' => 'required|exists:sucursales,id', 
+            // 🔥 Si sos Administrador Global, la sucursal es opcional (nullable)
+            'branch_id' => $request->rol === 'Administrador Global' ? 'nullable' : 'required|exists:sucursales,id', 
             'rol'       => 'required|string|exists:roles,name'
         ]);
 
@@ -67,7 +73,6 @@ class UsuarioController extends Controller
             'branch_id' => $request->branch_id,
         ]);
 
-        // Le asignamos el rol usando Spatie
         $usuario->assignRole($request->rol);
 
         return redirect()->back()->with('exito', 'Usuario creado correctamente.');
@@ -79,23 +84,20 @@ class UsuarioController extends Controller
             'name'      => 'required|string|max:255',
             'email'     => 'required|string|email|max:255|unique:users,email,' . $usuario->id,
             'password'  => 'nullable|string|min:8', 
-            'branch_id' => 'required|exists:sucursales,id',
+            // 🔥 Misma regla para la actualización
+            'branch_id' => $request->rol === 'Administrador Global' ? 'nullable' : 'required|exists:sucursales,id',
             'rol'       => 'required|string|exists:roles,name'
         ]);
 
-        // Actualizamos datos básicos
         $usuario->name = $request->name;
         $usuario->email = $request->email;
         $usuario->branch_id = $request->branch_id;
 
-        // Solo cambiamos la contraseña si el admin escribió una nueva
         if ($request->filled('password')) {
             $usuario->password = Hash::make($request->password);
         }
 
         $usuario->save();
-
-        // Sincronizamos el nuevo rol
         $usuario->syncRoles([$request->rol]);
 
         return redirect()->back()->with('exito', 'Usuario actualizado correctamente.');
@@ -103,7 +105,6 @@ class UsuarioController extends Controller
 
     public function destroy(User $usuario)
     {
-        // Seguro de vida: No te podés borrar a vos mismo por error
         if ($usuario->id === auth()->id()) {
             return redirect()->back()->withErrors(['error' => 'No podés eliminar tu propio usuario.']);
         }
