@@ -4,30 +4,30 @@ import { Head, router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
-    sugerencias: Array // Viene con: { id, producto, origen, destino, cantidad }
+    sugerencias: Array // Cada item tiene objetos dentro: producto, origen, destino
 });
 
 const aprobarTransferencia = (sugerencia) => {
     Swal.fire({
         title: '¿Confirmar transferencia?',
-        text: `Se moverán ${sugerencia.cantidad} unidades de ${sugerencia.producto} desde ${sugerencia.origen} a ${sugerencia.destino}.`,
+        // Accedemos a .nombre de cada objeto para que el cartel se vea bien
+        text: `Se moverán ${sugerencia.cantidad} unidades de ${sugerencia.producto.nombre} desde ${sugerencia.origen.nombre} a ${sugerencia.destino.nombre}.`,
         icon: 'question',
         showCancelButton: true,
-        confirmButtonColor: '#4f46e5',
+        confirmButtonColor: '#10b981', // Un verde esmeralda más lindo
         cancelButtonColor: '#ef4444',
         confirmButtonText: 'Sí, aprobar',
-        cancelButtonText: 'Cancelar'
+        cancelButtonText: 'Cancelar',
+        reverseButtons: true
     }).then((result) => {
         if (result.isConfirmed) {
-            router.post(route('transferencias.aprobar'), {
-                sugerencia_id: sugerencia.id,
-                // Podés mandar más datos si el backend los necesita
-            }, {
+            // Enviamos el ID de la sugerencia al controlador
+            router.post(route('transferencias.aprobar', sugerencia.id), {}, {
                 onSuccess: () => {
-                    Swal.fire('¡Aprobado!', 'La transferencia de stock ha sido registrada.', 'success');
+                    Swal.fire('¡Logrado!', 'El stock ha sido nivelado correctamente.', 'success');
                 },
                 onError: () => {
-                    Swal.fire('Error', 'No se pudo procesar la transferencia.', 'error');
+                    Swal.fire('Error', 'Hubo un problema al procesar el movimiento.', 'error');
                 }
             });
         }
@@ -56,7 +56,7 @@ const aprobarTransferencia = (sugerencia) => {
                     </div>
                     <div class="ml-3">
                         <p class="text-sm text-indigo-700 font-medium">
-                            El sistema ha detectado productos con bajo stock en algunas sucursales que pueden ser cubiertos por el excedente de otras.
+                            El sistema detectó faltantes que pueden cubrirse con excedentes de otras sucursales.
                         </p>
                     </div>
                 </div>
@@ -77,12 +77,12 @@ const aprobarTransferencia = (sugerencia) => {
                     <tbody class="divide-y divide-slate-50">
                         <tr v-for="item in sugerencias" :key="item.id" class="hover:bg-slate-50/50 transition-colors">
                             <td class="p-5">
-                                <div class="font-bold text-slate-800 text-sm">{{ item.producto }}</div>
-                                <div class="text-[10px] text-slate-400 uppercase font-black">Sugerencia Automática</div>
+                                <div class="font-bold text-slate-800 text-sm">{{ item.producto.nombre }}</div>
+                                <div class="text-[10px] text-slate-400 uppercase font-black tracking-widest">Ajuste de Negativo</div>
                             </td>
                             <td class="p-5 text-center">
                                 <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold">
-                                    {{ item.origen }}
+                                    {{ item.origen.nombre }}
                                 </span>
                             </td>
                             <td class="p-5 text-center text-indigo-400 font-black">
@@ -92,7 +92,7 @@ const aprobarTransferencia = (sugerencia) => {
                             </td>
                             <td class="p-5 text-center">
                                 <span class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg text-xs font-bold border border-indigo-100">
-                                    {{ item.destino }}
+                                    {{ item.destino.nombre }}
                                 </span>
                             </td>
                             <td class="p-5 text-center font-black text-slate-700">
@@ -101,16 +101,17 @@ const aprobarTransferencia = (sugerencia) => {
                             <td class="p-5 text-right">
                                 <button 
                                     @click="aprobarTransferencia(item)"
-                                    class="bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl shadow-lg shadow-emerald-100 transition-all hover:scale-105"
+                                    class="bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
                                 >
                                     Aprobar
                                 </button>
                             </td>
                         </tr>
+
                         <tr v-if="sugerencias.length === 0">
                             <td colspan="6" class="p-10 text-center">
-                                <div class="text-slate-300 mb-2 font-bold uppercase tracking-widest">No hay sugerencias pendientes</div>
-                                <p class="text-xs text-slate-400">El stock está equilibrado en todas las sucursales.</p>
+                                <div class="text-slate-300 mb-2 font-bold uppercase tracking-widest">Stock Equilibrado</div>
+                                <p class="text-xs text-slate-400">No se detectaron sucursales en negativo con stock disponible en otras.</p>
                             </td>
                         </tr>
                     </tbody>

@@ -93,9 +93,13 @@ const toggleSeccion = (titulo) => {
 <template>
     <div class="w-64 bg-slate-900 h-screen fixed left-0 top-0 shadow-2xl flex flex-col z-50">
         
-        <div class="p-6 border-b border-slate-800 flex justify-center">
-            <Link :href="route('dashboard')" class="block transition-transform hover:scale-105">
-                <img src="/img/LogoVendar-Sidebar.png" alt="VendAR Logo" class="w-48 h-auto max-h-12 object-contain">
+        <div class="px-4 py-4 border-b border-slate-800 flex justify-center items-center">
+            <Link :href="route('dashboard')" class="block transition-transform hover:scale-105 w-full text-center">
+                <img 
+                    src="/img/LogoVendar-Sidebar.png" 
+                    alt="VendAR Logo" 
+                    class="w-full h-auto max-h-24 object-contain mx-auto"
+                >
             </Link>
         </div>
 
@@ -152,6 +156,7 @@ const toggleSeccion = (titulo) => {
 </template>
 
 <style scoped>
+/* Estilos originales mantenidos */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

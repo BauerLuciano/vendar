@@ -41,7 +41,13 @@ Route::get('/', function () {
     // Aseguramos que traiga latitud y longitud de la base de datos
     $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud')
         ->where('estado', true)
-        ->get();
+        ->get()
+        ->map(function($sucursal) {
+            // Convertimos de Texto a Float para que Vue y el Mapa no se rompan
+            $sucursal->latitud = (float) $sucursal->latitud;
+            $sucursal->longitud = (float) $sucursal->longitud;
+            return $sucursal;
+        });
 
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
@@ -167,7 +173,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::patch('/marcas/{marca}/status', [MarcaController::class, 'status'])->name('marcas.status');
 
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
-    Route::post('/transferencias-sugeridas/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
+    Route::post('/transferencias-sugeridas/{transferencia}/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
 
     Route::get('/ingresos', [IngresoMercaderiaController::class, 'index'])->name('ingresos.index');
     Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');

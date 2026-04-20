@@ -2,9 +2,9 @@
     <header class="bg-slate-900 border-b border-slate-800 shadow-md px-6 py-3 flex justify-between items-center h-16 z-40 relative">
         
         <div class="flex items-center gap-4">
-            <h2 class="text-xl font-black text-white tracking-tight hidden sm:block">
-                Vend<span class="text-sky-500 font-medium">AR</span>
-            </h2>
+    <h2 class="text-xl font-black text-white tracking-tight hidden sm:block">
+        Vend<span class="text-orange-500 font-bold">AR</span>
+    </h2>
         </div>
 
         <div class="flex items-center gap-4">
