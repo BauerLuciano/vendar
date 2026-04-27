@@ -13,16 +13,14 @@ use Carbon\Carbon;
 class PosController extends Controller
 {
     // Esta es la puerta de entrada al POS
-    public function index(Request $request)
+   public function index(Request $request)
     {
         $user = auth()->user();
 
-        // 1. Buscamos si el usuario ya tiene un turno abierto
         $turnoAbierto = TurnoCaja::where('user_id', $user->id)
             ->where('estado', 'Abierto')
             ->first();
 
-        // 2. Si ya tiene turno, lo mandamos a vender
         if ($turnoAbierto) {
             $sucursalId = $user->branch_id ?? 1;
 
@@ -30,16 +28,37 @@ class PosController extends Controller
                 ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
                 ->with(['sucursales' => function($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId);
-                }])
+                }, 'reglaLiquidacion']) // 🔥 Cargamos la regla de liquidación
                 ->get()
-                ->map(function($p) {
-                    // 🚀 MAGIA: Seteamos el stock actual de forma plana para el frontend
+                ->map(function($p) use ($sucursalId) {
                     $pivot = $p->sucursales->first();
                     $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
+
+                    // 🔥 LÓGICA DE LIQUIDACIÓN PREVENTIVA
+                    // Verificamos si este producto tiene AL MENOS UN lote en liquidación en esta sucursal con stock
+                    $loteEnLiquidacion = \App\Models\Lote::where('producto_id', $p->id)
+                        ->where('sucursal_id', $sucursalId)
+                        ->where('estado_liquidacion', true)
+                        ->where('stock_actual', '>', 0)
+                        ->exists();
+
+                    $p->en_liquidacion = false;
+                    $p->porcentaje_descuento = 0;
+                    $p->precio_rebajado = $p->precio_venta;
+
+                    // Si hay lote en liquidación y el producto tiene una regla activa...
+                    if ($loteEnLiquidacion && $p->reglaLiquidacion && $p->reglaLiquidacion->estado) {
+                        $p->en_liquidacion = true;
+                        $p->porcentaje_descuento = (float) $p->reglaLiquidacion->porcentaje_descuento;
+                        
+                        // Calculamos el nuevo precio: Precio - (Precio * % / 100)
+                        $descuento = $p->precio_venta * ($p->porcentaje_descuento / 100);
+                        $p->precio_rebajado = round($p->precio_venta - $descuento, 2);
+                    }
+
                     return $p;
                 });
 
-            // CORRECCIÓN: Traemos SOLO clientes activos y anexamos su cuenta corriente
             $clientesActivos = Consumidor::with('cuentaCorriente')
                 ->where('estado', true)
                 ->get();
@@ -51,7 +70,6 @@ class PosController extends Controller
             ]);
         }
 
-        // 3. Si NO tiene turno...
         $cajasDisponibles = Caja::where('sucursal_id', $user->branch_id ?? 1)
             ->where('estado', true)
             ->get();

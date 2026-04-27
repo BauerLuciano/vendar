@@ -153,6 +153,8 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::post('/productos/{producto}', [ProductoController::class, 'update'])->name('productos.update');
     Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
+
+    Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])->name('lotes.index');
     
     Route::get('/categorias', [CategoriaController::class, 'index'])->name('categorias.index');
     Route::post('/categorias', [CategoriaController::class, 'store'])->name('categorias.store');

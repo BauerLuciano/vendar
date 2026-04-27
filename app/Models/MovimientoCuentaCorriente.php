@@ -22,4 +22,9 @@ class MovimientoCuentaCorriente extends Model
     {
         return $this->belongsTo(Venta::class);
     }
+
+    public function cuentaCorriente()
+    {
+        return $this->belongsTo(CuentaCorriente::class);
+    }
 }

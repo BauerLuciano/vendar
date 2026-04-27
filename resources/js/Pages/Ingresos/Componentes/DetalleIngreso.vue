@@ -12,7 +12,7 @@ const formatearFechaHora = (fecha) => {
 
 <template>
     <div v-if="mostrar && ingreso" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
             
             <div class="bg-slate-900 p-6 text-white">
                 <div class="flex justify-between items-start">
@@ -32,7 +32,7 @@ const formatearFechaHora = (fecha) => {
             <div class="p-6 bg-white border-b border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div>
                     <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Fecha Remito</p>
-                    <p class="font-bold text-slate-700">{{ ingreso.fecha_ingreso }}</p>
+                    <p class="font-bold text-slate-700">{{ ingreso.fecha_ingreso.split('-').reverse().join('/') }}</p>
                 </div>
                 <div>
                     <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Sucursal</p>
@@ -58,7 +58,7 @@ const formatearFechaHora = (fecha) => {
                     <thead>
                         <tr class="text-[10px] uppercase tracking-widest text-slate-400 border-b-2 border-slate-100">
                             <th class="pb-3 font-black">Cód. Barras / Producto</th>
-                            <th class="pb-3 font-black text-center">Cant.</th>
+                            <th class="pb-3 font-black text-center">Vence</th> <th class="pb-3 font-black text-center">Cant.</th>
                             <th class="pb-3 font-black text-right">Costo Unit.</th>
                             <th class="pb-3 font-black text-right">Subtotal</th>
                         </tr>
@@ -69,6 +69,14 @@ const formatearFechaHora = (fecha) => {
                                 <p class="text-[10px] font-mono text-slate-400 leading-none mb-1">{{ det.producto?.codigo_barras }}</p>
                                 <p class="font-bold text-slate-700 text-sm uppercase leading-none">{{ det.producto?.nombre }}</p>
                             </td>
+                            
+                            <td class="py-4 text-center">
+                                <span v-if="det.fecha_vencimiento" class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-[10px] font-bold">
+                                    {{ det.fecha_vencimiento.split('-').reverse().join('/') }}
+                                </span>
+                                <span v-else class="text-slate-300 font-bold">-</span>
+                            </td>
+
                             <td class="py-4 text-center font-black text-sky-600">
                                 <span class="bg-sky-50 px-3 py-1 rounded-lg border border-sky-100">{{ det.cantidad_recibida }}</span>
                             </td>

@@ -40,6 +40,7 @@ class DashboardController extends Controller
                 'producto_sucursal.cantidad_fisica as cantidad_fisica',
                 'sucursales.nombre as sucursal'
             )
+            ->where('productos.estado', true) // 🔥 ACÁ ESTÁ LA MAGIA: Solo productos activos
             ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
 
         // Si NO es jefe, solo ve las alertas de su propia sucursal

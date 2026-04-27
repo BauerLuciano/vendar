@@ -49,6 +49,11 @@ class Producto extends Model
         return $this->codigo_barras;
     }
 
+    public function reglaLiquidacion()
+    {
+        return $this->hasOne(ReglaLiquidacion::class);
+    }
+
     public function categoria() 
     { 
         return $this->belongsTo(Categoria::class, 'categoria_id'); 

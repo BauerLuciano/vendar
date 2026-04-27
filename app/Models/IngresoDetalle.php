@@ -12,7 +12,8 @@ class IngresoDetalle extends Model
         'ingreso_mercaderia_id', 
         'producto_id', 
         'cantidad_recibida', 
-        'costo_unitario'
+        'costo_unitario',
+        'fecha_vencimiento',
     ];
 
     public function ingreso() { 
