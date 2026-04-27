@@ -20,23 +20,23 @@ class DashboardController extends Controller
         $deudaTotal = CuentaCorriente::sum('saldo_deudor') ?? 0;
 
         // 2. Ventas de Hoy (Recaudación del día)
-        // NOTA: Si tu tabla 'ventas' tiene otra columna en vez de 'total', cambiala acá.
         $ventasHoy = DB::table('ventas')
             ->whereDate('created_at', Carbon::today())
             ->sum('total') ?? 0;
 
         // 3. Cajas Activas (Turnos que aún no se cerraron)
         $cajasActivas = DB::table('turno_cajas')
-            ->whereNull('monto_cierre') // Asumimos que si no tiene monto de cierre, está abierta
+            ->whereNull('monto_cierre') 
             ->count();
 
-        // 4. Cálculo de Productos con Bajo Stock (Con Filtro SaaS)
+        // 4. Cálculo de Productos con Bajo Stock (Con Filtro SaaS e inclusión de Unidad de Medida)
         $queryStock = DB::table('productos')
             ->join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
             ->join('sucursales', 'sucursales.id', '=', 'producto_sucursal.sucursal_id')
             ->select(
                 'productos.nombre as producto',
                 'productos.stock_minimo',
+                'productos.unidad_medida', // 🔥 AGREGADO PARA EL VUE
                 'producto_sucursal.cantidad_fisica as cantidad_fisica',
                 'sucursales.nombre as sucursal'
             )
@@ -49,7 +49,7 @@ class DashboardController extends Controller
 
         $productosBajoStock = $queryStock->get();
 
-        // 5. Mandamos todo a Vue
+        // 5. Mandamos todo a Vue con los tipos de datos correctos
         return Inertia::render('Dashboard', [
             'deudaTotal' => (float) $deudaTotal,
             'ventasHoy' => (float) $ventasHoy,

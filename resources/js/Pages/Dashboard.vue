@@ -1,6 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3'; // Importamos router
+import Swal from 'sweetalert2'; // Importamos SweetAlert
 
 // Atajamos las variables que manda el backend
 const props = defineProps({
@@ -18,6 +19,43 @@ const formatearDinero = (monto) => {
         style: 'currency',
         currency: 'ARS'
     }).format(monto);
+};
+
+// 🔥 NUEVA FUNCIÓN: Disparar la generación de OCS
+const generarOCS = () => {
+    Swal.fire({
+        title: '¿Generar Sugerencias de Compra?',
+        text: "El sistema agrupará los productos bajo stock por proveedor y creará órdenes en estado 'Sugerida'.",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#0f172a',
+        confirmButtonText: 'Sí, generar sugerencias',
+        cancelButtonText: 'Cancelar',
+        reverseButtons: true
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.post(route('ordenes.generarSugerencias'), {}, {
+                onSuccess: () => {
+                    Swal.fire({
+                        title: '¡Proceso Exitoso!',
+                        text: 'Se han generado las órdenes sugeridas. ¿Querés ir a revisarlas ahora?',
+                        icon: 'success',
+                        showCancelButton: true,
+                        confirmButtonText: 'Sí, llevarme allá',
+                        cancelButtonText: 'Quedarme acá',
+                        confirmButtonColor: '#0284c7',
+                    }).then((res) => {
+                        if (res.isConfirmed) {
+                            router.get(route('ordenes.index'));
+                        }
+                    });
+                },
+                onError: () => {
+                    Swal.fire('Error', 'No se pudieron generar las sugerencias. Revisá que los productos tengan un proveedor asignado.', 'error');
+                }
+            });
+        }
+    });
 };
 </script>
 
@@ -139,7 +177,11 @@ const formatearDinero = (monto) => {
                                 </div>
                                 <h2 class="text-lg font-black text-slate-800 uppercase tracking-tight">Alertas de Stock</h2>
                             </div>
-                            <button v-if="esJefe && productosBajoStock.length > 0" class="bg-slate-900 text-white text-xs px-4 py-2 rounded-lg font-bold shadow-md hover:bg-sky-600 transition-colors">
+                            <button 
+                                v-if="esJefe && productosBajoStock.length > 0" 
+                                @click="generarOCS"
+                                class="bg-slate-900 text-white text-xs px-4 py-2 rounded-lg font-bold shadow-md hover:bg-sky-600 transition-colors"
+                            >
                                 Generar OCS
                             </button>
                         </div>
@@ -166,13 +208,17 @@ const formatearDinero = (monto) => {
                                     <tr v-for="(item, index) in productosBajoStock" :key="index" class="hover:bg-slate-50/50 transition-colors">
                                         <td class="p-4 font-bold text-slate-700">{{ item.producto }}</td>
                                         <td class="p-4 text-slate-500 text-sm">{{ item.sucursal }}</td>
+                                        
                                         <td class="p-4 text-center">
                                             <span class="px-2 py-1 bg-rose-100 text-rose-700 font-black rounded-md shadow-sm">
-                                                {{ item.cantidad_fisica }}
+                                                {{ Number(item.cantidad_fisica) }} 
+                                                <span class="text-[10px] ml-1">{{ item.unidad_medida || 'U' }}</span>
                                             </span>
                                         </td>
+                                        
                                         <td class="p-4 text-center text-slate-400 font-bold">
-                                            {{ item.stock_minimo }}
+                                            {{ Number(item.stock_minimo) }} 
+                                            <span class="text-[10px] ml-1 uppercase">{{ item.unidad_medida || 'U' }}</span>
                                         </td>
                                     </tr>
                                 </tbody>

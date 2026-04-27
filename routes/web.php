@@ -25,7 +25,7 @@ use App\Http\Controllers\{
 };
 use App\Models\CuentaCorriente;
 use App\Models\Sucursal;
-use App\Models\Producto; // Importación necesaria para la API
+use App\Models\Producto;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -37,13 +37,10 @@ use Inertia\Inertia;
 // ==========================================
 
 Route::get('/', function () {
-    // Traemos id, nombre y las coordenadas para que el mapa de Leaflet funcione
-    // Aseguramos que traiga latitud y longitud de la base de datos
     $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud')
         ->where('estado', true)
         ->get()
         ->map(function($sucursal) {
-            // Convertimos de Texto a Float para que Vue y el Mapa no se rompan
             $sucursal->latitud = (float) $sucursal->latitud;
             $sucursal->longitud = (float) $sucursal->longitud;
             return $sucursal;
@@ -56,7 +53,6 @@ Route::get('/', function () {
     ]);
 });
 
-// Ruta API corregida con tu relación Many-to-Many real
 Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
     try {
         $sucursal = Sucursal::find($sucursal_id);
@@ -65,16 +61,13 @@ Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
             return response()->json([]);
         }
 
-        // Traemos los productos usando la relación BelongsToMany que tenés en el modelo
         $productos = $sucursal->productos()->where('productos.estado', true)->get();
 
         $productosMapeados = $productos->map(function ($prod) {
             return [
                 'id'         => $prod->id,
                 'nombre'     => $prod->nombre,
-                // Usamos el precio_venta que vimos en tu migración
                 'precio'     => number_format($prod->precio_venta ?? 0, 2, ',', '.'),
-                // Usamos tu accessor url_imagen definido en el modelo Producto
                 'imagen_url' => $prod->url_imagen ?? $prod->imagen ?? null,
             ];
         });
@@ -205,8 +198,11 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
 
     Route::resource('usuarios', UsuarioController::class);
 
+    // 🔥 ACÁ ESTÁ LA MAGIA ARREGLADA
     Route::resource('ordenes-compra', OrdenCompraController::class)->except(['create', 'show', 'edit', 'update']);
-    Route::post('/ordenes-compra/sugerencias', [OrdenCompraController::class, 'generarSugerencias'])->name('ordenes-compra.sugerencias');
+    Route::get('/ordenes-compra-redirect', [OrdenCompraController::class, 'index'])->name('ordenes.index'); // Alias para que no falle el Dashboard
+    Route::post('/ordenes-compra/generar-sugerencias', [OrdenCompraController::class, 'generarSugerencias'])->name('ordenes.generarSugerencias'); // Ruta conectada al botón
+    
     Route::patch('/ordenes-compra/{ordenCompra}/estado', [OrdenCompraController::class, 'cambiarEstado'])->name('ordenes-compra.estado');
     Route::post('/ordenes-compra/{ordenCompra}/aprobar', [OrdenCompraController::class, 'aprobarYRecibir'])->name('ordenes-compra.aprobar');
     Route::post('/ordenes-compra/{ordenCompra}/confirmar', [OrdenCompraController::class, 'confirmarPedido'])->name('ordenes-compra.confirmar');
