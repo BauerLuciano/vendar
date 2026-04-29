@@ -200,6 +200,10 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::resource('usuarios', UsuarioController::class);
 
     Route::resource('ordenes-compra', OrdenCompraController::class)->except(['create', 'show', 'edit', 'update']);
+    
+    // --> ACÁ ESTÁ LA RUTA NUEVA PARA EL PDF <--
+    Route::get('/ordenes-compra/{ordenCompra}/pdf', [OrdenCompraController::class, 'descargarPDF'])->name('ordenes-compra.pdf');
+    
     Route::post('/ordenes-compra/sugerencias', [OrdenCompraController::class, 'generarSugerencias'])->name('ordenes-compra.sugerencias');
     Route::patch('/ordenes-compra/{ordenCompra}/estado', [OrdenCompraController::class, 'cambiarEstado'])->name('ordenes-compra.estado');
     Route::post('/ordenes-compra/{ordenCompra}/aprobar', [OrdenCompraController::class, 'aprobarYRecibir'])->name('ordenes-compra.aprobar');

@@ -271,10 +271,16 @@ const badgeClases = (estado) => {
                                     </button>
 
                                     <div v-if="menuAbierto === orden.id" class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150">
+                                        
                                         <button @click="abrirDetalles(orden)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                             Ver Detalles
                                         </button>
+
+                                        <a :href="route('ordenes-compra.pdf', orden.id)" target="_blank" class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                            Descargar PDF
+                                        </a>
 
                                         <div v-if="!['Enviada', 'Cotizada', 'Aprobada', 'Recepcionada'].includes(orden.estado)">
                                             <div class="border-t border-slate-100 my-1"></div>
@@ -367,20 +373,28 @@ const badgeClases = (estado) => {
                         </div>
                     </div>
                     
-                    <div class="p-6 bg-white border-t border-slate-100 flex justify-end gap-3">
-                        <button v-if="ordenSeleccionada?.estado === 'Cotizada'" 
-                            @click="aceptarCotizacion(ordenSeleccionada)" 
-                            class="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 px-6 rounded-xl shadow-lg flex items-center gap-2 transition-all">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
-                            Aceptar Cotización y Pedir
-                        </button>
+                    <div class="p-6 bg-white border-t border-slate-100 flex justify-between gap-3">
+                        
+                        <a :href="route('ordenes-compra.pdf', ordenSeleccionada?.id)" target="_blank" class="bg-slate-800 hover:bg-slate-900 text-white font-black py-3 px-6 rounded-xl shadow-lg flex items-center gap-2 transition-all">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            Imprimir PDF
+                        </a>
 
-                        <button v-if="ordenSeleccionada?.estado === 'Aprobada'" 
-                            @click="registrarRecepcion(ordenSeleccionada)" 
-                            class="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-6 rounded-xl shadow-lg flex items-center gap-2 transition-all">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
-                            Registrar Recepción de Camión
-                        </button>
+                        <div class="flex gap-3">
+                            <button v-if="ordenSeleccionada?.estado === 'Cotizada'" 
+                                @click="aceptarCotizacion(ordenSeleccionada)" 
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 px-6 rounded-xl shadow-lg flex items-center gap-2 transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                Aceptar Cotización y Pedir
+                            </button>
+
+                            <button v-if="ordenSeleccionada?.estado === 'Aprobada'" 
+                                @click="registrarRecepcion(ordenSeleccionada)" 
+                                class="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-6 rounded-xl shadow-lg flex items-center gap-2 transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                Registrar Recepción de Camión
+                            </button>
+                        </div>
                     </div>
 
                 </div>

@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\OrdenConfirmadaProveedor; 
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class OrdenCompraController extends Controller
 {
@@ -215,4 +216,31 @@ class OrdenCompraController extends Controller
         $ordenCompra->delete();
         return redirect()->back()->with('exito', 'Orden eliminada.');
     }
+    public function descargarPDF(OrdenCompra $ordenCompra)
+        {
+            $ordenCompra->load(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
+            $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
+
+            $logoBase64 = null;
+            if (!empty($config['logo_empresa'])) {
+                $pathLogo = storage_path('app/public/' . $config['logo_empresa']);
+                if (file_exists($pathLogo) && is_file($pathLogo)) {
+                    $logoBase64 = 'data:image/' . pathinfo($pathLogo, PATHINFO_EXTENSION) . ';base64,' . base64_encode(file_get_contents($pathLogo));
+                }
+            }
+
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.orden-compra', [
+                'orden'   => $ordenCompra,
+                'config'  => $config,
+                'logo'    => $logoBase64,
+                'usuario' => auth()->user()->name,
+                'fecha'   => now()->format('d/m/Y'),
+                'hora'    => now()->format('H:i')
+            ]);
+
+            // IMPORTANTE: Forzar A4 y habilitar PHP si fuera necesario
+            $pdf->setPaper('A4', 'portrait');
+
+            return $pdf->download('Orden_Compra_' . $ordenCompra->id . '.pdf');
+        }
 }
