@@ -20,13 +20,15 @@ class TransferenciaSugerida extends Model
     // Relación con la sucursal de origen
     public function origen()
     {
-        return $this->belongsTo(Branch::class, 'origen_id');
+        // CAMBIAMOS Branch::class por Sucursal::class
+        return $this->belongsTo(Sucursal::class, 'origen_id');
     }
 
     // Relación con la sucursal de destino
     public function destino()
     {
-        return $this->belongsTo(Branch::class, 'destino_id');
+        // CAMBIAMOS Branch::class por Sucursal::class
+        return $this->belongsTo(Sucursal::class, 'destino_id');
     }
 
     // Relación con el producto

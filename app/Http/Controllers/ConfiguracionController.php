@@ -11,7 +11,6 @@ class ConfiguracionController extends Controller
 {
     public function index()
     {
-        // 🚀 MAGIA: pluck convierte toda la tabla en un array clave => valor
         $configuraciones = Configuracion::pluck('valor', 'clave')->toArray();
 
         return Inertia::render('Configuracion/Index', [
@@ -21,26 +20,31 @@ class ConfiguracionController extends Controller
 
     public function update(Request $request)
     {
-        // Sacamos el logo y la URL para no procesarlos en el bucle normal
         $data = $request->except(['logo_empresa', 'logo_url']);
 
         // 1. Guardar todos los textos, números y booleanos
         foreach ($data as $clave => $valor) {
-            Configuracion::where('clave', $clave)->update(['valor' => $valor]);
+            // 🔥 MEJORA: Usamos updateOrCreate para que cree la fila si no existe
+            Configuracion::updateOrCreate(
+                ['clave' => $clave],
+                ['valor' => $valor]
+            );
         }
 
-        // 2. Guardar el Logo de la empresa (Si subieron uno nuevo)
+        // 2. Guardar el Logo de la empresa
         if ($request->hasFile('logo_empresa')) {
+            $logoViejo = Configuracion::where('clave', 'logo_empresa')->value('valor');
             
-            // Borramos el logo viejo para no llenar el servidor de basura
-            $logoViejo = Configuracion::getValor('logo_empresa');
             if ($logoViejo && Storage::disk('public')->exists($logoViejo)) {
                 Storage::disk('public')->delete($logoViejo);
             }
 
-            // Guardamos el nuevo
             $path = $request->file('logo_empresa')->store('logos', 'public');
-            Configuracion::where('clave', 'logo_empresa')->update(['valor' => $path]);
+            
+            Configuracion::updateOrCreate(
+                ['clave' => 'logo_empresa'],
+                ['valor' => $path]
+            );
         }
 
         return redirect()->back()->with('success', 'Configuraciones actualizadas con éxito.');

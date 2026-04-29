@@ -33,7 +33,13 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        // 🔥 MAGIA: Redirección inteligente por roles
+        if ($request->user()->hasRole('Administrador Global')) {
+            return redirect()->intended(route('admin.comercios.index'));
+        }
+
+        // Si es dueño del kiosco o empleado, va al Dashboard normal
+        return redirect()->intended(route('dashboard'));
     }
 
     /**

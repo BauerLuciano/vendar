@@ -25,7 +25,7 @@ use App\Http\Controllers\{
 };
 use App\Models\CuentaCorriente;
 use App\Models\Sucursal;
-use App\Models\Producto; // Importación necesaria para la API
+use App\Models\Producto;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -37,11 +37,14 @@ use Inertia\Inertia;
 // ==========================================
 
 Route::get('/', function () {
-    // Traemos id, nombre y las coordenadas para que el mapa de Leaflet funcione
-    // Aseguramos que traiga latitud y longitud de la base de datos
     $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud')
         ->where('estado', true)
-        ->get();
+        ->get()
+        ->map(function($sucursal) {
+            $sucursal->latitud = (float) $sucursal->latitud;
+            $sucursal->longitud = (float) $sucursal->longitud;
+            return $sucursal;
+        });
 
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
@@ -50,7 +53,6 @@ Route::get('/', function () {
     ]);
 });
 
-// Ruta API corregida con tu relación Many-to-Many real
 Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
     try {
         $sucursal = Sucursal::find($sucursal_id);
@@ -59,16 +61,13 @@ Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
             return response()->json([]);
         }
 
-        // Traemos los productos usando la relación BelongsToMany que tenés en el modelo
         $productos = $sucursal->productos()->where('productos.estado', true)->get();
 
         $productosMapeados = $productos->map(function ($prod) {
             return [
                 'id'         => $prod->id,
                 'nombre'     => $prod->nombre,
-                // Usamos el precio_venta que vimos en tu migración
                 'precio'     => number_format($prod->precio_venta ?? 0, 2, ',', '.'),
-                // Usamos tu accessor url_imagen definido en el modelo Producto
                 'imagen_url' => $prod->url_imagen ?? $prod->imagen ?? null,
             ];
         });
@@ -154,6 +153,8 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::post('/productos/{producto}', [ProductoController::class, 'update'])->name('productos.update');
     Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
+
+    Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])->name('lotes.index');
     
     Route::get('/categorias', [CategoriaController::class, 'index'])->name('categorias.index');
     Route::post('/categorias', [CategoriaController::class, 'store'])->name('categorias.store');
@@ -167,7 +168,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::patch('/marcas/{marca}/status', [MarcaController::class, 'status'])->name('marcas.status');
 
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
-    Route::post('/transferencias-sugeridas/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
+    Route::post('/transferencias-sugeridas/{transferencia}/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
 
     Route::get('/ingresos', [IngresoMercaderiaController::class, 'index'])->name('ingresos.index');
     Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
@@ -199,6 +200,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
 
     Route::resource('usuarios', UsuarioController::class);
 
+    // 🔥 ACÁ ESTÁ LA MAGIA ARREGLADA
     Route::resource('ordenes-compra', OrdenCompraController::class)->except(['create', 'show', 'edit', 'update']);
     
     // --> ACÁ ESTÁ LA RUTA NUEVA PARA EL PDF <--

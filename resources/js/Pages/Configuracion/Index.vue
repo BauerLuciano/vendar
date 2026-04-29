@@ -1,18 +1,16 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm, usePage } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
     configuraciones: Object
 });
 
-const page = usePage();
-const tabActiva = ref('general'); // Pestañas: 'general', 'pos', 'sistema'
+const tabActiva = ref('general');
 const logoPreview = ref(props.configuraciones.logo_empresa ? '/storage/' + props.configuraciones.logo_empresa : null);
 
-// Inicializamos el formulario con los datos que trajo el "pluck" del controlador
 const form = useForm({
     nombre_empresa: props.configuraciones.nombre_empresa || '',
     cuit: props.configuraciones.cuit || '',
@@ -23,10 +21,12 @@ const form = useForm({
     permitir_stock_negativo: props.configuraciones.permitir_stock_negativo === '1' || props.configuraciones.permitir_stock_negativo === true,
     limite_fiado_defecto: props.configuraciones.limite_fiado_defecto || 0,
     moneda_defecto: props.configuraciones.moneda_defecto || 'ARS',
-    logo_empresa: null, // Acá va el archivo físico
+    // 🔥 NUEVOS CAMPOS DEL ROBOT DE MORA
+    mora_dias_gracia: props.configuraciones.mora_dias_gracia || 15,
+    mora_tasa_interes: props.configuraciones.mora_tasa_interes || 5,
+    logo_empresa: null,
 });
 
-// Manejar la previsualización de la imagen
 const handleLogoUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
@@ -36,7 +36,6 @@ const handleLogoUpload = (event) => {
 };
 
 const guardarConfiguracion = () => {
-    // Transformamos los booleanos a '1' o '0' para la base de datos
     form.transform((data) => ({
         ...data,
         permitir_stock_negativo: data.permitir_stock_negativo ? '1' : '0'
@@ -94,13 +93,12 @@ const guardarConfiguracion = () => {
                         
                         <div v-show="tabActiva === 'general'" class="p-8">
                             <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Datos de Identidad</h2>
-                            
                             <div class="flex flex-col md:flex-row gap-8 mb-6">
                                 <div class="shrink-0 flex flex-col items-center gap-3">
                                     <div class="w-32 h-32 bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl overflow-hidden flex items-center justify-center relative group">
                                         <img v-if="logoPreview" :src="logoPreview" class="w-full h-full object-contain p-2" />
                                         <div v-else class="text-center p-4">
-                                            <svg class="mx-auto h-8 w-8 text-slate-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                            <svg class="mx-auto h-8 w-8 text-slate-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4-4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                                         </div>
                                         <label class="absolute inset-0 w-full h-full bg-slate-900/50 flex items-center justify-center text-white font-bold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                             Cambiar
@@ -133,7 +131,6 @@ const guardarConfiguracion = () => {
 
                         <div v-show="tabActiva === 'pos'" class="p-8">
                             <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Configuración de Ventas</h2>
-                            
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Formato de Ticket</label>
@@ -147,7 +144,6 @@ const guardarConfiguracion = () => {
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Mensaje al Pie del Ticket</label>
                                     <input v-model="form.ticket_mensaje_pie" type="text" placeholder="Ej: ¡Gracias por su compra!" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                 </div>
-
                                 <div class="col-span-full mt-2">
                                     <label class="flex items-center gap-3 p-4 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
                                         <input v-model="form.permitir_stock_negativo" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
@@ -179,6 +175,23 @@ const guardarConfiguracion = () => {
                                         <option value="USD">Dólares ($ USD)</option>
                                         <option value="EUR">Euros (€ EUR)</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            <h3 class="text-md font-black text-rose-800 uppercase tracking-widest mt-10 mb-4 border-b border-rose-100 pb-2">Gestión de Cobranzas y Mora</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Días de Gracia</label>
+                                    <input v-model="form.mora_dias_gracia" type="number" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                    <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Días de tolerancia antes de castigar la deuda.</p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Interés por Mora Automática</label>
+                                    <div class="relative">
+                                        <input v-model="form.mora_tasa_interes" type="number" step="0.1" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <span class="absolute right-4 top-2.5 font-black text-slate-400">%</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Recargo aplicado por el sistema.</p>
                                 </div>
                             </div>
                         </div>

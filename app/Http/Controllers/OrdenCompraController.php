@@ -77,6 +77,7 @@ class OrdenCompraController extends Controller
                 $productosBajoStock = DB::table('productos')
                     ->join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
                     ->where('producto_sucursal.sucursal_id', $sucId)
+                    ->where('productos.estado', true)
                     ->whereNotNull('productos.proveedor_id')
                     ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo')
                     ->select('productos.id', 'productos.proveedor_id', 'productos.stock_minimo', 'productos.precio_costo', 'producto_sucursal.cantidad_fisica')

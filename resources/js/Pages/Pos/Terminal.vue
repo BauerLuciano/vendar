@@ -12,8 +12,6 @@ const props = defineProps({
 
 const page = usePage();
 
-// 🔥 NUEVO: Detectamos si la configuración permite stock negativo
-// Chequeamos si es "1", 1 o true, dependiendo de cómo se guarde en la DB
 const permitirStockNegativo = computed(() => {
     const val = page.props.empresa?.permitir_stock_negativo;
     return val === '1' || val === 1 || val === true;
@@ -28,7 +26,6 @@ const busquedaCliente = ref('');
 const mostrarDropdownClientes = ref(false);
 const inputBusqueda = ref(null);
 
-// Filtra clientes si hay al menos 2 caracteres
 const clientesFiltradosSelect = computed(() => {
     if (!busquedaCliente.value || busquedaCliente.value.length < 2) return [];
     return props.clientes.filter(c => 
@@ -130,7 +127,6 @@ const clickEnProducto = async (producto) => {
                     return false;
                 }
                 
-                // 🔥 MODIFICADO: Solo frena si no hay stock Y no se permite negativo
                 if (cantCalculada > producto.stock_actual && !permitirStockNegativo.value) {
                     Swal.showValidationMessage(`Stock insuficiente (Disponible: ${producto.stock_actual}kg)`);
                     return false;
@@ -156,7 +152,6 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     const existe = carrito.value.find(item => item.id === producto.id);
     const nuevaCantidad = existe ? existe.cantidad + cantidadAgregada : cantidadAgregada;
 
-    // 🔥 MODIFICADO: Bypass de stock si se permite negativo
     if (nuevaCantidad > producto.stock_actual && !permitirStockNegativo.value) {
         Swal.fire('Stock Insuficiente', `Solo hay ${producto.stock_actual} disponibles.`, 'warning');
         return;
@@ -165,7 +160,15 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     if (existe) {
         existe.cantidad = nuevaCantidad;
     } else {
-        carrito.value.push({ ...producto, cantidad: cantidadAgregada });
+        // 🔥 MAGIA: Si el producto está en liquidación, metemos al carrito el precio con descuento
+        const precioCobrar = producto.en_liquidacion ? producto.precio_rebajado : producto.precio_venta;
+        
+        carrito.value.push({ 
+            ...producto, 
+            cantidad: cantidadAgregada,
+            precio_original: producto.precio_venta, 
+            precio_venta: precioCobrar // Lo sobreescribimos para que el backend lo cobre bien
+        });
     }
 };
 
@@ -174,7 +177,6 @@ const incrementarCantidad = (index) => {
     const isKg = item.unidad_medida === 'Kg';
     const incremento = isKg ? 0.1 : 1;
     
-    // 🔥 MODIFICADO: Bypass de stock si se permite negativo
     if (item.cantidad + incremento > item.stock_actual && !permitirStockNegativo.value) {
         Swal.fire({ title: 'Límite de Stock', text: `No podés agregar más de ${item.stock_actual}`, icon: 'info', timer: 1500, showConfirmButton: false });
         return;
@@ -197,7 +199,6 @@ const validarCantidad = (index) => {
         item.cantidad = item.unidad_medida === 'Kg' ? 0.1 : 1; 
     } 
 
-    // 🔥 MODIFICADO: Bypass de stock si se permite negativo
     if (item.cantidad > item.stock_actual && !permitirStockNegativo.value) {
         item.cantidad = item.stock_actual;
         Swal.fire('Stock Ajustado', 'Se ajustó a la disponibilidad máxima.', 'warning');
@@ -229,22 +230,12 @@ const finalizarVenta = () => {
         metodo_pago: metodoPago.value
     }, {
         onSuccess: (page) => {
-            // 🕵️‍♂️ DEBUG LOGS:
-            console.log("--- RESPUESTA DEL SERVIDOR ---");
-            console.log("Flash completo:", page.props.flash);
-            
             const ventaId = page.props.flash.venta_id;
-            console.log("ID de venta capturado:", ventaId);
 
             if (ventaId) {
-                console.log("Intentando abrir ticket para ID:", ventaId);
-                // Abrimos el ticket en una pestaña pequeña independiente
                 window.open(route('ventas.imprimir', ventaId), '_blank', 'width=450,height=600');
-            } else {
-                console.error("ERROR: No se recibió venta_id. Revisá HandleInertiaRequests.php y el VentaController.");
             }
 
-            // Limpieza del POS
             carrito.value = [];
             clienteSeleccionado.value = null;
             buscar.value = '';
@@ -260,7 +251,6 @@ const finalizarVenta = () => {
             nextTick(() => { if (inputBusqueda.value) inputBusqueda.value.focus(); });
         },
         onError: (errors) => {
-            console.error("Errores detectados:", errors);
             Swal.fire({
                 icon: 'error',
                 title: 'Error al cobrar',
@@ -296,10 +286,8 @@ const finalizarVenta = () => {
             </div>
 
             <div class="grid grid-cols-12 gap-6">
-                <!-- Panel izquierdo: búsqueda y productos -->
                 <div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
                     
-                    <!-- Input de búsqueda mejorado -->
                     <div class="bg-white rounded-2xl shadow-md border border-slate-200 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/20 transition-all overflow-hidden">
                         <div class="relative flex items-center">
                             <span class="absolute left-4 text-slate-400">
@@ -320,18 +308,21 @@ const finalizarVenta = () => {
                         </div>
                     </div>
 
-                    <!-- Grid de productos -->
                     <div v-if="productosFiltrados.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         <div 
                             v-for="p in productosFiltrados" :key="p.id"
                             @click="clickEnProducto(p)"
                             class="bg-white p-4 rounded-2xl shadow-md border border-slate-200 hover:border-sky-500 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden"
                         >
+                            <div v-if="p.en_liquidacion" class="absolute top-0 left-0 px-2 py-1 bg-rose-500 text-white rounded-br-xl text-[10px] font-black uppercase tracking-widest shadow-md z-10 animate-pulse">
+                                {{ p.porcentaje_descuento }}% OFF 📉
+                            </div>
+
                             <div class="absolute top-0 right-0 px-2 py-1 rounded-bl-xl text-[10px] font-black uppercase tracking-widest" :class="p.stock_actual <= 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'">
                                 Stock: {{ p.stock_actual }}
                             </div>
 
-                            <div class="flex items-center gap-4">
+                            <div class="flex items-center gap-4 mt-2">
                                 <div class="w-16 h-16 bg-slate-50 rounded-xl overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
                                     <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
                                     <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
@@ -339,20 +330,22 @@ const finalizarVenta = () => {
                                 <div>
                                     <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{{ p.codigo_barras || 'SIN CÓDIGO' }}</p>
                                     <p class="font-bold text-slate-800 leading-tight group-hover:text-sky-600 transition-colors line-clamp-2">{{ p.nombre }}</p>
-                                    <p class="text-sky-600 font-black mt-1 text-lg">${{ p.precio_venta }}<span v-if="p.unidad_medida === 'Kg'" class="text-xs text-slate-400">/kg</span></p>
+                                    
+                                    <div class="mt-1 flex items-baseline gap-2">
+                                        <p v-if="p.en_liquidacion" class="text-rose-600 font-black text-lg">${{ p.precio_rebajado }}</p>
+                                        <p :class="p.en_liquidacion ? 'text-slate-400 line-through text-xs' : 'text-sky-600 font-black text-lg'">${{ p.precio_venta }}</p>
+                                        <span v-if="p.unidad_medida === 'Kg'" class="text-xs text-slate-400">/kg</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Panel derecho: carrito y cobro - ESTILOS CORREGIDOS (sin TICKET) -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 flex flex-col h-[calc(100vh-140px)] sticky top-6 border border-slate-200 overflow-hidden">
                         
-                        <!-- Cabecera del carrito: SOLO EL SELECTOR DE CLIENTE (ocupa todo el ancho) -->
                         <div class="p-5 border-b border-slate-200 bg-slate-50">
-                            <!-- Selector de cliente a ancho completo -->
                             <div class="relative w-full" @click.stop>
                                 <div 
                                     @click="mostrarDropdownClientes = !mostrarDropdownClientes"
@@ -365,7 +358,6 @@ const finalizarVenta = () => {
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                                 </div>
                                 
-                                <!-- Dropdown de clientes más grande y mágico -->
                                 <div v-if="mostrarDropdownClientes" class="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 shadow-xl rounded-2xl z-50 overflow-hidden">
                                     <div class="p-4 border-b border-slate-100 bg-slate-50 relative">
                                         <span class="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400">
@@ -397,18 +389,11 @@ const finalizarVenta = () => {
                                                 <span v-if="c.documento" class="text-[10px] font-mono text-slate-400">{{ c.documento }}</span>
                                             </div>
                                         </li>
-                                        <li v-if="busquedaCliente.length >= 2 && clientesFiltradosSelect.length === 0" class="px-4 py-3 text-sm text-slate-400 italic text-center">
-                                            No se encontraron clientes
-                                        </li>
-                                        <li v-if="busquedaCliente.length > 0 && busquedaCliente.length < 2" class="px-4 py-3 text-xs text-amber-600 text-center">
-                                            Escribí al menos 2 caracteres
-                                        </li>
                                     </ul>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Métodos de pago y saldo (sin cambios, solo estilos) -->
                         <div class="px-5 pt-4 pb-2 bg-slate-50 flex flex-col gap-3">
                             <div class="flex gap-2">
                                 <label class="flex-1 cursor-pointer">
@@ -434,22 +419,17 @@ const finalizarVenta = () => {
                                 </label>
                             </div>
 
-                            <!-- Info de saldo disponible -->
                             <div v-if="metodoPago === 'Cuenta Corriente' && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
                                 <div>
                                     <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Crédito Disponible</p>
                                     <p class="font-bold text-sm">${{ disponibleCliente.toFixed(2) }}</p>
                                 </div>
-                                <svg v-if="bloqueoPorSaldo" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             </div>
                             <div v-else-if="metodoPago === 'Cuenta Corriente' && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
                                 <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
                             </div>
                         </div>
 
-                        <!-- Lista del carrito -->
                         <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 z-10">
                             <div v-if="carrito.length === 0" class="h-full flex flex-col items-center justify-center text-slate-300 opacity-70">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
@@ -460,7 +440,11 @@ const finalizarVenta = () => {
                                 <div class="flex justify-between items-start mb-2">
                                     <div class="pr-6">
                                         <span class="font-bold text-slate-800 text-sm block">{{ item.nombre }}</span>
-                                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${{ item.precio_venta }} · Stock: {{ item.stock_actual }}</span>
+                                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                            ${{ item.precio_venta }} 
+                                            <span v-if="item.en_liquidacion" class="text-rose-500 font-bold ml-1">(-{{ item.porcentaje_descuento }}% OFF)</span>
+                                            · Stock: {{ item.stock_actual }}
+                                        </span>
                                     </div>
                                     <button @click="eliminarDelCarrito(index)" class="absolute top-3 right-3 text-slate-300 hover:text-rose-500 transition-colors">✕</button>
                                 </div>
@@ -486,7 +470,6 @@ const finalizarVenta = () => {
                             </div>
                         </div>
 
-                        <!-- Footer con total y botón de cobro -->
                         <div class="p-5 bg-white border-t border-slate-200 z-20">
                             <div class="flex justify-between items-baseline mb-4">
                                 <span class="text-slate-500 font-black uppercase tracking-widest text-xs">Total</span>

@@ -20,17 +20,33 @@ const form = useForm({
     items: []
 });
 
+const codigoBarrasInput = ref(''); // 🔥 NUEVO: Para el Escáner
 const productoSeleccionado = ref('');
 const cantidadInput = ref(1);
 const costoInput = ref(0);
+const vencimientoInput = ref(''); // 🔥 NUEVO: Fecha de vencimiento
 
-// Limpiar modal al abrir
 watch(() => props.mostrar, (val) => {
     if (val) {
         form.reset();
         form.items = [];
     }
 });
+
+// 🔥 NUEVO: Simulador de Pistola Escáner
+const buscarPorCodigo = () => {
+    if (!codigoBarrasInput.value) return;
+    
+    const prod = props.productos.find(p => p.codigo_barras === codigoBarrasInput.value);
+    if (prod) {
+        productoSeleccionado.value = prod.id;
+        costoInput.value = prod.precio_costo || 0; // Le auto-llenamos el costo anterior
+        codigoBarrasInput.value = ''; // Limpiamos para el próximo escaneo
+    } else {
+        Swal.fire('No encontrado', 'El código de barras no pertenece a ningún producto registrado.', 'warning');
+        codigoBarrasInput.value = '';
+    }
+};
 
 const agregarProducto = () => {
     if (!productoSeleccionado.value || cantidadInput.value < 1 || costoInput.value < 0) {
@@ -39,24 +55,30 @@ const agregarProducto = () => {
     }
 
     const prod = props.productos.find(p => p.id === productoSeleccionado.value);
-    const existe = form.items.find(i => i.producto_id === prod.id);
+    
+    // Si ya existe el producto EN LA MISMA FECHA DE VENCIMIENTO, sumamos. 
+    // Si la fecha es distinta, es una fila nueva.
+    const existe = form.items.find(i => i.producto_id === prod.id && i.fecha_vencimiento === vencimientoInput.value);
     
     if (existe) {
-        existe.cantidad += cantidadInput.value;
-        existe.costo = costoInput.value;
+        existe.cantidad += Number(cantidadInput.value);
+        existe.costo = Number(costoInput.value);
     } else {
         form.items.push({
             producto_id: prod.id,
             nombre: prod.nombre,
             codigo: prod.codigo_barras,
-            cantidad: cantidadInput.value,
-            costo: costoInput.value,
+            cantidad: Number(cantidadInput.value),
+            costo: Number(costoInput.value),
+            fecha_vencimiento: vencimientoInput.value || null, // 🔥 Guardamos el lote
         });
     }
 
+    // Limpiamos los inputs
     productoSeleccionado.value = '';
     cantidadInput.value = 1;
     costoInput.value = 0;
+    vencimientoInput.value = '';
 };
 
 const quitarProducto = (index) => form.items.splice(index, 1);
@@ -71,7 +93,7 @@ const guardarIngreso = () => {
 
     form.post(route('ingresos.store'), {
         onSuccess: (page) => {
-            Swal.fire('¡Éxito!', 'Stock actualizado correctamente.', 'success');
+            Swal.fire('¡Éxito!', 'Stock actualizado y lotes generados.', 'success');
             emit('cerrar');
             
             if (page.props.flash && page.props.flash.alertas_inflacion?.length > 0) {
@@ -136,37 +158,61 @@ const guardarIngreso = () => {
 
                     <div class="lg:col-span-2 space-y-4">
                         <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                            <h3 class="font-black text-slate-700 uppercase tracking-widest mb-3 border-b pb-2 text-xs">Agregar Productos</h3>
+                            <h3 class="font-black text-slate-700 uppercase tracking-widest mb-3 border-b pb-2 text-xs flex justify-between items-center">
+                                Agregar Productos
+                                <span class="text-sky-600 flex items-center gap-1 text-[10px] bg-sky-50 px-2 py-1 rounded-md">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" /></svg>
+                                    Lector Activo
+                                </span>
+                            </h3>
+                            
                             <div class="grid grid-cols-12 gap-2 items-end mb-4">
-                                <div class="col-span-12 md:col-span-5">
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Buscar Producto</label>
+                                <div class="col-span-12 md:col-span-4">
+                                    <label class="block text-[10px] font-bold text-sky-600 uppercase mb-1">Escanear Cód. Barras</label>
+                                    <input 
+                                        v-model="codigoBarrasInput" 
+                                        @keyup.enter="buscarPorCodigo"
+                                        type="text" 
+                                        placeholder="Escaneá o tipeá y dale Enter..."
+                                        class="w-full rounded-lg border-sky-300 bg-sky-50 text-sm font-mono font-bold text-sky-900 focus:ring-sky-500 focus:border-sky-500"
+                                    >
+                                </div>
+
+                                <div class="col-span-12 md:col-span-8">
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">O Buscar Producto</label>
                                     <select v-model="productoSeleccionado" class="w-full rounded-lg border-slate-200 text-sm font-bold text-slate-700 focus:ring-sky-500">
                                         <option value="" disabled>Seleccione producto...</option>
                                         <option v-for="p in productos" :key="p.id" :value="p.id">[{{ p.codigo_barras }}] {{ p.nombre }}</option>
                                     </select>
                                 </div>
-                                <div class="col-span-4 md:col-span-2">
+
+                                <div class="col-span-4 md:col-span-2 mt-2">
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Cant.</label>
                                     <input v-model="cantidadInput" type="number" min="1" class="w-full rounded-lg border-slate-200 text-sm font-bold text-center focus:ring-sky-500">
                                 </div>
-                                <div class="col-span-4 md:col-span-3">
+                                <div class="col-span-4 md:col-span-3 mt-2">
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo U. ($)</label>
                                     <input v-model="costoInput" type="number" step="0.01" min="0" class="w-full rounded-lg border-slate-200 text-sm font-bold text-rose-700 focus:ring-sky-500">
                                 </div>
-                                <div class="col-span-4 md:col-span-2">
+                                
+                                <div class="col-span-4 md:col-span-4 mt-2">
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Vencimiento (Opcional)</label>
+                                    <input v-model="vencimientoInput" type="date" class="w-full rounded-lg border-slate-200 text-sm font-bold text-slate-700 focus:ring-sky-500">
+                                </div>
+
+                                <div class="col-span-12 md:col-span-3 mt-2">
                                     <button @click="agregarProducto" type="button" class="w-full bg-slate-800 text-white font-bold rounded-lg py-2 hover:bg-slate-700 transition-colors uppercase text-xs h-[38px]">
-                                        Añadir
+                                        Añadir Fila
                                     </button>
                                 </div>
                             </div>
 
-                            <div class="overflow-x-auto border rounded-xl border-slate-100 max-h-[250px] overflow-y-auto custom-scrollbar">
+                            <div class="overflow-x-auto border rounded-xl border-slate-100 max-h-[200px] overflow-y-auto custom-scrollbar">
                                 <table class="w-full text-left border-collapse">
                                     <thead class="sticky top-0 bg-slate-100 z-10">
                                         <tr class="text-[10px] uppercase tracking-widest text-slate-500 border-b border-slate-200">
-                                            <th class="p-2 font-black">Cód.</th>
                                             <th class="p-2 font-black">Producto</th>
-                                            <th class="p-2 font-black text-center">Cant.</th>
+                                            <th class="p-2 font-black text-center">Vence</th> <th class="p-2 font-black text-center">Cant.</th>
                                             <th class="p-2 font-black text-right">Subtotal</th>
                                             <th class="p-2 font-black text-center">X</th>
                                         </tr>
@@ -176,8 +222,16 @@ const guardarIngreso = () => {
                                             <td colspan="5" class="p-4 text-center text-slate-400 italic text-xs">Sin productos</td>
                                         </tr>
                                         <tr v-for="(item, index) in form.items" :key="index" class="border-b border-slate-50">
-                                            <td class="p-2 font-mono text-[10px] text-slate-500">{{ item.codigo }}</td>
-                                            <td class="p-2 font-bold text-slate-700 text-xs">{{ item.nombre }}</td>
+                                            <td class="p-2 font-bold text-slate-700 text-xs">
+                                                {{ item.nombre }}
+                                                <span class="block text-[9px] text-slate-400 font-mono">{{ item.codigo }}</span>
+                                            </td>
+                                            <td class="p-2 text-center text-xs">
+                                                <span v-if="item.fecha_vencimiento" class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-[10px] font-bold">
+                                                    {{ item.fecha_vencimiento.split('-').reverse().join('/') }}
+                                                </span>
+                                                <span v-else class="text-slate-300">-</span>
+                                            </td>
                                             <td class="p-2 text-center font-bold text-sky-600 text-xs">{{ item.cantidad }}</td>
                                             <td class="p-2 text-right font-mono font-bold text-slate-700 text-xs">${{ (item.cantidad * item.costo).toFixed(2) }}</td>
                                             <td class="p-2 text-center">
@@ -200,8 +254,8 @@ const guardarIngreso = () => {
                         <span class="text-2xl font-black text-slate-800 font-mono leading-none">${{ totalRemito.toFixed(2) }}</span>
                     </div>
                     <button @click="guardarIngreso" :disabled="form.processing" class="bg-sky-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/30 hover:bg-sky-700 transition-all uppercase tracking-widest text-xs disabled:opacity-50">
-    					{{ form.processing ? 'Procesando...' : 'Confirmar Stock' }}
-					</button>
+                        {{ form.processing ? 'Procesando...' : 'Confirmar Stock' }}
+                    </button>
                 </div>
             </div>
         </div>
