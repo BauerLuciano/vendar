@@ -106,7 +106,7 @@ Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos
 Route::get('/cajas', [CajaController::class, 'index'])->name('cajas.index');
 Route::post('/cajas', [CajaController::class, 'store'])->name('cajas.store');
 Route::put('/cajas/{caja}', [CajaController::class, 'update'])->name('cajas.update');
-Route::patch('/cajas/{caja}/estado', [CajaController::class, 'toggleEstado'])->name('cajas.estado');
+Route::patch('/cajas/{caja}/status', [CajaController::class, 'toggleEstado'])->name('cajas.status');
 Route::delete('/cajas/{caja}', [CajaController::class, 'destroy'])->name('cajas.destroy');
 Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
 

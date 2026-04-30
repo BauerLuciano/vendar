@@ -37,8 +37,6 @@ class CajaDiariaController extends Controller
                     'saldo_final_efectivo_real' => $turno->saldo_final_efectivo_real ?? 0,
                     'saldo_final_mp_real' => $turno->saldo_final_mp_real ?? 0,
                     'saldo_final_transf_real' => $turno->saldo_final_transf_real ?? 0,
-                    
-                    // SOLUCIÓN 1: Acá exponemos la columna al frontend
                     'observaciones' => $turno->observaciones_cierre ?? '', 
                 ];
             });
@@ -74,7 +72,6 @@ class CajaDiariaController extends Controller
     /**
      * Abre una nueva sesión de caja
      */
-
     public function abrirCaja(Request $request)
     {
         try {
@@ -85,10 +82,15 @@ class CajaDiariaController extends Controller
             ]);
 
             $user = auth()->user();
-            $cajaFisica = \App\Models\Caja::find($request->caja);
+            $cajaFisica = Caja::find($request->caja);
 
             if (!$cajaFisica) {
                 return response()->json(['error' => 'La caja seleccionada no existe.'], 404);
+            }
+
+            // SEGURIDAD: Evitar abrir una caja inactiva
+            if (!$cajaFisica->estado) {
+                return response()->json(['error' => 'No puedes operar en una caja que se encuentra inactiva.'], 403);
             }
 
             // Capturamos asegurando que sean números decimales (float)
@@ -98,7 +100,7 @@ class CajaDiariaController extends Controller
             DB::beginTransaction();
             
             // 1. Creamos el turno (cabecera)
-            $turno = \App\Models\TurnoCaja::create([
+            $turno = TurnoCaja::create([
                 'caja_id'        => $cajaFisica->id,
                 'user_id'        => $user->id,
                 'sucursal_id'    => $cajaFisica->sucursal_id, 
@@ -109,7 +111,7 @@ class CajaDiariaController extends Controller
             ]);
 
             if ($efectivo > 0 || ($efectivo == 0 && $mp == 0)) {
-                \App\Models\MovimientoCaja::create([
+                MovimientoCaja::create([
                     'turno_caja_id' => $turno->id,
                     'tipo'          => 'INGRESO',
                     'concepto'      => 'FONDO_INICIAL',
@@ -120,7 +122,7 @@ class CajaDiariaController extends Controller
             }
 
             if ($mp > 0) {
-                \App\Models\MovimientoCaja::create([
+                MovimientoCaja::create([
                     'turno_caja_id' => $turno->id,
                     'tipo'          => 'INGRESO',
                     'concepto'      => 'FONDO_INICIAL',
@@ -172,13 +174,19 @@ class CajaDiariaController extends Controller
     }
 
     /**
-     * Lista las cajas físicas disponibles (activas) de la sucursal del usuario
+     * Lista las cajas físicas disponibles (ACTIVAS) de la sucursal del usuario
      */
     public function getCajasDisponibles(Request $request)
     {
         $user = $request->user();
         $sucursalId = $user->branch_id ?? 1;
-        return response()->json(\App\Models\Caja::where('sucursal_id', $sucursalId)->get());
+        
+        // CORRECCIÓN: Traemos SOLO las cajas en estado true (Activas)
+        $cajas = Caja::where('sucursal_id', $sucursalId)
+                     ->where('estado', true)
+                     ->get();
+                     
+        return response()->json($cajas);
     }
 
     /**

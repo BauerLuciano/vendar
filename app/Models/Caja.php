@@ -11,6 +11,10 @@ class Caja extends Model
 
     protected $fillable = ['sucursal_id', 'nombre', 'estado'];
     
+    protected $casts = [
+        'estado' => 'boolean',
+    ];
+    
     public function sucursal() 
     { 
         return $this->belongsTo(Sucursal::class); 
@@ -19,5 +23,10 @@ class Caja extends Model
     public function turnos() 
     { 
         return $this->hasMany(TurnoCaja::class); 
+    }
+
+    public function puedeEliminarse(): bool
+    {
+        return !$this->turnos()->exists();
     }
 }

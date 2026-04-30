@@ -1,5 +1,10 @@
 <template>
-    <header class="bg-slate-900 border-b border-slate-800 shadow-md px-6 py-3 flex justify-between items-center h-16 z-40 relative">
+    <!-- 
+      CAMBIO CLAVE: 
+      Cambiamos "relative z-40" por "sticky top-0 z-[100]".
+      Esto obliga a que TODA la barra (y sus dropdowns) esté siempre por encima del resto del sistema.
+    -->
+    <header class="bg-slate-900 border-b border-slate-800 shadow-md px-6 py-3 flex justify-between items-center h-16 sticky top-0 z-[100]">
         
         <div class="flex items-center gap-4">
             <h2 class="text-xl font-black text-white tracking-tight hidden sm:block">
@@ -9,6 +14,7 @@
 
         <div class="flex items-center gap-4">
             
+            <!-- CONTENEDOR CAMPANA -->
             <div class="relative">
                 <button 
                     @click="campanaAbierta = !campanaAbierta; menuAbierto = false"
@@ -23,9 +29,10 @@
                     </span>
                 </button>
 
+                <!-- DROPDOWN CAMPANA -->
                 <div 
                     v-show="campanaAbierta" 
-                    class="absolute right-0 mt-3 w-80 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.8)] border border-slate-700/60 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right flex flex-col"
+                    class="absolute right-0 mt-3 w-80 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.8)] border border-slate-700/60 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right flex flex-col"
                 >
                     <div class="px-4 py-3 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
                         <p class="text-xs uppercase tracking-widest font-black text-slate-300">Stock Crítico</p>
@@ -65,6 +72,7 @@
                 </div>
             </div>
 
+            <!-- CONTENEDOR USUARIO -->
             <div class="relative">
                 <button 
                     @click="menuAbierto = !menuAbierto; campanaAbierta = false"
@@ -91,9 +99,10 @@
                     </svg>
                 </button>
 
+                <!-- DROPDOWN USUARIO -->
                 <div 
                     v-show="menuAbierto" 
-                    class="absolute right-0 mt-3 w-64 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-700/60 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+                    class="absolute right-0 mt-3 w-64 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-700/60 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
                 >
                     <div class="px-5 py-4 border-b border-slate-800">
                         <p class="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Sesión Activa</p>
@@ -110,6 +119,7 @@
                     </div>
                 </div>
             </div>
+            
         </div>
     </header>
 </template>
@@ -123,7 +133,6 @@ const user = computed(() => page.props.auth.user);
 const rolesUsuario = computed(() => page.props.auth.user.roles || []);
 const rolesFormateados = computed(() => rolesUsuario.value.length > 0 ? rolesUsuario.value.join(' - ') : 'Sin Rol');
 
-// 🔔 Atajamos el OBJETO de alertas (total y detalle)
 const alertasInfo = computed(() => page.props.auth.alertas || { total: 0, detalle: [] });
 
 const menuAbierto = ref(false);
@@ -132,6 +141,7 @@ const campanaAbierta = ref(false);
 const logout = () => router.post(route('logout'));
 
 const closeMenus = (e) => {
+    // Si el clic no ocurre dentro de un contenedor .relative (donde están los botones y dropdowns), cierra ambos.
     if (!e.target.closest('.relative')) {
         menuAbierto.value = false;
         campanaAbierta.value = false;
