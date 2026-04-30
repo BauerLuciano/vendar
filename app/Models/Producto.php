@@ -75,4 +75,10 @@ class Producto extends Model
                     ->withPivot('cantidad_fisica', 'cantidad_reservada')
                     ->withTimestamps();
     }
+
+    // 🔥 Relación agregada para solucionar el problema de rendimiento (N+1)
+    public function lotes()
+    {
+        return $this->hasMany(Lote::class, 'producto_id');
+    }
 }

@@ -13,7 +13,7 @@ use Carbon\Carbon;
 class PosController extends Controller
 {
     // Esta es la puerta de entrada al POS
-   public function index(Request $request)
+    public function index(Request $request)
     {
         $user = auth()->user();
 
@@ -26,21 +26,26 @@ class PosController extends Controller
 
             $productos = Producto::where('estado', true)
                 ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
-                ->with(['sucursales' => function($q) use ($sucursalId) {
-                    $q->where('sucursal_id', $sucursalId);
-                }, 'reglaLiquidacion']) // 🔥 Cargamos la regla de liquidación
+                ->with([
+                    'sucursales' => function($q) use ($sucursalId) {
+                        $q->where('sucursal_id', $sucursalId);
+                    }, 
+                    'reglaLiquidacion',
+                    // 🔥 Eager loading de lotes optimizado para esta sucursal (Mata el N+1)
+                    'lotes' => function($q) use ($sucursalId) {
+                        $q->where('sucursal_id', $sucursalId)
+                          ->where('estado_liquidacion', true)
+                          ->where('stock_actual', '>', 0);
+                    }
+                ])
                 ->get()
-                ->map(function($p) use ($sucursalId) {
+                ->map(function($p) {
                     $pivot = $p->sucursales->first();
                     $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
 
-                    // 🔥 LÓGICA DE LIQUIDACIÓN PREVENTIVA
-                    // Verificamos si este producto tiene AL MENOS UN lote en liquidación en esta sucursal con stock
-                    $loteEnLiquidacion = \App\Models\Lote::where('producto_id', $p->id)
-                        ->where('sucursal_id', $sucursalId)
-                        ->where('estado_liquidacion', true)
-                        ->where('stock_actual', '>', 0)
-                        ->exists();
+                    // 🔥 LÓGICA DE LIQUIDACIÓN PREVENTIVA OPTIMIZADA
+                    // Ya no consultamos a la BD adentro del bucle, solo leemos la colección en memoria
+                    $loteEnLiquidacion = $p->lotes->isNotEmpty();
 
                     $p->en_liquidacion = false;
                     $p->porcentaje_descuento = 0;
@@ -55,6 +60,9 @@ class PosController extends Controller
                         $descuento = $p->precio_venta * ($p->porcentaje_descuento / 100);
                         $p->precio_rebajado = round($p->precio_venta - $descuento, 2);
                     }
+
+                    // Limpiamos la relación temporal para no mandar basura pesada al frontend de Inertia
+                    unset($p->lotes);
 
                     return $p;
                 });
