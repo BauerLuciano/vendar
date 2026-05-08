@@ -1,5 +1,6 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import LectorCamara from '@/Components/LectorCamara.vue'; // 🔥 IMPORTAMOS LA CÁMARA
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, nextTick } from 'vue';
 import Swal from 'sweetalert2';
@@ -25,6 +26,9 @@ const clienteSeleccionado = ref(null);
 const busquedaCliente = ref('');
 const mostrarDropdownClientes = ref(false);
 const inputBusqueda = ref(null);
+
+// 🔥 VARIABLE PARA CONTROLAR EL MODAL DE LA CÁMARA
+const mostrarEscaner = ref(false);
 
 const clientesFiltradosSelect = computed(() => {
     if (!busquedaCliente.value || busquedaCliente.value.length < 2) return [];
@@ -93,7 +97,18 @@ const procesarBusquedaEnter = () => {
     if (exactMatch) {
         clickEnProducto(exactMatch);
         return;
+    } else {
+        // Opcional: Aviso si la cámara lee algo que no existe
+        Swal.fire('No encontrado', 'El código escaneado no pertenece a ningún producto.', 'warning');
+        buscar.value = '';
     }
+};
+
+// 🔥 FUNCIÓN QUE RECIBE EL CÓDIGO DE LA CÁMARA
+const manejarCodigoEscaneado = (codigo) => {
+    mostrarEscaner.value = false; // Cerramos la cámara
+    buscar.value = codigo; // Escribimos el código en el buscador
+    procesarBusquedaEnter(); // Simulamos el "Enter"
 };
 
 const clickEnProducto = async (producto) => {
@@ -160,14 +175,13 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     if (existe) {
         existe.cantidad = nuevaCantidad;
     } else {
-        // 🔥 MAGIA: Si el producto está en liquidación, metemos al carrito el precio con descuento
         const precioCobrar = producto.en_liquidacion ? producto.precio_rebajado : producto.precio_venta;
         
         carrito.value.push({ 
             ...producto, 
             cantidad: cantidadAgregada,
             precio_original: producto.precio_venta, 
-            precio_venta: precioCobrar // Lo sobreescribimos para que el backend lo cobre bien
+            precio_venta: precioCobrar 
         });
     }
 };
@@ -299,11 +313,20 @@ const finalizarVenta = () => {
                                 @keyup.enter="procesarBusquedaEnter"
                                 type="text" 
                                 placeholder="Escaneá código o buscá por nombre..."
-                                class="w-full pl-14 pr-4 py-4 bg-transparent border-none focus:ring-0 text-lg font-bold text-slate-800 placeholder-slate-400"
+                                class="w-full pl-14 pr-32 py-4 bg-transparent border-none focus:ring-0 text-lg font-bold text-slate-800 placeholder-slate-400"
                                 autofocus
                             />
-                            <div class="absolute right-4 px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
-                                ENTER ↵
+                            <div class="absolute right-3 flex items-center gap-2">
+                                <div class="hidden sm:block px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
+                                    ENTER ↵
+                                </div>
+                                <button 
+                                    @click="mostrarEscaner = true" 
+                                    class="bg-sky-100 text-sky-600 p-2 rounded-xl hover:bg-sky-500 hover:text-white transition-all shadow-sm border border-sky-200 flex items-center gap-1 group"
+                                    title="Escanear con Cámara"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -488,5 +511,12 @@ const finalizarVenta = () => {
                 </div>
             </div>
         </div>
+
+        <LectorCamara 
+            v-if="mostrarEscaner" 
+            @escaneado="manejarCodigoEscaneado" 
+            @cerrar="mostrarEscaner = false" 
+        />
+        
     </AuthenticatedLayout>
 </template>

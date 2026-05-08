@@ -1,7 +1,8 @@
 <script setup>
 import { useForm } from '@inertiajs/vue3';
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import Swal from 'sweetalert2';
+import LectorCamara from '@/Components/LectorCamara.vue'; // 🔥 IMPORTAMOS LA CÁMARA
 
 const props = defineProps({
     mostrar: Boolean,
@@ -20,11 +21,14 @@ const form = useForm({
     items: []
 });
 
-const codigoBarrasInput = ref(''); // 🔥 NUEVO: Para el Escáner
+const codigoBarrasInput = ref('');
 const productoSeleccionado = ref('');
 const cantidadInput = ref(1);
 const costoInput = ref(0);
-const vencimientoInput = ref(''); // 🔥 NUEVO: Fecha de vencimiento
+const vencimientoInput = ref(''); 
+
+// 🔥 CONTROL DEL MODAL DE LA CÁMARA
+const mostrarEscaner = ref(false);
 
 watch(() => props.mostrar, (val) => {
     if (val) {
@@ -33,19 +37,29 @@ watch(() => props.mostrar, (val) => {
     }
 });
 
-// 🔥 NUEVO: Simulador de Pistola Escáner
 const buscarPorCodigo = () => {
     if (!codigoBarrasInput.value) return;
     
     const prod = props.productos.find(p => p.codigo_barras === codigoBarrasInput.value);
     if (prod) {
         productoSeleccionado.value = prod.id;
-        costoInput.value = prod.precio_costo || 0; // Le auto-llenamos el costo anterior
-        codigoBarrasInput.value = ''; // Limpiamos para el próximo escaneo
+        costoInput.value = prod.precio_costo || 0; 
+        codigoBarrasInput.value = ''; 
     } else {
         Swal.fire('No encontrado', 'El código de barras no pertenece a ningún producto registrado.', 'warning');
         codigoBarrasInput.value = '';
     }
+};
+
+// 🔥 FUNCIÓN QUE RECIBE EL CÓDIGO DE LA CÁMARA
+const manejarCodigoEscaneado = (codigo) => {
+    mostrarEscaner.value = false; // Cerramos la cámara
+    codigoBarrasInput.value = codigo; // Escribimos el código
+    
+    // Pequeña pausa para que Vue actualice el DOM antes de buscar
+    nextTick(() => {
+        buscarPorCodigo(); 
+    });
 };
 
 const agregarProducto = () => {
@@ -56,8 +70,6 @@ const agregarProducto = () => {
 
     const prod = props.productos.find(p => p.id === productoSeleccionado.value);
     
-    // Si ya existe el producto EN LA MISMA FECHA DE VENCIMIENTO, sumamos. 
-    // Si la fecha es distinta, es una fila nueva.
     const existe = form.items.find(i => i.producto_id === prod.id && i.fecha_vencimiento === vencimientoInput.value);
     
     if (existe) {
@@ -70,11 +82,10 @@ const agregarProducto = () => {
             codigo: prod.codigo_barras,
             cantidad: Number(cantidadInput.value),
             costo: Number(costoInput.value),
-            fecha_vencimiento: vencimientoInput.value || null, // 🔥 Guardamos el lote
+            fecha_vencimiento: vencimientoInput.value || null, 
         });
     }
 
-    // Limpiamos los inputs
     productoSeleccionado.value = '';
     cantidadInput.value = 1;
     costoInput.value = 0;
@@ -167,15 +178,23 @@ const guardarIngreso = () => {
                             </h3>
                             
                             <div class="grid grid-cols-12 gap-2 items-end mb-4">
-                                <div class="col-span-12 md:col-span-4">
+                                <div class="col-span-12 md:col-span-4 relative">
                                     <label class="block text-[10px] font-bold text-sky-600 uppercase mb-1">Escanear Cód. Barras</label>
                                     <input 
                                         v-model="codigoBarrasInput" 
                                         @keyup.enter="buscarPorCodigo"
                                         type="text" 
-                                        placeholder="Escaneá o tipeá y dale Enter..."
-                                        class="w-full rounded-lg border-sky-300 bg-sky-50 text-sm font-mono font-bold text-sky-900 focus:ring-sky-500 focus:border-sky-500"
+                                        placeholder="Escaneá o tipeá..."
+                                        class="w-full rounded-lg border-sky-300 bg-sky-50 pr-10 text-sm font-mono font-bold text-sky-900 focus:ring-sky-500 focus:border-sky-500"
                                     >
+                                    <button 
+                                        @click="mostrarEscaner = true" 
+                                        type="button"
+                                        class="absolute right-1 bottom-1 p-1.5 text-sky-600 hover:bg-sky-500 hover:text-white rounded-md transition-colors"
+                                        title="Usar Cámara"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                    </button>
                                 </div>
 
                                 <div class="col-span-12 md:col-span-8">
@@ -259,6 +278,13 @@ const guardarIngreso = () => {
                 </div>
             </div>
         </div>
+
+        <LectorCamara 
+            v-if="mostrarEscaner" 
+            @escaneado="manejarCodigoEscaneado" 
+            @cerrar="mostrarEscaner = false" 
+        />
+
     </div>
 </template>
 

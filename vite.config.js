@@ -5,8 +5,11 @@ import VueDevTools from 'vite-plugin-vue-devtools';
 
 export default defineConfig({
     server: {
-        host: '127.0.0.1', // Obliga al devtools a usar esta IP
+        host: '0.0.0.0', // 🔥 Escucha en toda tu red local
         cors: true,
+        hmr: {
+            host: '192.168.100.67' // 🔥 Le avisa a tu celular dónde están los archivos de diseño
+        }
     },
     plugins: [
         laravel({
