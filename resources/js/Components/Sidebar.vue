@@ -100,7 +100,7 @@ const toggleSeccion = (titulo) => {
 </script>
 
 <template>
-    <div class="w-64 bg-slate-900 h-screen fixed left-0 top-0 shadow-2xl flex flex-col z-50">
+        <div class="w-64 bg-slate-900 h-full shadow-2xl flex flex-col z-50"> 
         
         <div class="px-4 py-4 border-b border-slate-800 flex justify-center items-center">
             <Link :href="route('dashboard')" class="block transition-transform hover:scale-105 w-full text-center">
