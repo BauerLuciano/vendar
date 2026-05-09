@@ -22,6 +22,7 @@ use App\Http\Controllers\{
     GlobalAdminController,
     ConfiguracionController,
     TicketController,
+    ImpersonateController,
 };
 use App\Models\CuentaCorriente;
 use App\Models\Sucursal;
@@ -52,6 +53,11 @@ Route::get('/', function () {
         'sucursalesBackend' => $sucursales 
     ]);
 });
+
+// 🔴 PANTALLA DE BLOQUEO PARA COMERCIOS MOROSOS O SUSPENDIDOS
+Route::get('/cuenta-suspendida', function () {
+    return Inertia::render('Suspendido');
+})->name('cuenta.suspendida');
 
 Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
     try {
@@ -154,7 +160,10 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Cajero|Encargad
     Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
 
-    Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])->name('lotes.index');
+    // 🔒 RUTA PROTEGIDA: Solo permite entrar si el comercio tiene el módulo 'lotes' activo
+    Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])
+        ->middleware('modulo:lotes')
+        ->name('lotes.index');
     
     Route::get('/categorias', [CategoriaController::class, 'index'])->name('categorias.index');
     Route::post('/categorias', [CategoriaController::class, 'store'])->name('categorias.store');
@@ -228,6 +237,9 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
     Route::get('/comercios', [GlobalAdminController::class, 'index'])->name('admin.comercios.index');
     Route::post('/comercios', [GlobalAdminController::class, 'store'])->name('admin.comercios.store');
     Route::put('/comercios/{comercio}', [GlobalAdminController::class, 'update'])->name('admin.comercios.update');
+
+    Route::post('/impersonate/enter/{comercio}', [ImpersonateController::class, 'enter'])->name('impersonate.enter');
+    Route::post('/impersonate/leave', [ImpersonateController::class, 'leave'])->name('impersonate.leave');
 });
 
 require __DIR__.'/auth.php';

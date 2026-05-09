@@ -5,18 +5,26 @@ import { ref, onMounted, computed } from 'vue';
 const page = usePage();
 const rolesUsuario = computed(() => page.props.auth.user.roles || []);
 
+// 🔒 1. Validación de Roles
 const tieneAcceso = (rolesPermitidos) => {
-    // 1. Si la sección o enlace es SOLO para el Administrador Global, exigimos ese rol estrictamente.
     if (rolesPermitidos.includes('Administrador Global')) {
         return rolesUsuario.value.includes('Administrador Global');
     }
-
-    // 2. Para el resto del sistema, el Admin Global y el SuperAdmin actúan como "Modo Dios"
     if (rolesUsuario.value.includes('Administrador Global') || rolesUsuario.value.includes('SuperAdmin')) return true;
-    
-    // 3. Chequeo normal para empleados normales (Cajero, Encargado, etc.)
     if (!rolesPermitidos || rolesPermitidos.length === 0) return true;
     return rolesPermitidos.some(rol => rolesUsuario.value.includes(rol));
+};
+
+// 🔥 2. NUEVO: Validación de Módulos SaaS del tenant actual
+const moduloHabilitado = (moduloKey) => {
+    // Si el enlace no requiere un módulo específico, está liberado
+    if (!moduloKey) return true;
+    
+    // Leemos los módulos que habilitaste desde el panel global
+    const modulosDelCliente = page.props.auth.modulos || {};
+    
+    // Retorna true solo si el módulo existe y está activo
+    return !!modulosDelCliente[moduloKey];
 };
 
 const menu = [
@@ -40,7 +48,6 @@ const menu = [
         titulo: 'Inventario',
         roles: ['Encargado', 'SuperAdmin'], 
         enlaces: [
-            // 🔥 AGREGADO: Transferencias
             { nombre: 'Transferencias', ruta: 'transferencias.index', icono: 'transferencias', roles: ['Encargado', 'SuperAdmin'] },
             { nombre: 'Reposición', ruta: 'reposicion.index', icono: 'reposicion', roles: ['Encargado', 'SuperAdmin'] },
             { nombre: 'Órdenes de Compra', ruta: 'ordenes-compra.index', icono: 'ordenes', roles: ['Encargado', 'SuperAdmin'] },
@@ -48,7 +55,8 @@ const menu = [
             { nombre: 'Productos', ruta: 'productos.index', icono: 'productos', roles: ['Encargado', 'SuperAdmin'] },
             { nombre: 'Categorías', ruta: 'categorias.index', icono: 'categorias', roles: ['Encargado', 'SuperAdmin'] },
             { nombre: 'Marcas', ruta: 'marcas.index', icono: 'marcas', roles: ['Encargado', 'SuperAdmin'] },
-            { nombre: 'Control de Lotes', ruta: 'lotes.index', icono: 'lotes', roles: ['Encargado', 'SuperAdmin'] },
+            // 🔥 ACÁ ESTÁ EL CANDADO: Le agregamos la propiedad modulo: 'lotes'
+            { nombre: 'Control de Lotes', ruta: 'lotes.index', icono: 'lotes', roles: ['Encargado', 'SuperAdmin'], modulo: 'lotes' },
         ]
     },
     {
@@ -70,7 +78,6 @@ const menu = [
             { nombre: 'Configuración Global', ruta: 'configuracion.index', icono: 'configuracion', roles: ['SuperAdmin'] },
         ]
     },
-    // 🔥 NUEVA SECCIÓN: Solo para vos (Admin Global)
     {
         titulo: 'SaaS VendAR',
         roles: ['Administrador Global'],
@@ -100,7 +107,7 @@ const toggleSeccion = (titulo) => {
 </script>
 
 <template>
-        <div class="w-64 bg-slate-900 h-full shadow-2xl flex flex-col z-50"> 
+    <div class="w-64 bg-slate-900 h-full shadow-2xl flex flex-col z-50"> 
         
         <div class="px-4 py-4 border-b border-slate-800 flex justify-center items-center">
             <Link :href="route('dashboard')" class="block transition-transform hover:scale-105 w-full text-center">
@@ -126,7 +133,7 @@ const toggleSeccion = (titulo) => {
                     <div v-show="seccionesAbiertas[seccion.titulo]" class="space-y-1 mt-1 animate-in slide-in-from-top-2 duration-200">
                         <template v-for="item in seccion.enlaces" :key="item.nombre">
                             
-                            <Link v-if="tieneAcceso(item.roles)"
+                            <Link v-if="tieneAcceso(item.roles) && moduloHabilitado(item.modulo)"
                                 :href="item.ruta !== '#' ? route(item.ruta) : '#'"
                                 :class="[esRutaActiva(item.ruta) ? 'bg-sky-600 text-white shadow-lg shadow-sky-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white']"
                                 class="flex items-center gap-3 px-4 py-2.5 rounded-xl font-bold transition-all duration-200 text-sm"
@@ -166,7 +173,6 @@ const toggleSeccion = (titulo) => {
 </template>
 
 <style scoped>
-/* Estilos originales mantenidos */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

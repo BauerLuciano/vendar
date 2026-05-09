@@ -1,6 +1,6 @@
 <script setup>
 import GlobalAdminLayout from '@/Layouts/GlobalAdminLayout.vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, useForm, Link } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 
@@ -38,7 +38,11 @@ const abrirModal = (comercio = null) => {
         form.plan = comercio.plan;
         form.status = comercio.status;
         form.limite_sucursales = comercio.limite_sucursales;
-        form.vencimiento_pago = comercio.vencimiento_pago;
+        
+        form.vencimiento_pago = comercio.vencimiento_pago 
+            ? String(comercio.vencimiento_pago).substring(0, 10) 
+            : '';
+            
         form.modulos_habilitados = comercio.modulos_habilitados || { pos: true };
     } else {
         form.reset();
@@ -200,8 +204,20 @@ const formatearFecha = (fecha) => {
                                         {{ comercio.status.charAt(0).toUpperCase() + comercio.status.slice(1) }}
                                     </span>
                                 </td>
-                                <td class="relative whitespace-nowrap py-4 pl-3 pr-6 text-right text-sm font-medium">
-                                    <button @click="abrirModal(comercio)" class="text-indigo-600 hover:text-indigo-900 font-semibold transition-colors">Configurar<span class="sr-only">, {{ comercio.nombre }}</span></button>
+                                
+                                <td class="relative whitespace-nowrap py-4 pl-3 pr-6 text-right text-sm font-medium flex items-center justify-end gap-3">
+                                    <Link 
+                                        :href="route('impersonate.enter', comercio.id)" 
+                                        method="post" 
+                                        as="button"
+                                        class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                                    >
+                                        <span>👁️</span> Entrar
+                                    </Link>
+                                    
+                                    <button @click="abrirModal(comercio)" class="text-indigo-600 hover:text-indigo-900 font-semibold transition-colors">
+                                        Configurar<span class="sr-only">, {{ comercio.nombre }}</span>
+                                    </button>
                                 </td>
                             </tr>
                         </tbody>

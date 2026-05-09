@@ -34,12 +34,17 @@ class GlobalAdminController extends Controller
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
             'plan' => 'required|in:basico,pro,premium',
+            'status' => 'required|in:activo,suspendido,trial',
             'limite_sucursales' => 'required|integer|min:1',
             'vencimiento_pago' => 'nullable|date',
+            'modulos_habilitados' => 'nullable|array',
         ]);
 
-        // Al crear, le asignamos por defecto el POS base
-        $validated['modulos_habilitados'] = ['pos' => true];
+        // Si no mandaron módulos, le asignamos el POS por defecto
+        if (empty($validated['modulos_habilitados'])) {
+            $validated['modulos_habilitados'] = ['pos' => true];
+        }
+        
         $validated['slug'] = str($request->nombre)->slug();
 
         Comercio::create($validated);
@@ -52,20 +57,20 @@ class GlobalAdminController extends Controller
      */
     public function update(Request $request, Comercio $comercio)
     {
-        $request->validate([
+        $validated = $request->validate([
+            'nombre' => 'required|string|max:255',
+            'plan' => 'required|in:basico,pro,premium',
             'status' => 'required|in:activo,suspendido,trial',
+            'limite_sucursales' => 'required|integer|min:1',
+            'vencimiento_pago' => 'nullable|date',
             'modulos_habilitados' => 'required|array',
-            'plan' => 'required|string',
         ]);
 
-        $comercio->update([
-            'status' => $request->status,
-            'plan' => $request->plan,
-            'modulos_habilitados' => $request->modulos_habilitados,
-            'vencimiento_pago' => $request->vencimiento_pago,
-            'limite_sucursales' => $request->limite_sucursales,
-        ]);
+        // Si cambiaron el nombre, actualizamos el slug
+        $validated['slug'] = str($request->nombre)->slug();
 
-        return redirect()->back()->with('exito', 'Configuración de comercio actualizada.');
+        $comercio->update($validated);
+
+        return redirect()->back()->with('exito', 'Configuración del comercio actualizada.');
     }
 }

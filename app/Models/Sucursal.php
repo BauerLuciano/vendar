@@ -13,20 +13,27 @@ class Sucursal extends Model
     protected $table = 'sucursales';
 
     protected $fillable = [
+        'comercio_id', // 🔥 NUEVO: El puente hacia el tenant (Comercio)
         'nombre',
         'direccion',
         'telefono',
         'tipo',
         'estado',
-        'latitud', // NUEVO
-        'longitud', // NUEVO
+        'latitud', 
+        'longitud', 
     ];
 
     protected $casts = [
         'estado' => 'boolean',
-        'latitud' => 'float', // NUEVO
-        'longitud' => 'float', // NUEVO
+        'latitud' => 'float', 
+        'longitud' => 'float', 
     ];
+
+    // 🔥 NUEVA RELACIÓN: Esta sucursal le pertenece a un Comercio
+    public function comercio()
+    {
+        return $this->belongsTo(Comercio::class, 'comercio_id');
+    }
 
     public function productos() {
         return $this->belongsToMany(Producto::class, 'producto_sucursal')

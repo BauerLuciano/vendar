@@ -11,9 +11,21 @@
                 </svg>
             </button>
 
-            <h2 class="text-lg lg:text-xl font-black text-white tracking-tight">
-                Vend<span class="text-orange-500 font-bold">AR</span>
+            <h2 class="text-lg lg:text-xl font-black text-white tracking-tight flex items-center gap-3">
+                <span>Vend<span class="text-orange-500 font-bold">AR</span></span>
             </h2>
+
+            <div v-if="$page.props.auth.impersonating" class="flex items-center">
+                <Link 
+                    :href="route('impersonate.leave')" 
+                    method="post" 
+                    as="button"
+                    class="bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-lg shadow-md shadow-rose-600/20 flex items-center gap-1.5 animate-pulse border border-rose-400 transition-all cursor-pointer"
+                >
+                    <span>⚠️ MODO DIOS</span>
+                    <span class="bg-rose-900/80 px-1 py-0.5 rounded text-[8px]">SALIR ✕</span>
+                </Link>
+            </div>
         </div>
 
         <div class="flex items-center gap-2 lg:gap-4">
@@ -128,7 +140,6 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { usePage, router, Link } from '@inertiajs/vue3';
 
-// 🔥 DECLARAMOS EL EMIT PARA EL MENÚ
 defineEmits(['abrirMenu']);
 
 const page = usePage();

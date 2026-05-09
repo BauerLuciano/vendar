@@ -33,9 +33,19 @@ const guardar = () => {
     const metodo = esEdicion ? 'put' : 'post';
 
     formulario[metodo](ruta, {
-        onSuccess: () => {
-            Swal.fire('¡Éxito!', `Sucursal ${esEdicion ? 'actualizada' : 'registrada'}`, 'success');
-            emit('cerrar');
+        onSuccess: (page) => {
+            // 🔥 CORRECCIÓN: Revisamos si el patovica del backend mandó un error por expansión
+            if (page.props.flash.error) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Expansión Bloqueada',
+                    text: page.props.flash.error,
+                    confirmButtonColor: '#0284c7'
+                });
+            } else {
+                Swal.fire('¡Éxito!', `Sucursal ${esEdicion ? 'actualizada' : 'registrada'}`, 'success');
+                emit('cerrar');
+            }
         }
     });
 };

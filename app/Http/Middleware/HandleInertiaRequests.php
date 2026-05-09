@@ -32,6 +32,17 @@ class HandleInertiaRequests extends Middleware
                     'permissions' => $request->user()->getAllPermissions()->pluck('name'),
                 ] : null,
                 
+                // 🔥 VARIABLE CLAVE PARA EL MODO DIOS: Le avisa a Vue si estamos en el local de un cliente
+                'impersonating' => session()->has('admin_comercio_original_id'),
+
+                // 🔒 MÓDULOS HABILITADOS: Trae qué funciones compró el dueño (tenant) de esta sucursal
+                'modulos' => fn () => $request->user() && $request->user()->branch_id ? (function() use ($request) {
+                    $sucursal = \App\Models\Sucursal::with('comercio')->find($request->user()->branch_id);
+                    return $sucursal && $sucursal->comercio 
+                        ? ($sucursal->comercio->modulos_habilitados ?? ['pos' => true]) 
+                        : ['pos' => true];
+                })() : ['pos' => true],
+                
                 // 🔔 CENTRO DE NOTIFICACIONES: Total + Top 5 Críticos
                 'alertas' => fn () => $request->user() ? (function() use ($request) {
                     $query = DB::table('producto_sucursal')
@@ -40,7 +51,6 @@ class HandleInertiaRequests extends Middleware
                         ->where('productos.estado', true)
                         ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
                         
-
                     // Filtro por sucursal si no es jefe
                     if (!$request->user()->hasRole(['SuperAdmin', 'Administrador Global']) && $request->user()->branch_id) {
                         $query->where('producto_sucursal.sucursal_id', $request->user()->branch_id);
