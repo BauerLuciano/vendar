@@ -43,7 +43,7 @@ const abrirModal = (comercio = null) => {
             ? String(comercio.vencimiento_pago).substring(0, 10) 
             : '';
             
-        form.modulos_habilitados = comercio.modulos_habilitados || { pos: true };
+        form.modulos_habilitados = comercio.modulos_habilitados || { pos: true, transferencias: false };
     } else {
         form.reset();
     }

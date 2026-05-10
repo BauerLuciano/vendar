@@ -48,9 +48,21 @@ const mostrarMenuMovil = ref(false);
                 </a>
             </nav>
 
-            <div class="p-4 bg-slate-950 border-t border-slate-800">
-                <Link :href="route('dashboard')" class="flex items-center justify-between text-xs font-bold text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-slate-800">
-                    <span>⬅ Volver al sistema</span>
+            <div class="p-4 bg-slate-950 border-t border-slate-800 space-y-2">
+                <Link :href="route('dashboard')" class="flex items-center gap-3 text-xs font-bold text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-slate-800">
+                    <span>⬅</span> Volver al sistema
+                </Link>
+
+                <Link 
+                    :href="route('logout')" 
+                    method="post" 
+                    as="button"
+                    class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-rose-600/10 text-rose-500 font-black uppercase tracking-tighter text-[10px] hover:bg-rose-600 hover:text-white transition-all duration-200 group"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                    </svg>
+                    Cerrar Sesión
                 </Link>
             </div>
         </aside>

@@ -22,6 +22,7 @@ class GlobalAdminController extends Controller
                 ['id' => 'cuentas_corrientes', 'nombre' => 'Cuentas Corrientes (Fiados)'],
                 ['id' => 'proveedores', 'nombre' => 'Gestión de Proveedores'],
                 ['id' => 'auditoria', 'nombre' => 'Auditoría de Caja y Stock'],
+                ['id' => 'transferencias', 'nombre' => 'Optimización de Stock (Sugerencias)'],
             ]
         ]);
     }
