@@ -39,54 +39,55 @@ class SucursalController extends Controller
     public function store(Request $request)
     {
         $user = auth()->user();
-        
-        // Buscamos la sucursal actual del usuario para saber a qué Comercio (tenant) pertenece
         $sucursalActual = \App\Models\Sucursal::with('comercio')->find($user->branch_id);
         $comercio = $sucursalActual?->comercio;
 
-        // 🔥 1. EL PATOVICA DEL LÍMITE DE SUCURSALES
         if ($comercio) {
             $cantidadActual = \App\Models\Sucursal::where('comercio_id', $comercio->id)->count();
-
             if ($cantidadActual >= $comercio->limite_sucursales) {
-                return redirect()->back()->with('error', "🔒 Límite alcanzado: Tu plan actual solo te permite registrar hasta {$comercio->limite_sucursales} sucursal(es). ¡Comunicate con Ventas para expandir tu negocio!");
+                return redirect()->back()->with('error', "🔒 Límite alcanzado...");
             }
         }
 
-        // 2. VALIDACIÓN DE LOS DATOS DEL FORMULARIO
+        // 2. VALIDACIÓN (Agregamos costo_delivery)
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255',
-            'direccion' => 'nullable|string|max:255',
-            'telefono' => 'nullable|string|max:50',
-            'tipo' => 'nullable|string',
-            'latitud' => 'nullable|numeric',
-            'longitud' => 'nullable|numeric',
+            'nombre'         => 'required|string|max:255',
+            'direccion'      => 'required|string|max:255',
+            'telefono'       => 'nullable|string|max:255',
+            'tipo'           => 'required|in:punto_de_venta,deposito',
+            'latitud'        => 'required|numeric',
+            'longitud'       => 'required|numeric',
+            'costo_delivery' => 'nullable|numeric|min:0', // 🔥 Nuevo campo
         ]);
 
-        // 🔥 3. ASIGNACIÓN AUTOMÁTICA AL DUEÑO (TENANT)
         if ($comercio) {
             $validated['comercio_id'] = $comercio->id;
         }
         
-        $validated['estado'] = true; // Nace activa por defecto
+        $validated['estado'] = true;
 
         \App\Models\Sucursal::create($validated);
 
         return redirect()->back()->with('exito', 'Nueva sucursal registrada con éxito.');
     }
 
-    public function update(Request $request, Sucursal $sucursal)
+   public function update(Request $request, Sucursal $sucursal)
     {
         $validados = $request->validate([
-            'nombre'    => 'required|string|max:100',
-            'direccion' => 'required|string|max:255',
-            'telefono'  => 'nullable|string|max:15|regex:/^\d+$/',
-            'tipo'      => 'required|in:punto_de_venta,deposito',
+            'nombre'         => 'required|string|max:100',
+            'direccion'      => 'required|string|max:255',
+            'telefono'       => 'nullable|string|max:15|regex:/^\d+$/',
+            'tipo'           => 'required|in:punto_de_venta,deposito',
+            // 🔥 AGREGAMOS ESTOS 3 CAMPOS QUE FALTABAN:
+            'latitud'        => 'required|numeric',
+            'longitud'       => 'required|numeric',
+            'costo_delivery' => 'nullable|numeric|min:0',
         ], [
             'telefono.regex' => 'El teléfono solo puede contener números.',
-            'tipo.in' => 'El tipo de local no es válido.',
+            'tipo.in'        => 'El tipo de local no es válido.',
         ]);
 
+        // Ahora $validados ya tiene la latitud y longitud, y se guardarán en la DB
         $sucursal->update($validados);
         
         return redirect()->back()->with('success', 'Sucursal actualizada exitosamente.');

@@ -1,117 +1,223 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'; // Agregamos watch
-import { Head, Link } from '@inertiajs/vue3';
+import { ref, onMounted, watch, computed } from 'vue'; 
+import { Head, Link, usePage, router, useForm } from '@inertiajs/vue3';
 import axios from 'axios';
+import Swal from 'sweetalert2';
 
 const props = defineProps({
+    comercio: Object,
     canLogin: Boolean,
     canRegister: Boolean,
     sucursalesBackend: Array,
+    categorias: Array,
 });
 
+const page = usePage();
+const estaLogueado = computed(() => !!page.props.auth.user);
+
 const sucursalElegida = ref('');
+const categoriaSeleccionada = ref('todas');
+const busqueda = ref('');
+
+const sucursalObjeto = computed(() => {
+    return props.sucursalesBackend?.find(s => s.id === sucursalElegida.value) || null;
+});
+
 const productos = ref([]);
 const cargando = ref(false);
 const localizando = ref(false);
 
+const carrito = ref([]);
+const mostrarCarrito = ref(false);
+
+const formPedido = useForm({
+    tipo_entrega: 'local', 
+    direccion_entrega: '',
+    telefono_contacto: page.props.auth.user?.telefono || '',
+    metodo_pago: 'efectivo',
+    notas: ''
+});
+
+// ── FILTRADO REACTIVO ──────────────────────────────────────────────────────────
+const productosFiltrados = computed(() => {
+    return productos.value.filter(p => {
+        const coincideCat = categoriaSeleccionada.value === 'todas' || p.categoria_id == categoriaSeleccionada.value;
+        const coincideBusqueda = p.nombre.toLowerCase().includes(busqueda.value.toLowerCase());
+        return coincideCat && coincideBusqueda;
+    });
+});
+
+// ── UTILS ──────────────────────────────────────────────────────────────────────
+const parsearPrecio = (valor) => {
+    if (!valor) return 0;
+    if (typeof valor === 'number') return valor;
+    let texto = String(valor).replace(/\./g, '').replace(',', '.');
+    const numero = parseFloat(texto);
+    return isNaN(numero) ? 0 : numero;
+};
+
+const formatearDinero = (monto) => {
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
+};
+
+// ── CARRITO ────────────────────────────────────────────────────────────────────
+const validarCantidadInput = (index, event) => {
+    let valor = parseInt(event.target.value);
+    carrito.value[index].cantidad = (isNaN(valor) || valor < 1) ? 1 : valor;
+    guardarCarritoMemoria();
+};
+
+const cargarCarritoMemoria = () => {
+    if (!props.comercio) return;
+    const guardado = localStorage.getItem(`vendar_cart_${props.comercio.id}`);
+    if (guardado) {
+        try { 
+            const items = JSON.parse(guardado);
+            carrito.value = items.map(item => ({ ...item, precio: parsearPrecio(item.precio) }));
+        } catch(e) {}
+    }
+};
+
+const guardarCarritoMemoria = () => {
+    if (!props.comercio) return;
+    localStorage.setItem(`vendar_cart_${props.comercio.id}`, JSON.stringify(carrito.value));
+};
+
+const totalItems       = computed(() => carrito.value.reduce((acc, i) => acc + i.cantidad, 0));
+const totalProductos   = computed(() => carrito.value.reduce((acc, i) => acc + (i.precio * i.cantidad), 0));
+const costoDeliveryExtra = computed(() => {
+    if (formPedido.tipo_entrega === 'delivery' && sucursalObjeto.value)
+        return parsearPrecio(sucursalObjeto.value.costo_delivery || 0);
+    return 0;
+});
+const totalFinalCheckout = computed(() => totalProductos.value + costoDeliveryExtra.value);
+
+const agregarAlCarrito = (producto) => {
+    if (!estaLogueado.value) {
+        Swal.fire({
+            title: '¡Iniciá Sesión!',
+            text: 'Para pedir online necesitamos saber quién sos.',
+            icon: 'info',
+            background: '#0f1929',
+            color: '#fff',
+            showCancelButton: true,
+            confirmButtonText: 'Ingresar',
+            cancelButtonText: 'Seguir mirando',
+            confirmButtonColor: '#00adef',
+            cancelButtonColor: '#334155'
+        }).then((res) => { if (res.isConfirmed) router.get(route('login')); });
+        return;
+    }
+    const precioLimpio = parsearPrecio(producto.precio);
+    const existe = carrito.value.find(item => item.id === producto.id);
+    if (existe) {
+        existe.cantidad++;
+    } else {
+        carrito.value.push({ id: producto.id, nombre: producto.nombre, precio: precioLimpio, imagen_url: producto.imagen_url, cantidad: 1 });
+    }
+    guardarCarritoMemoria();
+
+    const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 1500 });
+    Toast.fire({ icon: 'success', title: `Agregado: ${producto.nombre}`, background: '#0f1929', color: '#fff' });
+};
+
+const cambiarCantidad = (index, delta) => {
+    carrito.value[index].cantidad += delta;
+    if (carrito.value[index].cantidad <= 0) {
+        carrito.value.splice(index, 1);
+        if (carrito.value.length === 0) mostrarCarrito.value = false;
+    }
+    guardarCarritoMemoria();
+};
+
+const confirmarPedido = () => {
+    if (carrito.value.length === 0) return;
+    if (formPedido.tipo_entrega === 'delivery' && !formPedido.direccion_entrega.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Falta Dirección', background: '#0f1929', color: '#fff' });
+        return;
+    }
+    const payload = {
+        comercio_id: props.comercio.id,
+        sucursal_id: sucursalElegida.value,
+        items: carrito.value,
+        total_productos: totalProductos.value,
+        total_final: totalFinalCheckout.value,
+        costo_envio: costoDeliveryExtra.value,
+        tipo_entrega: formPedido.tipo_entrega,
+        metodo_pago: formPedido.metodo_pago,
+        direccion_entrega: formPedido.direccion_entrega,
+        telefono_contacto: formPedido.telefono_contacto,
+        notas: formPedido.notas
+    };
+    console.log('Enviando pedido:', payload);
+    Swal.fire({
+        title: '¡Pedido Confirmado!',
+        text: 'El local ya recibió tu orden.',
+        icon: 'success',
+        background: '#0f1929',
+        color: '#fff',
+        confirmButtonColor: '#8cc63f'
+    }).then(() => {
+        carrito.value = [];
+        guardarCarritoMemoria();
+        mostrarCarrito.value = false;
+        formPedido.reset();
+    });
+};
+
+// ── MAPA & GPS ─────────────────────────────────────────────────────────────────
 let map = null;
-let markersLayer = null; // Capa separada para los pines
+let markersLayer = null;
 
 const initMap = () => {
-    if (map) return;
-    
-    // Centrado inicial en Apóstoles
-    map = L.map('map-container').setView([-27.361, -55.761], 13);
-    
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
-
+    const contenedor = document.getElementById('map-container');
+    if (!contenedor || map) return;
+    map = L.map('map-container', { zoomControl: false }).setView([-27.367, -55.896], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM' }).addTo(map);
     markersLayer = L.layerGroup().addTo(map);
     dibujarPines();
 };
 
 const dibujarPines = () => {
-    if (!markersLayer) return;
-    markersLayer.clearLayers(); 
-
-    // DEBUG: Para ver en la consola si los datos traen lat/lng
-    console.table(props.sucursalesBackend);
-
+    if (!markersLayer || !props.sucursalesBackend) return;
+    markersLayer.clearLayers();
     props.sucursalesBackend.forEach(suc => {
         const lat = Number(suc.latitud);
         const lng = Number(suc.longitud);
-
         if (lat !== 0 && lng !== 0) {
-            L.circleMarker([lat, lng], {
-                radius: 12,
-                fillColor: "#f97316",
-                color: "#ffffff",
-                weight: 3,
-                opacity: 1,
-                fillOpacity: 1
-            })
-            .addTo(markersLayer)
-            .bindPopup(`<div style="color:black; padding:5px;"><b>${suc.nombre}</b><br>Sucursal VendAR</div>`)
-            .on('click', () => {
-                sucursalElegida.value = suc.id;
-                cargarProductos();
-            });
+            L.circleMarker([lat, lng], { radius: 11, fillColor: '#00adef', color: '#ffffff', weight: 3, opacity: 1, fillOpacity: 1 })
+                .addTo(markersLayer)
+                .bindPopup(`<div style="padding:4px"><b>${suc.nombre}</b><br><small>${suc.direccion || ''}</small></div>`)
+                .on('click', () => { sucursalElegida.value = suc.id; cargarProductos(); map.setView([lat, lng], 15); });
         }
     });
 };
 
-watch(() => props.sucursalesBackend, () => {
-    dibujarPines();
-}, { deep: true });
-
-const usarGps = () => {
-    if (!navigator.geolocation) return alert("Tu navegador no soporta GPS");
-    
-    localizando.value = true; 
-    navigator.geolocation.getCurrentPosition((position) => {
-        const { latitude, longitude } = position.coords;
-        
-        map.setView([latitude, longitude], 14);
-        L.circle([latitude, longitude], { radius: 200, color: '#38bdf8', weight: 2, fillOpacity: 0.2 }).addTo(map);
-
-        let masCercana = null;
-        let distanciaMinima = Infinity;
-
-        props.sucursalesBackend.forEach(suc => {
-            const sLat = Number(suc.latitud);
-            const sLng = Number(suc.longitud);
-            
-            if (sLat !== 0 && sLng !== 0) {
-                const d = calcularDistanciaFisica(latitude, longitude, sLat, sLng);
-                if (d < distanciaMinima) {
-                    distanciaMinima = d;
-                    masCercana = suc;
-                }
-            }
-        });
-
-        if (masCercana) {
-            sucursalElegida.value = masCercana.id;
-            cargarProductos();
-        } else {
-            alert("Atención: Tus sucursales en la base de datos no tienen coordenadas cargadas.");
-        }
-        localizando.value = false;
-    }, (err) => { 
-        console.error(err);
-        localizando.value = false; 
-    });
-};
+watch(() => props.sucursalesBackend, () => dibujarPines(), { deep: true });
 
 const calcularDistanciaFisica = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+};
+
+const usarGps = () => {
+    if (!navigator.geolocation) return;
+    localizando.value = true;
+    navigator.geolocation.getCurrentPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        map.setView([latitude, longitude], 14);
+        let masCercana = null, distanciaMinima = Infinity;
+        props.sucursalesBackend?.forEach(suc => {
+            const sLat = Number(suc.latitud), sLng = Number(suc.longitud);
+            if (sLat !== 0 && sLng !== 0) {
+                const d = calcularDistanciaFisica(latitude, longitude, sLat, sLng);
+                if (d < distanciaMinima) { distanciaMinima = d; masCercana = suc; }
+            }
+        });
+        if (masCercana) { sucursalElegida.value = masCercana.id; cargarProductos(); }
+        localizando.value = false;
+    }, () => { localizando.value = false; });
 };
 
 const cargarProductos = async () => {
@@ -120,139 +226,391 @@ const cargarProductos = async () => {
     try {
         const response = await axios.get(`/api/catalogo/${sucursalElegida.value}`);
         productos.value = response.data;
-    } catch (error) {
-        console.error(error);
-    } finally {
-        cargando.value = false;
-    }
+    } catch (error) { console.error(error); } finally { cargando.value = false; }
 };
 
 onMounted(() => {
-    setTimeout(initMap, 500);
+    setTimeout(() => { initMap(); cargarCarritoMemoria(); }, 500);
 });
 </script>
 
 <template>
-    <Head title="Catálogo | VendAR" />
+    <Head :title="`${comercio?.nombre || 'Catálogo'} | VendAR`" />
 
-    <div class="min-h-screen bg-[#0b1221] font-sans text-slate-300 relative overflow-hidden flex flex-col">
-        
-        <div class="absolute w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[150px] -top-32 -left-32 z-0 pointer-events-none"></div>
-        <div class="absolute w-[600px] h-[600px] bg-orange-500/10 rounded-full blur-[150px] top-1/2 -right-32 z-0 pointer-events-none"></div>
+    <div class="min-h-screen bg-[#080f1e] font-sans text-slate-300 relative flex flex-col overflow-x-hidden">
 
-        <nav class="relative z-10 border-b border-slate-800/50 bg-[#0b1221]/60 backdrop-blur-xl">
-            <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-                <div class="flex items-center gap-3">
-                    <img src="/img/LogoVendar-Sidebar.png" alt="VendAR Logo" class="h-8 w-auto object-contain">
-                    <span class="text-xl font-bold text-white tracking-tight">Vend<span class="text-orange-500">AR</span></span>
+        <!-- Ambient glow background -->
+        <div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
+            <div class="absolute w-[700px] h-[700px] bg-[#00adef]/6 rounded-full blur-[180px] -top-40 -left-40"></div>
+            <div class="absolute w-[500px] h-[500px] bg-[#f7941e]/5 rounded-full blur-[160px] bottom-0 right-0"></div>
+            <div class="absolute w-[300px] h-[300px] bg-[#8cc63f]/4 rounded-full blur-[120px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+            <!-- Subtle grid texture -->
+            <div class="absolute inset-0" style="background-image: linear-gradient(rgba(0,173,239,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,173,239,0.03) 1px, transparent 1px); background-size: 40px 40px;"></div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             NAVBAR
+        ══════════════════════════════════════════════════════════════ -->
+        <nav class="sticky top-0 z-40 border-b border-white/5 bg-[#080f1e]/85 backdrop-blur-2xl">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 py-0 flex items-stretch gap-4 min-h-[68px]">
+
+                <!-- Logo + Nombre -->
+                <div class="flex items-center gap-4 pr-4 border-r border-white/5 shrink-0">
+                    <img src="/img/LogoVendar-Sidebar.png" alt="VendAR" class="h-10 w-auto object-contain">
+                    <div class="hidden sm:flex flex-col leading-none">
+                        <span class="text-[17px] font-black text-white tracking-tight uppercase">{{ comercio?.nombre || 'VendAR' }}</span>
+                        <span class="text-[9px] font-black tracking-widest text-[#8cc63f] uppercase flex items-center gap-1 mt-0.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-[#8cc63f] animate-pulse inline-block"></span>
+                            Tienda Oficial
+                        </span>
+                    </div>
                 </div>
-                
-                <div v-if="canLogin" class="flex gap-4">
-                    <Link
-                        v-if="$page.props.auth.user"
-                        :href="route('dashboard')"
-                        class="text-[13px] font-bold uppercase tracking-[0.15em] text-white bg-white/5 hover:bg-white/10 border border-slate-700/50 rounded-xl px-5 py-2 transition-all"
+
+                <!-- Buscador central -->
+                <div class="flex-1 flex items-center py-3">
+                    <div class="relative w-full max-w-2xl">
+                        <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+                        </svg>
+                        <input
+                            v-model="busqueda"
+                            type="text"
+                            placeholder="Buscá productos, marcas o categorías..."
+                            class="w-full bg-[#111c30] border border-white/8 rounded-2xl py-2.5 pl-11 pr-5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-[#00adef]/50 focus:ring-2 focus:ring-[#00adef]/20 transition-all"
+                        >
+                    </div>
+                </div>
+
+                <!-- Acciones derecha -->
+                <div class="flex items-center gap-2 pl-4 border-l border-white/5 shrink-0" v-if="canLogin">
+
+                    <!-- Botón carrito -->
+                    <button
+                        v-if="carrito.length > 0"
+                        @click="mostrarCarrito = true"
+                        class="relative flex items-center gap-2.5 bg-[#f7941e] hover:bg-[#f7941e]/90 text-white px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-lg shadow-[#f7941e]/20 active:scale-95"
                     >
-                        Mi Panel
-                    </Link>
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/>
+                        </svg>
+                        <span class="bg-white/20 rounded-lg px-1.5 py-0.5 font-mono font-black text-[11px]">{{ totalItems }}</span>
+                        <span class="hidden lg:inline font-black">{{ formatearDinero(totalFinalCheckout) }}</span>
+                    </button>
+
+                    <!-- Panel admin -->
+                    <Link
+                        v-if="estaLogueado && page.props.auth.user.roles?.some(r => ['SuperAdmin','Administrador Global','Encargado','cajero'].includes(r))"
+                        :href="route('dashboard')"
+                        class="text-[11px] font-bold uppercase tracking-wider text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 transition-all"
+                    >Mi Panel</Link>
+
+                    <!-- Usuario logueado -->
+                    <div v-else-if="estaLogueado" class="flex items-center gap-2 bg-[#111c30] border border-white/8 px-3 py-2 rounded-xl">
+                        <div class="w-6 h-6 rounded-full bg-[#00adef]/15 border border-[#00adef]/30 flex items-center justify-center text-[#00adef] shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0"/></svg>
+                        </div>
+                        <span class="text-[11px] font-bold text-slate-200 max-w-[90px] truncate">{{ page.props.auth.user.name.split(' ')[0] }}</span>
+                        <span class="text-white/20">|</span>
+                        <Link :href="route('logout')" method="post" as="button" class="text-[11px] font-bold text-rose-500 hover:text-white hover:bg-rose-600 px-2 py-1 rounded-lg transition-all">Salir</Link>
+                    </div>
+
+                    <!-- Login / Registro -->
                     <template v-else>
-                        <Link
-                            :href="route('login')"
-                            class="text-[13px] font-bold uppercase tracking-[0.1em] text-sky-400 hover:text-sky-300 px-4 py-2 transition-colors"
-                        >
-                            Ingresar
-                        </Link>
-                        <Link
-                            v-if="canRegister"
-                            :href="route('register')"
-                            class="text-[13px] font-bold uppercase tracking-[0.15em] text-white bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 rounded-xl px-5 py-2 shadow-[0_0_15px_rgba(14,165,233,0.3)] transition-all"
-                        >
-                            Registrarse
-                        </Link>
+                        <Link :href="route('login')" class="text-[11px] font-bold uppercase tracking-wider text-[#00adef] hover:text-white px-3 py-2 transition-colors">Ingresar</Link>
+                        <Link v-if="canRegister" :href="route('register')" class="text-[11px] font-bold uppercase tracking-wider text-white bg-[#00adef] hover:bg-[#00adef]/80 rounded-xl px-4 py-2 shadow-lg shadow-[#00adef]/20 transition-all">Registrarse</Link>
                     </template>
                 </div>
             </div>
         </nav>
 
-        <main class="flex-grow relative z-10 max-w-7xl mx-auto w-full px-6 py-12 flex flex-col items-center">
-            
-            <div class="text-center max-w-2xl mb-12">
-                <h1 class="text-[2.5rem] font-bold text-white tracking-tight mb-4">
-                    El stock de tu kiosco, <br><span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-orange-400">en tiempo real.</span>
-                </h1>
-                
-                <div class="relative group max-w-md mx-auto text-left space-y-4">
+        <!-- ══════════════════════════════════════════════════════════════
+             BARRA DE CATEGORÍAS
+        ══════════════════════════════════════════════════════════════ -->
+        <div class="sticky top-[68px] z-30 border-b border-white/5 bg-[#0a1325]/90 backdrop-blur-xl">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 overflow-x-auto no-scrollbar">
+                <div class="flex gap-0 min-w-max">
+                    <button
+                        @click="categoriaSeleccionada = 'todas'"
+                        :class="categoriaSeleccionada === 'todas'
+                            ? 'border-b-2 border-[#00adef] text-[#00adef] bg-[#00adef]/5'
+                            : 'border-b-2 border-transparent text-slate-500 hover:text-slate-300'"
+                        class="py-3.5 px-5 text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all"
+                    >Todo</button>
+                    <button
+                        v-for="cat in categorias"
+                        :key="cat.id"
+                        @click="categoriaSeleccionada = cat.id"
+                        :class="categoriaSeleccionada == cat.id
+                            ? 'border-b-2 border-[#00adef] text-[#00adef] bg-[#00adef]/5'
+                            : 'border-b-2 border-transparent text-slate-500 hover:text-slate-300'"
+                        class="py-3.5 px-5 text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all"
+                    >{{ cat.nombre }}</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             HERO BANNER — Selector de Sucursal
+        ══════════════════════════════════════════════════════════════ -->
+        <div class="relative z-10 w-full border-b border-white/5">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col md:flex-row gap-4 items-stretch">
+
+                <!-- Banner izquierdo -->
+                <div class="flex-1 bg-gradient-to-br from-[#00adef]/10 to-[#00adef]/3 border border-[#00adef]/15 rounded-2xl p-6 flex flex-col justify-between min-h-[130px] relative overflow-hidden">
+                    <div class="absolute right-4 top-4 w-20 h-20 bg-[#00adef]/10 rounded-full blur-xl"></div>
                     <div>
-                        <label class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1 block">SUCURSAL</label>
-                        <div class="flex gap-2">
-                            <div class="relative flex-grow">
-                                <select 
-                                    v-model="sucursalElegida" 
-                                    @change="cargarProductos"
-                                    class="block w-full bg-[#1e293b] border border-slate-700/80 text-slate-200 rounded-xl px-4 py-3.5 focus:ring-sky-500 focus:border-sky-500 transition-all shadow-inner appearance-none cursor-pointer outline-none"
-                                >
-                                    <option value="" disabled>📍 Elegí una sucursal...</option>
-                                    <option v-for="sucursal in props.sucursalesBackend" :key="sucursal.id" :value="sucursal.id">
-                                        {{ sucursal.nombre }}
-                                    </option>
-                                </select>
-                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-500">
-                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                                </div>
-                            </div>
-                            
-                            <button 
-                                @click="usarGps"
-                                title="Buscar sucursal más cercana"
-                                class="bg-[#1e293b] border border-slate-700/80 text-sky-400 hover:text-white hover:bg-sky-500 p-3.5 rounded-xl transition-all shadow-inner active:scale-95"
-                            >
-                                <svg v-if="!localizando" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                                <svg v-else class="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            </button>
-                        </div>
+                        <p class="text-[10px] font-black text-[#00adef] tracking-widest uppercase mb-1">📍 Elegí tu sucursal</p>
+                        <p class="text-white font-bold text-sm">El mapa detecta tu local más cercano automáticamente.</p>
+                    </div>
+                    <div class="flex gap-2 mt-4">
+                        <select
+                            v-model="sucursalElegida"
+                            @change="cargarProductos"
+                            class="flex-1 bg-[#111c30] border border-white/10 text-white rounded-xl px-4 py-2.5 text-sm font-bold focus:outline-none focus:border-[#00adef]/50 focus:ring-2 focus:ring-[#00adef]/20 transition-all"
+                        >
+                            <option value="" disabled>Seleccioná un local...</option>
+                            <option v-for="suc in sucursalesBackend" :key="suc.id" :value="suc.id">{{ suc.nombre }}</option>
+                        </select>
+                        <button
+                            @click="usarGps"
+                            :disabled="localizando"
+                            class="bg-[#00adef] hover:bg-[#00adef]/80 text-white px-4 rounded-xl font-bold text-sm transition-all flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-[#00adef]/20"
+                        >
+                            <span v-if="localizando" class="animate-spin">⟳</span>
+                            <span v-else>📍</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Banner derecho — promo -->
+                <div class="md:w-72 bg-gradient-to-br from-[#f7941e]/10 to-[#f7941e]/3 border border-[#f7941e]/15 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden">
+                    <div class="absolute right-4 top-4 w-16 h-16 bg-[#f7941e]/15 rounded-full blur-xl"></div>
+                    <div>
+                        <p class="text-[10px] font-black text-[#f7941e] tracking-widest uppercase mb-1">🛵 Delivery disponible</p>
+                        <p class="text-white font-bold text-sm">Pedí desde casa y recibí en minutos.</p>
+                    </div>
+                    <div class="mt-4 flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-[#8cc63f] animate-pulse"></div>
+                        <span class="text-[#8cc63f] text-xs font-bold">Locales activos ahora</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             MAPA
+        ══════════════════════════════════════════════════════════════ -->
+        <div class="relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6">
+            <div id="map-container" class="w-full h-[180px] rounded-2xl border border-white/8 overflow-hidden bg-[#111c30] shadow-xl"></div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             CATÁLOGO
+        ══════════════════════════════════════════════════════════════ -->
+        <main class="flex-grow relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 pb-24">
+
+            <!-- Heading del catálogo -->
+            <div class="flex items-center justify-between mb-5" v-if="sucursalElegida">
+                <div>
+                    <h2 class="text-base font-black text-white uppercase tracking-tight">
+                        {{ categoriaSeleccionada === 'todas' ? 'Todos los productos' : categorias?.find(c => c.id == categoriaSeleccionada)?.nombre }}
+                    </h2>
+                    <p class="text-[11px] text-slate-500 mt-0.5">{{ productosFiltrados.length }} productos disponibles</p>
+                </div>
+                <!-- Buscador mobile -->
+                <div class="flex md:hidden relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+                    <input v-model="busqueda" type="text" placeholder="Buscar..." class="bg-[#111c30] border border-white/8 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#00adef]/50 w-40 transition-all">
+                </div>
+            </div>
+
+            <!-- Estado: cargando -->
+            <div v-if="cargando" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div v-for="n in 10" :key="n" class="bg-[#111c30]/80 border border-white/5 rounded-2xl overflow-hidden animate-pulse">
+                    <div class="h-36 bg-white/5"></div>
+                    <div class="p-3 space-y-2">
+                        <div class="h-2.5 bg-white/5 rounded w-3/4"></div>
+                        <div class="h-4 bg-white/5 rounded w-1/2"></div>
+                        <div class="h-8 bg-white/5 rounded-xl"></div>
                     </div>
                 </div>
             </div>
 
-            <div id="map-container" class="w-full h-[300px] rounded-[2rem] border border-white/5 mb-12 shadow-2xl relative z-10 overflow-hidden bg-[#1e293b]"></div>
+            <!-- Estado: sin sucursal -->
+            <div v-else-if="!sucursalElegida" class="flex flex-col items-center justify-center py-20 text-center">
+                <div class="w-20 h-20 bg-[#00adef]/10 border border-[#00adef]/20 rounded-3xl flex items-center justify-center text-4xl mb-5">🏪</div>
+                <h3 class="text-lg font-black text-white mb-2">Tu pedido empieza acá</h3>
+                <p class="text-slate-500 text-sm max-w-xs">Elegí una sucursal arriba o usá el GPS para ver el local más cercano.</p>
+            </div>
 
-            <div class="w-full">
-                <div v-if="cargando" class="flex flex-col items-center justify-center py-20">
-                    <svg class="animate-spin h-10 w-10 text-sky-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    <p class="text-slate-400 font-medium tracking-widest uppercase text-xs">Cargando catálogo...</p>
-                </div>
+            <!-- Estado: sin productos -->
+            <div v-else-if="productosFiltrados.length === 0 && !cargando" class="flex flex-col items-center justify-center py-20 text-center">
+                <div class="w-20 h-20 bg-[#f7941e]/10 border border-[#f7941e]/20 rounded-3xl flex items-center justify-center text-4xl mb-5">📦</div>
+                <h3 class="text-lg font-black text-white mb-2">Sin productos</h3>
+                <p class="text-slate-500 text-sm max-w-xs">{{ busqueda ? `No encontramos resultados para "${busqueda}"` : 'Este local todavía no cargó productos visibles.' }}</p>
+            </div>
 
-                <div v-else-if="!sucursalElegida" class="rounded-[2rem] border border-white/5 bg-[#1e293b]/50 backdrop-blur-sm p-12 text-center">
-                    <svg class="w-16 h-16 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.809c0-.636-.28-1.239-.762-1.636l-7.4-6.07a1.97 1.97 0 00-2.484 0l-7.4 6.07C2.64 8.57 2.36 9.172 2.36 9.81V21M6 10.5h.008v.008H6v-.008z"></path></svg>
-                    <h3 class="text-lg font-bold text-slate-300 mb-1">Tu vidriera está esperando</h3>
-                    <p class="text-slate-500 text-sm">Seleccioná una sucursal en el mapa o en el menú.</p>
-                </div>
-
-                <div v-else-if="productos.length === 0" class="rounded-[2rem] border border-white/5 bg-[#1e293b]/50 backdrop-blur-sm p-12 text-center">
-                    <p class="text-orange-400 font-bold mb-1">¡Ups!</p>
-                    <p class="text-slate-400 text-sm">No encontramos productos disponibles para esta sucursal.</p>
-                </div>
-
-                <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    <div v-for="producto in productos" :key="producto.id" class="bg-[#1e293b]/80 border border-slate-700/50 rounded-2xl overflow-hidden hover:border-sky-500/50 transition-colors shadow-lg flex flex-col">
-                        <div class="h-40 bg-white/5 p-4 flex items-center justify-center">
-                            <img :src="producto.imagen_url || '/img/LogoVendar-Sidebar.png'" class="max-h-full object-contain opacity-80" :alt="producto.nombre">
+            <!-- GRID DE PRODUCTOS -->
+            <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div
+                    v-for="p in productosFiltrados"
+                    :key="p.id"
+                    class="group bg-[#0f1929] border border-white/6 rounded-2xl overflow-hidden flex flex-col transition-all duration-200 hover:border-[#00adef]/30 hover:shadow-xl hover:shadow-[#00adef]/5 hover:-translate-y-0.5"
+                >
+                    <!-- Imagen (fondo blanco para resaltar el producto) -->
+                    <div class="relative h-36 bg-white flex items-center justify-center p-3 overflow-hidden">
+                        <img
+                            :src="p.imagen_url || '/img/LogoVendar-Sidebar.png'"
+                            :alt="p.nombre"
+                            class="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        >
+                        <!-- Badge categoría -->
+                        <div class="absolute top-2 left-2 bg-[#8cc63f] text-white px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider shadow-sm">
+                            {{ p.categoria?.nombre || 'General' }}
                         </div>
-                        <div class="p-5 flex flex-col flex-grow">
-                            <h3 class="text-sm font-bold text-slate-200 truncate">{{ producto.nombre }}</h3>
-                            <p class="mt-2 text-xl font-black text-sky-400">$ {{ producto.precio }}</p>
-                            <button class="mt-4 w-full bg-slate-800 hover:bg-sky-500 text-white font-bold text-xs tracking-wider uppercase py-3 rounded-xl transition-colors border border-slate-700 hover:border-sky-400">
-                                Agregar
-                            </button>
-                        </div>
+                        <!-- Overlay degradado inferior -->
+                        <div class="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[#0f1929]/20 to-transparent"></div>
+                    </div>
+
+                    <!-- Info -->
+                    <div class="p-3 flex flex-col flex-grow">
+                        <h3 class="text-[10px] font-bold text-slate-300 leading-tight line-clamp-2 mb-2 flex-grow">{{ p.nombre }}</h3>
+                        <p class="text-[17px] font-black text-white tracking-tight">{{ formatearDinero(parsearPrecio(p.precio)) }}</p>
+                        <button
+                            @click="agregarAlCarrito(p)"
+                            class="mt-2.5 w-full bg-[#f7941e]/15 hover:bg-[#f7941e] text-[#f7941e] hover:text-white font-black text-[9px] uppercase tracking-widest py-2.5 rounded-xl border border-[#f7941e]/30 hover:border-[#f7941e] transition-all duration-150 active:scale-95"
+                        >+ Agregar</button>
                     </div>
                 </div>
             </div>
         </main>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             DRAWER — CARRITO
+        ══════════════════════════════════════════════════════════════ -->
+        <Transition name="backdrop">
+            <div v-if="mostrarCarrito" class="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm" @click.self="mostrarCarrito = false">
+                <Transition name="drawer">
+                    <div class="bg-[#090e1b] w-full max-w-[420px] h-full shadow-2xl flex flex-col border-l border-white/5">
+
+                        <!-- Header drawer -->
+                        <div class="px-5 py-4 border-b border-white/5 bg-[#0f1929] flex justify-between items-center shrink-0">
+                            <div>
+                                <h2 class="text-sm font-black text-white tracking-widest uppercase flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-[#f7941e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/></svg>
+                                    Tu orden
+                                </h2>
+                                <p class="text-[10px] text-slate-500 mt-0.5">{{ totalItems }} {{ totalItems === 1 ? 'producto' : 'productos' }}</p>
+                            </div>
+                            <button @click="mostrarCarrito = false" class="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xl transition-all">&times;</button>
+                        </div>
+
+                        <!-- Items -->
+                        <div class="overflow-y-auto flex-grow p-4 space-y-2.5 custom-scrollbar">
+                            <div
+                                v-for="(item, index) in carrito"
+                                :key="item.id"
+                                class="flex items-center gap-3 bg-[#0f1929] border border-white/6 p-3 rounded-xl"
+                            >
+                                <div class="w-14 h-14 bg-white rounded-xl p-1.5 flex items-center justify-center shrink-0">
+                                    <img :src="item.imagen_url || '/img/LogoVendar-Sidebar.png'" class="max-h-full object-contain">
+                                </div>
+                                <div class="flex-grow min-w-0">
+                                    <p class="text-[11px] font-bold text-slate-200 truncate leading-tight">{{ item.nombre }}</p>
+                                    <p class="text-sm font-black text-[#00adef] mt-0.5">{{ formatearDinero(item.precio * item.cantidad) }}</p>
+                                </div>
+                                <div class="flex items-center gap-1 bg-[#080f1e] border border-white/8 rounded-xl p-1 shrink-0">
+                                    <button @click="cambiarCantidad(index, -1)" class="w-6 h-6 bg-[#1a2742] hover:bg-rose-600 text-white rounded-lg font-bold text-xs flex items-center justify-center transition-colors">−</button>
+                                    <input type="number" :value="item.cantidad" @input="validarCantidadInput(index, $event)" class="w-9 bg-transparent border-none text-center text-xs font-black text-white focus:ring-0 p-0">
+                                    <button @click="cambiarCantidad(index, 1)" class="w-6 h-6 bg-[#1a2742] hover:bg-[#8cc63f] text-white rounded-lg font-bold text-xs flex items-center justify-center transition-colors">+</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Footer checkout -->
+                        <div class="shrink-0 border-t border-white/5 bg-[#0f1929] p-5 space-y-4">
+
+                            <!-- Entrega -->
+                            <div>
+                                <p class="text-[9px] font-black tracking-widest text-slate-500 uppercase mb-2">Tipo de entrega</p>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button @click="formPedido.tipo_entrega = 'local'" :class="formPedido.tipo_entrega === 'local' ? 'bg-[#00adef] text-white border-[#00adef] shadow-lg shadow-[#00adef]/20' : 'bg-[#080f1e] text-slate-500 border-white/8 hover:border-white/20'" class="py-2.5 border rounded-xl text-[10px] font-black uppercase flex flex-col items-center gap-1 transition-all">
+                                        <span>🏬</span> Retiro en local
+                                    </button>
+                                    <button @click="formPedido.tipo_entrega = 'delivery'" :class="formPedido.tipo_entrega === 'delivery' ? 'bg-[#f7941e] text-white border-[#f7941e] shadow-lg shadow-[#f7941e]/20' : 'bg-[#080f1e] text-slate-500 border-white/8 hover:border-white/20'" class="py-2.5 border rounded-xl text-[10px] font-black uppercase flex flex-col items-center gap-1 transition-all">
+                                        <span>🛵</span> Delivery
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Método de pago -->
+                            <div>
+                                <p class="text-[9px] font-black tracking-widest text-slate-500 uppercase mb-2">Método de pago</p>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button @click="formPedido.metodo_pago = 'efectivo'" :class="formPedido.metodo_pago === 'efectivo' ? 'bg-[#8cc63f] text-white border-[#8cc63f]' : 'bg-[#080f1e] text-slate-500 border-white/8 hover:border-white/20'" class="py-2 border rounded-xl text-[10px] font-black uppercase transition-all">💵 Efectivo</button>
+                                    <button @click="formPedido.metodo_pago = 'transferencia'" :class="formPedido.metodo_pago === 'transferencia' ? 'bg-[#00adef] text-white border-[#00adef]' : 'bg-[#080f1e] text-slate-500 border-white/8 hover:border-white/20'" class="py-2 border rounded-xl text-[10px] font-black uppercase transition-all">🏦 Transf.</button>
+                                </div>
+                            </div>
+
+                            <!-- Dirección delivery -->
+                            <div v-if="formPedido.tipo_entrega === 'delivery'" class="space-y-2 p-3 bg-[#f7941e]/5 border border-[#f7941e]/15 rounded-xl">
+                                <input v-model="formPedido.direccion_entrega" type="text" placeholder="Dirección de entrega..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
+                                <input v-model="formPedido.telefono_contacto" type="text" placeholder="Teléfono de contacto..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
+                            </div>
+
+                            <!-- Totales -->
+                            <div class="bg-[#080f1e] border border-white/6 rounded-xl p-4 space-y-2">
+                                <div class="flex justify-between text-xs text-slate-400 font-bold">
+                                    <span>Subtotal</span><span>{{ formatearDinero(totalProductos) }}</span>
+                                </div>
+                                <div v-if="formPedido.tipo_entrega === 'delivery'" class="flex justify-between text-xs text-[#f7941e] font-bold">
+                                    <span>Envío</span><span>+ {{ formatearDinero(costoDeliveryExtra) }}</span>
+                                </div>
+                                <div class="flex justify-between text-base font-black text-white border-t border-white/8 pt-2 mt-1">
+                                    <span>TOTAL</span><span>{{ formatearDinero(totalFinalCheckout) }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Confirmar -->
+                            <button
+                                @click="confirmarPedido"
+                                class="w-full bg-[#8cc63f] hover:bg-[#8cc63f]/80 text-white font-black py-4 rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-[#8cc63f]/20 active:scale-95 transition-all"
+                            >✓ Confirmar Pedido</button>
+                        </div>
+                    </div>
+                </Transition>
+            </div>
+        </Transition>
+
     </div>
 </template>
 
 <style>
-.leaflet-popup-content-wrapper { background: #1e293b !important; color: #cbd5e1 !important; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px !important; }
-.leaflet-popup-tip { background: #1e293b !important; }
+/* Scrollbar */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+
+/* Spin input */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
+
+/* Leaflet popup dark */
+.leaflet-popup-content-wrapper {
+    background: #0f1929 !important;
+    color: #fff !important;
+    border: 1px solid rgba(0,173,239,0.25);
+    border-radius: 12px !important;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+.leaflet-popup-tip { background: #0f1929 !important; }
+
+/* Transitions */
+.backdrop-enter-active, .backdrop-leave-active { transition: opacity 0.25s ease; }
+.backdrop-enter-from, .backdrop-leave-to { opacity: 0; }
+
+.drawer-enter-active, .drawer-leave-active { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+.drawer-enter-from, .drawer-leave-to { transform: translateX(100%); }
 </style>

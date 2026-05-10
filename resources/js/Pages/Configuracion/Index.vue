@@ -21,6 +21,8 @@ const form = useForm({
     permitir_stock_negativo: props.configuraciones.permitir_stock_negativo === '1' || props.configuraciones.permitir_stock_negativo === true,
     limite_fiado_defecto: props.configuraciones.limite_fiado_defecto || 0,
     moneda_defecto: props.configuraciones.moneda_defecto || 'ARS',
+    // 🔥 NUEVO: Costo de Delivery Global
+    costo_delivery_defecto: props.configuraciones.costo_delivery_defecto || 0,
     // 🔥 NUEVOS CAMPOS DEL ROBOT DE MORA
     mora_dias_gracia: props.configuraciones.mora_dias_gracia || 15,
     mora_tasa_interes: props.configuraciones.mora_tasa_interes || 5,
@@ -175,6 +177,20 @@ const guardarConfiguracion = () => {
                                         <option value="USD">Dólares ($ USD)</option>
                                         <option value="EUR">Euros (€ EUR)</option>
                                     </select>
+                                </div>
+
+                                <div class="col-span-full mt-6 p-4 bg-sky-50/50 border border-sky-100 rounded-2xl">
+                                    <h3 class="text-sm font-black text-sky-800 uppercase tracking-widest mb-4">Tienda Online y Delivery</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Delivery por Defecto</label>
+                                            <div class="relative">
+                                                <span class="absolute left-4 top-2.5 font-black text-slate-400">$</span>
+                                                <input v-model="form.costo_delivery_defecto" type="number" step="0.01" class="w-full bg-white border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                            </div>
+                                            <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Tarifa base para todos tus locales.</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

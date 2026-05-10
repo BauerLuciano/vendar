@@ -38,60 +38,69 @@ use Inertia\Inertia;
 // ==========================================
 
 Route::get('/', function () {
-    $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud')
+    $comercio = \App\Models\Comercio::first();
+
+    $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud', 'direccion', 'costo_delivery')
         ->where('estado', true)
+        ->when($comercio, fn($q) => $q->where('comercio_id', $comercio->id))
         ->get()
-        ->map(function($sucursal) {
-            $sucursal->latitud = (float) $sucursal->latitud;
+        ->map(function ($sucursal) {
+            $sucursal->latitud  = (float) $sucursal->latitud;
             $sucursal->longitud = (float) $sucursal->longitud;
             return $sucursal;
         });
 
+    $categorias = \App\Models\Categoria::where('estado', true)
+        ->orderBy('nombreCategoria')
+        ->get()
+        ->map(fn($c) => [
+            'id'     => $c->id,
+            'nombre' => $c->nombreCategoria,
+        ]);
+
     return Inertia::render('Welcome', [
-        'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register'),
-        'sucursalesBackend' => $sucursales 
+        'comercio'          => $comercio,
+        'canLogin'          => Route::has('login'),
+        'canRegister'       => Route::has('register'),
+        'sucursalesBackend' => $sucursales,
+        'categorias'        => $categorias,
     ]);
 });
 
-// 🔴 PANTALLA DE BLOQUEO PARA COMERCIOS MOROSOS O SUSPENDIDOS
+// PANTALLA DE BLOQUEO PARA COMERCIOS MOROSOS O SUSPENDIDOS
 Route::get('/cuenta-suspendida', function () {
     return Inertia::render('Suspendido');
 })->name('cuenta.suspendida');
 
-Route::get('/api/catalogo/{sucursal_id}', function($sucursal_id) {
-    try {
-        $sucursal = Sucursal::find($sucursal_id);
-        
-        if (!$sucursal) {
-            return response()->json([]);
-        }
+Route::get('/api/catalogo/{sucursal_id}', function ($sucursal_id) {
+    $sucursal = Sucursal::find($sucursal_id);
+    if (!$sucursal) return response()->json([]);
 
-        $productos = $sucursal->productos()->where('productos.estado', true)->get();
+    $productos = $sucursal->productos()
+        ->with('categoria')
+        ->where('productos.estado', true)
+        ->get();
 
-        $productosMapeados = $productos->map(function ($prod) {
-            return [
-                'id'         => $prod->id,
-                'nombre'     => $prod->nombre,
-                'precio'     => number_format($prod->precio_venta ?? 0, 2, ',', '.'),
-                'imagen_url' => $prod->url_imagen ?? $prod->imagen ?? null,
-            ];
-        });
-
-        return response()->json($productosMapeados);
-        
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
-    }
+    return response()->json($productos->map(function ($prod) {
+        return [
+            'id'           => $prod->id,
+            'nombre'       => $prod->nombre,
+            'categoria_id' => $prod->categoria_id,
+            'categoria'    => $prod->categoria
+                ? ['id' => $prod->categoria->id, 'nombre' => $prod->categoria->nombreCategoria]
+                : null,
+            'precio'       => $prod->precio_venta,
+            'imagen_url'   => $prod->url_imagen,
+        ];
+    }));
 });
 
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
 Route::middleware(['auth', 'verified'])->group(function () {
-    
+
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-    // Perfil
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
@@ -104,12 +113,12 @@ Route::get('/auth/google', [GoogleLoginController::class, 'redirect'])->name('au
 Route::get('/auth/google/callback', [GoogleLoginController::class, 'callback']);
 
 // ------------------------------------------------------------------
-// 🛒 MÓDULO: PUNTO DE VENTA (POS) Y CAJAS
+// MÓDULO: PUNTO DE VENTA (POS) Y CAJAS
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
     Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
-    Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index'); 
+    Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index');
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
 
@@ -120,12 +129,11 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::delete('/cajas/{caja}', [CajaController::class, 'destroy'])->name('cajas.destroy');
 
     Route::get('/caja-diaria', function () {
-        return Inertia::render('CajaDiaria/Index'); 
+        return Inertia::render('CajaDiaria/Index');
     })->name('cajadiaria.index');
 
-    // Endpoints API Sesiones de Caja
     Route::prefix('api/sesiones-caja')->group(function () {
-        Route::get('/', [CajaDiariaController::class, 'index']); 
+        Route::get('/', [CajaDiariaController::class, 'index']);
         Route::get('/actual', [CajaDiariaController::class, 'getSesionActual']);
         Route::post('/abrir', [CajaDiariaController::class, 'abrirCaja']);
         Route::post('/movimiento-manual', [CajaDiariaController::class, 'crearMovimientoManual']);
@@ -139,7 +147,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 });
 
 // ------------------------------------------------------------------
-// 👥 MÓDULO: CUENTAS CORRIENTES (FIADOS)
+// MÓDULO: CUENTAS CORRIENTES (FIADOS)
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:fiados'])->group(function () {
     Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
@@ -152,14 +160,14 @@ Route::middleware(['auth', 'modulo:fiados'])->group(function () {
 });
 
 // ------------------------------------------------------------------
-// 📦 MÓDULO: GESTIÓN DE STOCK AVANZADA (LOTES)
+// MÓDULO: GESTIÓN DE STOCK AVANZADA (LOTES)
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:lotes'])->group(function () {
     Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])->name('lotes.index');
 });
 
 // ------------------------------------------------------------------
-// 🚛 MÓDULO: GESTIÓN DE PROVEEDORES Y COMPRAS
+// MÓDULO: GESTIÓN DE PROVEEDORES Y COMPRAS
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
     Route::get('/proveedores', [ProveedorController::class, 'index'])->name('proveedores.index');
@@ -185,7 +193,7 @@ Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
 });
 
 // ------------------------------------------------------------------
-// 🔄 MÓDULO: OPTIMIZACIÓN DE STOCK (TRANSFERENCIAS)
+// MÓDULO: OPTIMIZACIÓN DE STOCK (TRANSFERENCIAS)
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
@@ -193,14 +201,14 @@ Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
 });
 
 // ------------------------------------------------------------------
-// 🔍 MÓDULO: AUDITORÍA
+// MÓDULO: AUDITORÍA
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:auditoria'])->group(function () {
     Route::get('/productos/{producto}/auditoria', [ProductoController::class, 'auditoria'])->name('productos.auditoria');
 });
 
 // ------------------------------------------------------------------
-// 🛠️ ZONA CORE (Productos, Sucursales, Config) - Siempre Activo
+// ZONA CORE (Productos, Sucursales, Config) - Siempre Activo
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos', [ProductoController::class, 'index'])->name('productos.index');
@@ -215,7 +223,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::put('/categorias/{categoria}', [CategoriaController::class, 'update'])->name('categorias.update');
     Route::delete('/categorias/{categoria}', [CategoriaController::class, 'destroy'])->name('categorias.destroy');
     Route::patch('/categorias/{categoria}/status', [CategoriaController::class, 'status'])->name('categorias.status');
-    
+
     Route::get('/marcas', [MarcaController::class, 'index'])->name('marcas.index');
     Route::post('/marcas', [MarcaController::class, 'store'])->name('marcas.store');
     Route::post('/marcas/{marca}', [MarcaController::class, 'update'])->name('marcas.update');
@@ -223,7 +231,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 });
 
 // ------------------------------------------------------------------
-// 🔒 ZONA DUEÑO DEL LOCAL (Configuración)
+// ZONA DUEÑO DEL LOCAL (Configuración)
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(function () {
     Route::get('/sucursales', [SucursalController::class, 'index'])->name('sucursales.index');
@@ -242,7 +250,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
 });
 
 // ==================================================================
-// 🚀 ZONA DE ADMINISTRACIÓN GLOBAL (VEND-AR MASTER)
+// ZONA DE ADMINISTRACIÓN GLOBAL (VEND-AR MASTER)
 // ==================================================================
 Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')->group(function () {
     Route::get('/comercios', [GlobalAdminController::class, 'index'])->name('admin.comercios.index');
@@ -252,5 +260,38 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
     Route::post('/impersonate/enter/{comercio}', [ImpersonateController::class, 'enter'])->name('impersonate.enter');
     Route::post('/impersonate/leave', [ImpersonateController::class, 'leave'])->name('impersonate.leave');
 });
+
+// ------------------------------------------------------------------
+// TIENDA PÚBLICA POR SLUG
+// ------------------------------------------------------------------
+Route::get('/tienda/{slug}', function ($slug) {
+    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+
+    $sucursales = \App\Models\Sucursal::where('comercio_id', $comercio->id)
+        ->where('estado', true)
+        ->select('id', 'nombre', 'latitud', 'longitud', 'direccion', 'costo_delivery')
+        ->get()
+        ->map(function ($sucursal) {
+            $sucursal->latitud  = (float) $sucursal->latitud;
+            $sucursal->longitud = (float) $sucursal->longitud;
+            return $sucursal;
+        });
+
+    $categorias = \App\Models\Categoria::where('estado', true)
+        ->orderBy('nombreCategoria')
+        ->get()
+        ->map(fn($c) => [
+            'id'     => $c->id,
+            'nombre' => $c->nombreCategoria,
+        ]);
+
+    return Inertia::render('Welcome', [
+        'comercio'          => $comercio,
+        'sucursalesBackend' => $sucursales,
+        'categorias'        => $categorias,
+        'canLogin'          => Route::has('login'),
+        'canRegister'       => Route::has('register'),
+    ]);
+})->name('tienda.publica');
 
 require __DIR__.'/auth.php';

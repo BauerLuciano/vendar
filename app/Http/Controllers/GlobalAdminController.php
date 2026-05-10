@@ -3,23 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Models\Comercio;
+use App\Models\Sucursal; // 🔥 Importamos el modelo Sucursal
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Str;
 
 class GlobalAdminController extends Controller
 {
     /**
-     * Lista todos los comercios (Kioscos/Mercados) registrados en el sistema
+     * Lista todos los comercios registrados
      */
     public function index()
     {
         return Inertia::render('AdminGlobal/Comercios/Index', [
             'comercios' => Comercio::all(),
-            // Definimos los módulos disponibles en el sistema para poder tildarlos
+            // 🔥 Actualizamos los IDs para que coincidan con los candados del Sidebar y web.php
             'modulosDisponibles' => [
                 ['id' => 'pos', 'nombre' => 'Punto de Venta Base'],
-                ['id' => 'inventario', 'nombre' => 'Gestión de Stock Avanzada'],
-                ['id' => 'cuentas_corrientes', 'nombre' => 'Cuentas Corrientes (Fiados)'],
+                ['id' => 'lotes', 'nombre' => 'Gestión de Stock Avanzada (Lotes)'],
+                ['id' => 'fiados', 'nombre' => 'Cuentas Corrientes (Fiados)'],
                 ['id' => 'proveedores', 'nombre' => 'Gestión de Proveedores'],
                 ['id' => 'auditoria', 'nombre' => 'Auditoría de Caja y Stock'],
                 ['id' => 'transferencias', 'nombre' => 'Optimización de Stock (Sugerencias)'],
@@ -28,7 +30,7 @@ class GlobalAdminController extends Controller
     }
 
     /**
-     * Crea un nuevo cliente (Comercio)
+     * Crea un nuevo cliente (Comercio) y su sucursal por defecto
      */
     public function store(Request $request)
     {
@@ -46,15 +48,27 @@ class GlobalAdminController extends Controller
             $validated['modulos_habilitados'] = ['pos' => true];
         }
         
-        $validated['slug'] = str($request->nombre)->slug();
+        $validated['slug'] = Str::slug($request->nombre);
 
-        Comercio::create($validated);
+        // 1. Creamos el Comercio
+        $comercio = Comercio::create($validated);
 
-        return redirect()->back()->with('exito', 'Comercio registrado con éxito.');
+        // 2. 🔥 MAGIA: Creamos la sucursal por defecto automáticamente
+        // Usamos coordenadas de Posadas, Misiones como base (puedes cambiarlas)
+        Sucursal::create([
+            'comercio_id' => $comercio->id,
+            'nombre'      => 'Casa Central',
+            'direccion'   => 'Dirección a definir',
+            'latitud'     => -27.367, 
+            'longitud'    => -55.896,
+            'estado'      => true, // Activa por defecto
+        ]);
+
+        return redirect()->back()->with('exito', 'Comercio y sucursal base registrados con éxito.');
     }
 
     /**
-     * La función "mágica": Actualiza qué puede hacer el comercio y su estado
+     * Actualiza la configuración del comercio
      */
     public function update(Request $request, Comercio $comercio)
     {
@@ -67,8 +81,7 @@ class GlobalAdminController extends Controller
             'modulos_habilitados' => 'required|array',
         ]);
 
-        // Si cambiaron el nombre, actualizamos el slug
-        $validated['slug'] = str($request->nombre)->slug();
+        $validated['slug'] = Str::slug($request->nombre);
 
         $comercio->update($validated);
 

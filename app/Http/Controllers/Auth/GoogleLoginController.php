@@ -79,12 +79,15 @@ class GoogleLoginController extends Controller
                 }
             }
 
-            Auth::login($user);
+           Auth::login($user);
 
+            // 🔥 REGLA DE ORO: Enrutamiento Inteligente
             if ($user->hasRole('cliente')) {
-                return redirect('/catalogo'); 
+                // Regresa a la tienda donde armó el carrito, o a la raíz por defecto
+                return redirect()->intended('/'); 
             }
 
+            // Si es SuperAdmin, Cajero o Encargado, entra al sistema de gestión
             return redirect()->route('dashboard');
 
         } catch (\Exception $e) {
