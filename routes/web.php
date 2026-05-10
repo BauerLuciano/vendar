@@ -294,4 +294,11 @@ Route::get('/tienda/{slug}', function ($slug) {
     ]);
 })->name('tienda.publica');
 
+Route::get('/', function () {
+    return Inertia::render('LandingPage', [
+        'canLogin' => Route::has('login'),
+        'canRegister' => Route::has('register'),
+    ]);
+});
+
 require __DIR__.'/auth.php';
