@@ -12,6 +12,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/socialite": "^5.26",
         "laravel/tinker": "^2.9",
+        "mercadopago/dx-php": "^3.9",
         "nyholm/psr7": "^1.8",
         "railsware/mailtrap-php": "^3.11",
         "spatie/laravel-permission": "^6.25",

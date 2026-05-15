@@ -5,10 +5,11 @@ import VueDevTools from 'vite-plugin-vue-devtools';
 
 export default defineConfig({
     server: {
-        host: '0.0.0.0', // 🔥 Escucha en toda tu red local
+        host: '0.0.0.0', // Escucha en toda tu red local
         cors: true,
         hmr: {
-            host: '192.168.100.67' // 🔥 Le avisa a tu celular dónde están los archivos de diseño
+            // 🔥 Lo cambiamos a localhost para que no dependa de tu IP del Wi-Fi
+            host: 'localhost' 
         }
     },
     plugins: [

@@ -23,7 +23,10 @@ use App\Http\Controllers\{
     ConfiguracionController,
     TicketController,
     ImpersonateController,
+    SuscripcionController,
+    PedidoWebController, // 🔥 AGREGADO ACÁ
 };
+
 use App\Models\CuentaCorriente;
 use App\Models\Sucursal;
 use App\Models\Producto;
@@ -36,36 +39,6 @@ use Inertia\Inertia;
 // ==========================================
 // --- ZONA PÚBLICA (CATÁLOGO Y GPS) ---
 // ==========================================
-
-Route::get('/', function () {
-    $comercio = \App\Models\Comercio::first();
-
-    $sucursales = Sucursal::select('id', 'nombre', 'latitud', 'longitud', 'direccion', 'costo_delivery')
-        ->where('estado', true)
-        ->when($comercio, fn($q) => $q->where('comercio_id', $comercio->id))
-        ->get()
-        ->map(function ($sucursal) {
-            $sucursal->latitud  = (float) $sucursal->latitud;
-            $sucursal->longitud = (float) $sucursal->longitud;
-            return $sucursal;
-        });
-
-    $categorias = \App\Models\Categoria::where('estado', true)
-        ->orderBy('nombreCategoria')
-        ->get()
-        ->map(fn($c) => [
-            'id'     => $c->id,
-            'nombre' => $c->nombreCategoria,
-        ]);
-
-    return Inertia::render('Welcome', [
-        'comercio'          => $comercio,
-        'canLogin'          => Route::has('login'),
-        'canRegister'       => Route::has('register'),
-        'sucursalesBackend' => $sucursales,
-        'categorias'        => $categorias,
-    ]);
-});
 
 // PANTALLA DE BLOQUEO PARA COMERCIOS MOROSOS O SUSPENDIDOS
 Route::get('/cuenta-suspendida', function () {
@@ -104,6 +77,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    // 🔥 NUEVA RUTA PARA GUARDAR PEDIDOS WEB (Protegida)
+    Route::post('/api/pedidos-web', [PedidoWebController::class, 'store'])->name('pedidos.web.store');
 });
 
 // ==========================================
@@ -228,6 +204,9 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::post('/marcas', [MarcaController::class, 'store'])->name('marcas.store');
     Route::post('/marcas/{marca}', [MarcaController::class, 'update'])->name('marcas.update');
     Route::patch('/marcas/{marca}/status', [MarcaController::class, 'status'])->name('marcas.status');
+
+    Route::get('/mi-plan', [SuscripcionController::class, 'miPlan'])->name('suscripcion.mi-plan');
+    Route::post('/mi-plan/pagar', [SuscripcionController::class, 'generarPreferencia'])->name('suscripcion.pagar');
 });
 
 // ------------------------------------------------------------------
@@ -256,6 +235,8 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
     Route::get('/comercios', [GlobalAdminController::class, 'index'])->name('admin.comercios.index');
     Route::post('/comercios', [GlobalAdminController::class, 'store'])->name('admin.comercios.store');
     Route::put('/comercios/{comercio}', [GlobalAdminController::class, 'update'])->name('admin.comercios.update');
+    Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
+    Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
 
     Route::post('/impersonate/enter/{comercio}', [ImpersonateController::class, 'enter'])->name('impersonate.enter');
     Route::post('/impersonate/leave', [ImpersonateController::class, 'leave'])->name('impersonate.leave');
@@ -294,6 +275,12 @@ Route::get('/tienda/{slug}', function ($slug) {
     ]);
 })->name('tienda.publica');
 
+
+// ==========================================
+// 🔥 TIP IMPORTANTE:
+// ==========================================
+// En tu archivo original tenías dos `Route::get('/', ...)`
+// Dejé solo el que retorna la 'LandingPage' para que no haya conflictos.
 Route::get('/', function () {
     return Inertia::render('LandingPage', [
         'canLogin' => Route::has('login'),

@@ -5,13 +5,15 @@ import { ref } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
-    configuraciones: Object
+    configuraciones: Object,
+    comercio: Object // 🔥 Recibimos los datos del local
 });
 
 const tabActiva = ref('general');
 const logoPreview = ref(props.configuraciones.logo_empresa ? '/storage/' + props.configuraciones.logo_empresa : null);
 
 const form = useForm({
+    // --- Configuraciones Globales ---
     nombre_empresa: props.configuraciones.nombre_empresa || '',
     cuit: props.configuraciones.cuit || '',
     telefono: props.configuraciones.telefono || '',
@@ -21,12 +23,21 @@ const form = useForm({
     permitir_stock_negativo: props.configuraciones.permitir_stock_negativo === '1' || props.configuraciones.permitir_stock_negativo === true,
     limite_fiado_defecto: props.configuraciones.limite_fiado_defecto || 0,
     moneda_defecto: props.configuraciones.moneda_defecto || 'ARS',
-    // 🔥 NUEVO: Costo de Delivery Global
     costo_delivery_defecto: props.configuraciones.costo_delivery_defecto || 0,
-    // 🔥 NUEVOS CAMPOS DEL ROBOT DE MORA
     mora_dias_gracia: props.configuraciones.mora_dias_gracia || 15,
     mora_tasa_interes: props.configuraciones.mora_tasa_interes || 5,
     logo_empresa: null,
+
+    // --- 🔥 NUEVO: Configuraciones del Comercio (Para el Catálogo) ---
+    envio_precio_base: props.comercio.envio_precio_base || 0,
+    envio_precio_km: props.comercio.envio_precio_km || 0,
+    envio_radio_km: props.comercio.envio_radio_km || 5,
+    transferencia_cbu: props.comercio.transferencia_cbu || '',
+    transferencia_alias: props.comercio.transferencia_alias || '',
+    transferencia_titular: props.comercio.transferencia_titular || '',
+    mp_access_token: props.comercio.mp_access_token || '',
+    payway_public_key: props.comercio.payway_public_key || '',
+    acepta_efectivo: props.comercio.acepta_efectivo === 1 || props.comercio.acepta_efectivo === true,
 });
 
 const handleLogoUpload = (event) => {
@@ -40,7 +51,8 @@ const handleLogoUpload = (event) => {
 const guardarConfiguracion = () => {
     form.transform((data) => ({
         ...data,
-        permitir_stock_negativo: data.permitir_stock_negativo ? '1' : '0'
+        permitir_stock_negativo: data.permitir_stock_negativo ? '1' : '0',
+        acepta_efectivo: data.acepta_efectivo ? 1 : 0 // Adaptamos el booleano para la BD
     })).post(route('configuracion.update'), {
         preserveScroll: true,
         onSuccess: () => {
@@ -85,6 +97,10 @@ const guardarConfiguracion = () => {
                             <button @click="tabActiva = 'sistema'" :class="tabActiva === 'sistema' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                                 Reglas del Sistema
+                            </button>
+                            <button @click="tabActiva = 'tienda'" :class="tabActiva === 'tienda' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                                Tienda Online y Pagos
                             </button>
                         </nav>
                     </div>
@@ -208,6 +224,70 @@ const guardarConfiguracion = () => {
                                         <span class="absolute right-4 top-2.5 font-black text-slate-400">%</span>
                                     </div>
                                     <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Recargo aplicado por el sistema.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-show="tabActiva === 'tienda'" class="p-8">
+                            <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Logística y Envíos</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Precio Base de Envío</label>
+                                    <div class="relative">
+                                        <span class="absolute left-4 top-2.5 font-black text-slate-400">$</span>
+                                        <input v-model="form.envio_precio_base" type="number" step="0.01" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Precio por Km Extra</label>
+                                    <div class="relative">
+                                        <span class="absolute left-4 top-2.5 font-black text-slate-400">$</span>
+                                        <input v-model="form.envio_precio_km" type="number" step="0.01" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Radio Máximo (Km)</label>
+                                    <input v-model="form.envio_radio_km" type="number" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                </div>
+                            </div>
+
+                            <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Medios de Pago</h2>
+                            <div class="grid grid-cols-1 gap-6 mb-8">
+                                <label class="flex items-center gap-3 p-4 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                    <input v-model="form.acepta_efectivo" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                    <div>
+                                        <p class="font-bold text-slate-800">Aceptar Efectivo contra entrega</p>
+                                        <p class="text-xs text-slate-500 font-medium">El cliente paga al cadete cuando recibe el pedido.</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                                <div class="p-4 bg-sky-50/50 border border-sky-100 rounded-2xl">
+                                    <h3 class="text-sm font-black text-sky-800 uppercase mb-4">Transferencia Bancaria</h3>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">CBU / CVU</label>
+                                            <input v-model="form.transferencia_cbu" type="text" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
+                                            <input v-model="form.transferencia_alias" type="text" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular de la Cuenta</label>
+                                            <input v-model="form.transferencia_titular" type="text" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl">
+                                    <h3 class="text-sm font-black text-blue-800 uppercase mb-4">Mercado Pago</h3>
+                                    <div>
+                                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Access Token (Producción)</label>
+                                        <input v-model="form.mp_access_token" type="password" placeholder="APP_USR-..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
+                                        <p class="text-[10px] text-slate-500 mt-2 font-bold">Requerido para cobrar online desde el catálogo web.</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
