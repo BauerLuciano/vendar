@@ -3,22 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Comercio;
-use App\Models\Sucursal; // 🔥 Importamos el modelo Sucursal
-use App\Models\User;     // 🔥 Importamos el modelo User de forma limpia
+use App\Models\Sucursal; 
+use App\Models\User;    
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
 
 class GlobalAdminController extends Controller
 {
-    /**
-     * Lista todos los comercios registrados
-     */
     public function index()
     {
         return Inertia::render('AdminGlobal/Comercios/Index', [
             'comercios' => Comercio::all(),
-            // 🔥 Actualizamos los IDs para que coincidan con los candados del Sidebar y web.php
             'modulosDisponibles' => [
                 ['id' => 'pos', 'nombre' => 'Punto de Venta Base'],
                 ['id' => 'lotes', 'nombre' => 'Gestión de Stock Avanzada (Lotes)'],
@@ -30,9 +26,6 @@ class GlobalAdminController extends Controller
         ]);
     }
 
-    /**
-     * Crea un nuevo cliente (Comercio) y su sucursal por defecto
-     */
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -44,18 +37,14 @@ class GlobalAdminController extends Controller
             'modulos_habilitados' => 'nullable|array',
         ]);
 
-        // Si no mandaron módulos, le asignamos el POS por defecto
         if (empty($validated['modulos_habilitados'])) {
             $validated['modulos_habilitados'] = ['pos' => true];
         }
         
         $validated['slug'] = Str::slug($request->nombre);
 
-        // 1. Creamos el Comercio
         $comercio = Comercio::create($validated);
 
-        // 2. 🔥 MAGIA: Creamos la sucursal por defecto automáticamente
-        // Usamos coordenadas de Posadas, Misiones como base (puedes cambiarlas)
         Sucursal::create([
             'comercio_id' => $comercio->id,
             'nombre'      => 'Casa Central',
@@ -68,9 +57,7 @@ class GlobalAdminController extends Controller
         return redirect()->back()->with('exito', 'Comercio y sucursal base registrados con éxito.');
     }
 
-    /**
-     * Actualiza la configuración del comercio
-     */
+
     public function update(Request $request, Comercio $comercio)
     {
         $validated = $request->validate([

@@ -234,7 +234,6 @@ const inicializar = async () => {
 // NUEVO: Función para traer los consumidores desde el backend
 const cargarConsumidores = async () => {
   try {
-    // IMPORTANTE: Ajustá esta URL a tu endpoint real que devuelva los consumidores
     const res = await axios.get('/api/consumidores'); 
     consumidores.value = res.data;
   } catch (error) {
@@ -281,6 +280,9 @@ const checkNuevosMovimientos = async () => {
     }
   } catch (error) { console.error(error); }
 };
+
+// URL Dinámica para inyectar en el href del botón imprimir
+const BlackUrlReporteCaja = (id) => `/api/sesiones-caja/${id}/descargar_pdf`;
 
 const iniciarRadar = () => {
   if (pollingInterval) clearInterval(pollingInterval);
@@ -338,7 +340,8 @@ const cerrarCaja = async () => {
             detenerRadar();
             mostrarModalCierre.value = false;
             
-            // await descargarPDFCaja(sesionIdCerrada); // Opcional
+            // Abre automáticamente el ticket de cierre en pestaña nueva al confirmar
+            window.open(BlackUrlReporteCaja(sesionIdCerrada), '_blank');
 
             inicializar();
             Swal.fire('Caja Cerrada', 'El turno se ha cerrado correctamente.', 'success');
@@ -354,7 +357,6 @@ const cerrarCaja = async () => {
 };
 
 const registrarGastoManual = async () => {
-  // Validación frontend: Si eligió pagar cuenta corriente, debe seleccionar un cliente
   if (formGasto.value.concepto === 'COBRO_CUENTA_CORRIENTE' && !formGasto.value.consumidor_id) {
     Swal.fire('Atención', 'Debe seleccionar un cliente para registrar el pago de cuenta corriente.', 'warning');
     return;
@@ -392,7 +394,6 @@ const registrarGastoManual = async () => {
     await axios.post('/api/sesiones-caja/movimiento-manual', formGasto.value);
     mostrarModalGasto.value = false;
     
-    // Resetear form
     formGasto.value = { 
       tipo: 'EGRESO', 
       concepto: 'GASTO_OPERATIVO', 
@@ -523,10 +524,13 @@ onUnmounted(() => detenerRadar());
                         {{ caja.esta_abierta ? 'ABIERTA' : 'CERRADA' }}
                       </span>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-center">
-                      <button @click="verDetalleCajaCerrada(caja)" class="text-sky-600 hover:text-sky-800 font-bold text-xs">
-                        <i class="ri-eye-line text-lg align-middle"></i> Ver Detalles
+                    <td class="px-6 py-4 whitespace-nowrap text-center flex items-center justify-center gap-3">
+                      <button @click="verDetalleCajaCerrada(caja)" class="text-sky-600 hover:text-sky-800 font-bold text-xs flex items-center gap-1">
+                        <i class="ri-eye-line text-base"></i> Ver Detalles
                       </button>
+                      <a v-if="!caja.esta_abierta" :href="BlackUrlReporteCaja(caja.id)" target="_blank" class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1">
+                        <i class="ri-printer-line text-base"></i> Imprimir Reporte
+                      </a>
                     </td>
                   </tr>
                 </tbody>
@@ -670,7 +674,6 @@ onUnmounted(() => detenerRadar());
       </div>
     </div>
 
-    <!-- Modal Cierre de Caja -->
     <div v-if="mostrarModalCierre" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
         
@@ -749,7 +752,7 @@ onUnmounted(() => detenerRadar());
                 <label class="block text-sm font-bold mb-1 transition-colors" :class="hayDiferencia ? 'text-slate-700' : 'text-slate-400'">
                   Observaciones / Justificación
                   <span v-if="hayDiferencia" class="text-rose-500 ml-1">*</span>
-                  <span v-else class="text-xs font-normal ml-2">(Solo habilitado si hay diferencias)</span>
+                  <span class="text-xs font-normal ml-2" v-else>(Solo habilitado si hay diferencias)</span>
                 </label>
                 <textarea 
                   v-model="formCierre.observaciones" 
@@ -775,7 +778,6 @@ onUnmounted(() => detenerRadar());
       </div>
     </div>
 
-    <!-- Modal Movimiento Manual -->
     <div v-if="mostrarModalGasto" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
         <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-50">
@@ -839,7 +841,6 @@ onUnmounted(() => detenerRadar());
       </div>
     </div>
 
-    <!-- Modal Detalle Historial -->
     <div v-if="mostrarModalDetalleHistorial" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
         
@@ -885,7 +886,7 @@ onUnmounted(() => detenerRadar());
             <i class="ri-loader-4-line animate-spin text-4xl mr-3"></i> Cargando registros...
           </div>
           
-          <table v-else class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden">
+          <table class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden" v-else>
             <thead class="bg-slate-50">
               <tr>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
@@ -926,9 +927,18 @@ onUnmounted(() => detenerRadar());
           </div>
         </div>
 
-        <div class="px-6 py-4 bg-slate-100 border-t shrink-0 flex justify-end">
-          <button @click="mostrarModalDetalleHistorial = false" class="px-8 py-3 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2">
-            <i class="ri-arrow-go-back-line text-xl"></i> Volver al Historial
+        <div class="px-6 py-4 bg-slate-100 border-t shrink-0 flex justify-between items-center">
+          <a 
+            v-if="cajaSeleccionada && !cajaSeleccionada.esta_abierta" 
+            :href="BlackUrlReporteCaja(cajaSeleccionada.id)" 
+            target="_blank" 
+            class="px-6 py-2.5 bg-emerald-600 text-white font-black rounded-xl hover:bg-emerald-700 transition-colors shadow-md flex items-center gap-2 text-xs uppercase"
+          >
+            <i class="ri-printer-line text-base"></i> Imprimir Reporte
+          </a>
+          <div v-else></div>
+          <button @click="mostrarModalDetalleHistorial = false" class="px-8 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase">
+            <i class="ri-arrow-go-back-line text-base"></i> Volver al Historial
           </button>
         </div>
       </div>

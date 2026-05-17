@@ -6,9 +6,13 @@ use App\Models\TurnoCaja;
 use App\Models\MovimientoCaja;
 use App\Models\Caja;
 use App\Models\User;
+use App\Models\Configuracion;
+use App\Models\Sucursal;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class CajaDiariaController extends Controller
 {
@@ -88,23 +92,20 @@ class CajaDiariaController extends Controller
                 return response()->json(['error' => 'La caja seleccionada no existe.'], 404);
             }
 
-            // SEGURIDAD: Evitar abrir una caja inactiva
             if (!$cajaFisica->estado) {
                 return response()->json(['error' => 'No puedes operar en una caja que se encuentra inactiva.'], 403);
             }
 
-            // Capturamos asegurando que sean números decimales (float)
             $efectivo = (float) $request->input('saldo_inicial_efectivo', 0);
             $mp = (float) $request->input('saldo_inicial_mp', 0);
 
             DB::beginTransaction();
             
-            // 1. Creamos el turno (cabecera)
             $turno = TurnoCaja::create([
                 'caja_id'        => $cajaFisica->id,
                 'user_id'        => $user->id,
                 'sucursal_id'    => $cajaFisica->sucursal_id, 
-                'saldo_inicial'  => $efectivo, // Guardamos efectivo como base para la DB
+                'saldo_inicial'  => $efectivo, 
                 'monto_apertura' => $efectivo, 
                 'fecha_apertura' => now(),
                 'estado'         => 'Abierto',
@@ -181,7 +182,6 @@ class CajaDiariaController extends Controller
         $user = $request->user();
         $sucursalId = $user->branch_id ?? 1;
         
-        // CORRECCIÓN: Traemos SOLO las cajas en estado true (Activas)
         $cajas = Caja::where('sucursal_id', $sucursalId)
                      ->where('estado', true)
                      ->get();
@@ -190,7 +190,7 @@ class CajaDiariaController extends Controller
     }
 
     /**
-     * Información de pendientes (por implementar, se deja estructura)
+     * Información de pendientes
      */
     public function getPendientes()
     {
@@ -198,7 +198,7 @@ class CajaDiariaController extends Controller
     }
 
     /**
-     * Calcula el balance actual de una sesión (efectivo, MP, transferencia)
+     * Calcula el balance actual de una sesión
      */
     public function getBalance($id)
     {
@@ -226,7 +226,7 @@ class CajaDiariaController extends Controller
     }
 
     /**
-     * Obtiene los movimientos de una sesión (formateados para el frontend)
+     * Obtiene los movimientos de una sesión
      */
     public function getMovimientos($id)
     {
@@ -276,5 +276,68 @@ class CajaDiariaController extends Controller
         $turno->update($dataUpdate);
 
         return response()->json(['message' => 'Caja cerrada exitosamente']);
+    }
+
+    /**
+     * GENERAR PDF EN A4 - PARAMETRIZACIÓN COMPLETA Y CONVERSOR DE COMPATIBILIDAD
+     */
+    public function descargarPdf(Request $request, $id)
+    {
+        $turno = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])->findOrFail($id);
+        $sucursal = Sucursal::find($turno->sucursal_id);
+        
+        $movimientos = MovimientoCaja::where('turno_caja_id', $id)
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
+        
+        $efectivoEsperado = 0;
+        $mpEsperado = 0;
+        $transfEsperado = 0;
+
+        foreach ($movimientos as $mov) {
+            $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
+            if ($mov->metodo_pago === 'EFECTIVO') {
+                $efectivoEsperado += $monto;
+            } elseif (in_array($mov->metodo_pago, ['MERCADO_PAGO', 'MERCADOPAGO'])) {
+                $mpEsperado += $monto;
+            } else {
+                $transfEsperado += $monto;
+            }
+        }
+
+        $totales = [
+            'efectivo_esperado' => $efectivoEsperado,
+            'mp_esperado' => $mpEsperado,
+            'transf_esperado' => $transfEsperado,
+            'total_esperado' => $efectivoEsperado + $mpEsperado + $transfEsperado,
+            'efectivo_real' => (float) $turno->saldo_final_efectivo_real,
+            'mp_real' => (float) $turno->saldo_final_mp_real,
+            'transf_real' => (float) $turno->saldo_final_transf_real,
+            'total_real' => (float)$turno->saldo_final_efectivo_real + (float)$turno->saldo_final_mp_real + (float)$turno->saldo_final_transf_real
+        ];
+
+        // 🔥 EXTRAE LA RUTA REAL SIN MAPEAR CADENAS FIJAS
+        $logo = null;
+        if (!empty($config['logo_empresa'])) {
+            // Buscamos la ruta física usando la API de discos de Laravel de forma 100% dinámica
+            if (Storage::disk('public')->exists($config['logo_empresa'])) {
+                $path = Storage::disk('public')->path($config['logo_empresa']);
+                
+                if (file_exists($path) && is_file($path)) {
+                    $type = pathinfo($path, PATHINFO_EXTENSION);
+                    $data = @file_get_contents($path);
+                    if ($data !== false) {
+                        $logo = 'data:image/' . $type . ';base64,' . base64_encode($data);
+                    }
+                }
+            }
+        }
+
+        $pdf = Pdf::loadView('pdf.caja_a4', compact('turno', 'movimientos', 'config', 'totales', 'logo', 'sucursal'));
+        $pdf->setPaper('a4', 'portrait');
+        
+        return $pdf->stream("reporte_caja_sesion_{$id}.pdf");
     }
 }

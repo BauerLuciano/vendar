@@ -5,11 +5,11 @@ import VueDevTools from 'vite-plugin-vue-devtools';
 
 export default defineConfig({
     server: {
-        host: '0.0.0.0', // Escucha en toda tu red local
+        host: 'vendar-app.test',
+        port: 5173,
         cors: true,
-        hmr: {
-            // 🔥 Lo cambiamos a localhost para que no dependa de tu IP del Wi-Fi
-            host: 'localhost' 
+        watch: {
+            usePolling: true,
         }
     },
     plugins: [
