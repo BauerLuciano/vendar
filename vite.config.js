@@ -5,10 +5,11 @@ import VueDevTools from 'vite-plugin-vue-devtools';
 
 export default defineConfig({
     server: {
-        host: '0.0.0.0', // 🔥 Escucha en toda tu red local
+        host: 'vendar-app.test', // 🔥 El truco maestro: Vite usa tu dominio de Laragon
+        port: 5173,
         cors: true,
-        hmr: {
-            host: '192.168.100.67' // 🔥 Le avisa a tu celular dónde están los archivos de diseño
+        watch: {
+            usePolling: true,
         }
     },
     plugins: [
