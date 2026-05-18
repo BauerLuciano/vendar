@@ -37,6 +37,6 @@ class PedidoWeb extends Model
 
     public function items()
     {
-        return $this->hasMany(PedidoWebItem::class);
+        return $this->hasMany(PedidoWebItem::class, 'pedido_web_id');
     }
 }

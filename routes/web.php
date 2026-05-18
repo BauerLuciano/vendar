@@ -24,7 +24,8 @@ use App\Http\Controllers\{
     TicketController,
     ImpersonateController,
     SuscripcionController,
-    PedidoWebController, // 🔥 AGREGADO ACÁ
+    PedidoWebController,
+    GestionPedidosWebController,
 };
 
 use App\Models\CuentaCorriente;
@@ -207,6 +208,10 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 
     Route::get('/mi-plan', [SuscripcionController::class, 'miPlan'])->name('suscripcion.mi-plan');
     Route::post('/mi-plan/pagar', [SuscripcionController::class, 'generarPreferencia'])->name('suscripcion.pagar');
+
+    Route::get('/pedidos', [GestionPedidosWebController::class, 'index'])->name('pedidos.index');
+    Route::patch('/pedidos/{id}/estado', [GestionPedidosWebController::class, 'updateEstado'])->name('pedidos.estado');
+    Route::patch('/pedidos/{id}/pago', [GestionPedidosWebController::class, 'updatePago'])->name('pedidos.pago');
 });
 
 // ------------------------------------------------------------------
