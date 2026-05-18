@@ -6,16 +6,21 @@ import VueDevTools from 'vite-plugin-vue-devtools';
 export default defineConfig({
     server: {
         host: '0.0.0.0', // Esto hace que funcione en TODAS las compus
+        port: 5174, // CAMBIAMOS ACÁ PARA EVITAR EL CHOQUE CON DOCKER
+        strictPort: true,
         hmr: {
-            host: 'localhost'
+            host: 'localhost',
         },
-        port: 5173,
         cors: true,
         watch: {
             usePolling: true,
         }
     },
     plugins: [
+        // LE AGREGAMOS ESTA OPCIÓN OFICIAL PARA ENTRAR EN EL FLUJO DE LARAVEL
+        VueDevTools({
+            appendTo: 'resources/js/app.js'
+        }),
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.js'],
             refresh: true,
@@ -28,6 +33,5 @@ export default defineConfig({
                 },
             },
         }),
-        VueDevTools(),
     ],
 });
