@@ -14,14 +14,15 @@ class RoleSeeder extends Seeder
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
         // 1. CREAMOS LOS PERMISOS (Las "llaves" del sistema)
-        $permisos = [
+       $permisos = [
             'vender en pos',
             'anular ventas',
             'gestionar productos',
             'gestionar sucursales',
             'gestionar usuarios',
             'ver reportes',
-            'gestionar cajas'
+            'gestionar cajas',
+            'gestionar pedidos web'
         ];
 
         foreach ($permisos as $permiso) {
@@ -33,7 +34,8 @@ class RoleSeeder extends Seeder
         // CAJERO: Solo vende
         $rolCajero = Role::firstOrCreate(['name' => 'Cajero']);
         $rolCajero->syncPermissions([
-            'vender en pos'
+            'vender en pos',
+            'gestionar pedidos web'
         ]);
 
         // ENCARGADO: Vende, anula, y maneja productos y cajas

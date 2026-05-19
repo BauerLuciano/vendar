@@ -20,7 +20,8 @@ const canChangeTo = (currentState, targetState) => {
     if (isSuperAdmin.value) return true;
     if (currentState === 'cancelado') return false;
 
-    const flujo = ['nuevo', 'preparacion', 'enviado', 'entregado'];
+    // 🔥 ACÁ ESTÁN LAS PALABRAS CORRECTAS
+    const flujo = ['nuevo', 'preparando', 'en_camino', 'entregado'];
     const actualIdx = flujo.indexOf(currentState);
     const targetIdx = flujo.indexOf(targetState);
 
@@ -29,10 +30,7 @@ const canChangeTo = (currentState, targetState) => {
 
 // Bloqueo estricto para pagos automáticos de MercadoPago
 const esPagoBloqueado = (pedido) => {
-    // Si eres Superadmin, nunca se te bloquea nada (Modo Dios)
     if (isSuperAdmin.value) return false;
-    
-    // Si el pedido ya fue pagado por MercadoPago, el cajero NO lo puede modificar
     return pedido.metodo_pago === 'mercadopago' && pedido.estado_pago === 'pagado';
 };
 
@@ -66,11 +64,11 @@ const urgencia = (fechaStr) => {
 // ─── Filtros ──────────────────────────────────────────────────────────────────
 const filtroActivo = ref('todos');
 const filtros = [
-    { key: 'todos',       label: 'Todos'          },
-    { key: 'nuevo',       label: 'Nuevos'         },
-    { key: 'preparacion', label: 'En preparación' },
-    { key: 'enviado',     label: 'Enviados'       },
-    { key: 'entregado',   label: 'Entregados'     },
+    { key: 'todos',      label: 'Todos'          },
+    { key: 'nuevo',      label: 'Nuevos'         },
+    { key: 'preparando', label: 'En preparación' }, // 🔥 Corregido
+    { key: 'en_camino',  label: 'En camino'      }, // 🔥 Corregido
+    { key: 'entregado',  label: 'Entregados'     },
 ];
 
 const pedidosFiltrados = computed(() => {
@@ -109,8 +107,8 @@ const anularPedido = (id) => {
 // ─── Clases dinámicas ─────────────────────────────────────────────────────────
 const borderEstado = (estado) => ({
     'border-l-rose-500':    estado === 'nuevo',
-    'border-l-amber-500':   estado === 'preparacion',
-    'border-l-sky-500':     estado === 'enviado',
+    'border-l-amber-500':   estado === 'preparando', // 🔥 Corregido
+    'border-l-sky-500':     estado === 'en_camino',  // 🔥 Corregido
     'border-l-emerald-500': estado === 'entregado',
     'border-l-slate-800':   estado === 'cancelado',
 });
@@ -127,11 +125,11 @@ const pagoSelectClass = (estado) =>
         : 'text-rose-600 bg-rose-50 border-rose-200 font-bold';
 
 const prepSelectClass = (estado) => ({
-    'nuevo':       'text-rose-700 bg-rose-50 border-rose-200 font-bold',
-    'preparacion': 'text-amber-700 bg-amber-50 border-amber-200 font-bold',
-    'enviado':     'text-sky-700 bg-sky-50 border-sky-200 font-bold',
-    'entregado':   'text-emerald-700 bg-emerald-50 border-emerald-200',
-    'cancelado':   'text-slate-500 bg-slate-100 border-slate-200 line-through',
+    'nuevo':      'text-rose-700 bg-rose-50 border-rose-200 font-bold',
+    'preparando': 'text-amber-700 bg-amber-50 border-amber-200 font-bold', // 🔥 Corregido
+    'en_camino':  'text-sky-700 bg-sky-50 border-sky-200 font-bold',       // 🔥 Corregido
+    'entregado':  'text-emerald-700 bg-emerald-50 border-emerald-200',
+    'cancelado':  'text-slate-500 bg-slate-100 border-slate-200 line-through',
 }[estado] ?? 'text-slate-600 bg-slate-50 border-slate-200');
 </script>
 
@@ -172,7 +170,7 @@ const prepSelectClass = (estado) => ({
 
                     <div v-if="isSuperAdmin" class="bg-white border border-slate-200/60 rounded-2xl px-6 py-5 shadow-sm flex items-center gap-5 transition-all hover:shadow-md">
                         <div class="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
-                            <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08-.402-2.599-1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         </div>
                         <div>
                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Facturado Hoy</p>
@@ -272,8 +270,9 @@ const prepSelectClass = (estado) => ({
                                         <label class="block text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 pl-1">ORDEN</label>
                                         <select v-model="pedido.estado_pedido" @change="cambiarEstado(pedido.id, $event.target.value)" :disabled="pedido.estado_pedido === 'cancelado' && !isSuperAdmin" class="w-full text-[11px] font-sans font-bold leading-relaxed border border-slate-200 rounded-lg shadow-sm cursor-pointer focus:ring-2 focus:ring-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed" :class="prepSelectClass(pedido.estado_pedido)" style="padding: 6px 24px 6px 10px;">
                                             <option value="nuevo" :disabled="!canChangeTo(pedido.estado_pedido, 'nuevo')">🔴 Nueva</option>
-                                            <option value="preparacion" :disabled="!canChangeTo(pedido.estado_pedido, 'preparacion')">🍳 En prep.</option>
-                                            <option value="enviado" :disabled="!canChangeTo(pedido.estado_pedido, 'enviado')">🛵 En camino</option>
+                                            
+                                            <option value="preparando" :disabled="!canChangeTo(pedido.estado_pedido, 'preparando')">🍳 En prep.</option>
+                                            <option value="en_camino" :disabled="!canChangeTo(pedido.estado_pedido, 'en_camino')">🛵 En camino</option>
                                             <option value="entregado" :disabled="!canChangeTo(pedido.estado_pedido, 'entregado')">✅ Entregado</option>
                                             <option v-if="pedido.estado_pedido === 'cancelado' || isSuperAdmin" value="cancelado" :disabled="!isSuperAdmin">🚫 Cancelado</option>
                                         </select>
