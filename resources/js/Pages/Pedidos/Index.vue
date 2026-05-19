@@ -286,7 +286,12 @@ const prepSelectClass = (estado) => ({
                                         </select>
                                     </div>
 
-                                    <button @click="toggleDetalle(pedido.id)" class="inline-flex justify-center items-center gap-1.5 text-[11px] font-sans font-bold rounded-lg border transition-all active:scale-95" :class="pedidoExpandido === pedido.id ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900'" style="padding: 6px 12px;">
+                                     <a v-if="pedido.cliente_direccion !== 'Retiro en local'" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pedido.cliente_direccion)}`" target="_blank" class="inline-flex justify-center items-center gap-1.5 text-[11px] font-sans font-bold rounded-lg border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900 transition-all active:scale-95" style="padding: 6px 12px;">
+                                         Ver Envío
+                                         <svg class="w-3.5 h-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                     </a>
+
+                                     <button @click="toggleDetalle(pedido.id)" class="inline-flex justify-center items-center gap-1.5 text-[11px] font-sans font-bold rounded-lg border transition-all active:scale-95" :class="pedidoExpandido === pedido.id ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'text-slate-600 border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900'" style="padding: 6px 12px;">
                                         {{ pedidoExpandido === pedido.id ? 'Ocultar' : 'Detalles' }}
                                         <svg class="w-3.5 h-3.5 transition-transform duration-200 shrink-0" :class="{'rotate-180': pedidoExpandido === pedido.id}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                                     </button>
