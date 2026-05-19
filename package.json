@@ -22,5 +22,8 @@
         "@rollup/rollup-win32-x64-msvc": "^4.60.4",
         "html5-qrcode": "^2.3.8",
         "sweetalert2": "^11.26.24"
+    },
+    "optionalDependencies": {
+        "@rollup/rollup-linux-x64-gnu": "^4.60.4"
     }
 }

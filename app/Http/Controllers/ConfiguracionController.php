@@ -3,35 +3,61 @@
 namespace App\Http\Controllers;
 
 use App\Models\Configuracion;
+use App\Models\Comercio; // 🔥 No te olvides de importar el modelo Comercio
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Storage;
 
 class ConfiguracionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        // 1. Traemos las configuraciones globales del sistema (Tu código original)
         $configuraciones = Configuracion::pluck('valor', 'clave')->toArray();
 
+        // 2. Traemos las configuraciones específicas de este local/comercio
+        $comercio = Comercio::findOrFail($request->user()->comercio_id);
+
         return Inertia::render('Configuracion/Index', [
-            'configuraciones' => $configuraciones
+            'configuraciones' => $configuraciones,
+            'comercio' => $comercio // Se lo inyectamos a Vue
         ]);
     }
 
     public function update(Request $request)
     {
-        $data = $request->except(['logo_empresa', 'logo_url']);
+        // ====================================================================
+        // 1. GUARDAR DATOS DEL COMERCIO (Envíos, Pagos, Pasarelas)
+        // ====================================================================
+        $comercio = Comercio::findOrFail($request->user()->comercio_id);
+        
+        // Filtramos del request SOLO las columnas que van en la tabla comercios
+        $datosComercio = $request->only([
+            'envio_precio_base', 'envio_precio_km', 'envio_radio_km',
+            'transferencia_cbu', 'transferencia_alias', 'transferencia_titular',
+            'mp_access_token', 'payway_public_key', 'acepta_efectivo'
+        ]);
+        
+        // Actualizamos el comercio en la base de datos
+        $comercio->update($datosComercio);
 
-        // 1. Guardar todos los textos, números y booleanos
-        foreach ($data as $clave => $valor) {
-            // 🔥 MEJORA: Usamos updateOrCreate para que cree la fila si no existe
+        // ====================================================================
+        // 2. GUARDAR CONFIGURACIONES GLOBALES (Textos, números, booleanos)
+        // ====================================================================
+        // Agarramos el resto de los datos, excluyendo el logo y lo que ya guardamos en comercio
+        $clavesComercio = array_keys($datosComercio);
+        $dataGlobal = $request->except(array_merge(['logo_empresa', 'logo_url'], $clavesComercio));
+
+        foreach ($dataGlobal as $clave => $valor) {
             Configuracion::updateOrCreate(
                 ['clave' => $clave],
                 ['valor' => $valor]
             );
         }
 
-        // 2. Guardar el Logo de la empresa
+        // ====================================================================
+        // 3. GUARDAR EL LOGO DE LA EMPRESA (Tu código original intacto)
+        // ====================================================================
         if ($request->hasFile('logo_empresa')) {
             $logoViejo = Configuracion::where('clave', 'logo_empresa')->value('valor');
             

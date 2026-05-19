@@ -9,7 +9,6 @@ class Comercio extends Model
 {
     protected $table = 'comercios';
 
-    // 🔥 LA CLAVE: Le decimos a Laravel exactamente qué campos PUEDE guardar masivamente
     protected $fillable = [
         'nombre',
         'slug',
@@ -18,6 +17,15 @@ class Comercio extends Model
         'limite_sucursales',
         'vencimiento_pago',
         'modulos_habilitados',
+        'envio_precio_base', 
+        'envio_precio_km', 
+        'envio_radio_km',
+        'transferencia_cbu', 
+        'transferencia_alias', 
+        'transferencia_titular',
+        'mp_access_token', 
+        'payway_public_key', 
+        'acepta_efectivo',
     ];
 
     protected $casts = [
@@ -25,9 +33,14 @@ class Comercio extends Model
         'vencimiento_pago' => 'date',
     ];
 
-    // 🔥 NUEVA RELACIÓN: Un comercio tiene muchas sucursales
     public function sucursales()
     {
         return $this->hasMany(Sucursal::class, 'comercio_id');
     }
+
+    public function pedidosWeb()
+    {
+        return $this->hasMany(PedidoWeb::class);
+    }
+
 }

@@ -1,0 +1,132 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\PedidoWeb;
+use App\Models\PedidoWebItem;
+use App\Models\Comercio;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
+
+class PedidoWebController extends Controller
+{
+    public function store(Request $request)
+    {
+        // 1. VALIDACIÓN RIGUROSA (Evita errores de Base de Datos como el de Postgres)
+        $request->validate([
+            'comercio_id' => 'required|exists:comercios,id',
+            'items' => 'required|array|min:1',
+            'telefono_contacto' => 'required|string|min:6',
+            'metodo_pago' => 'required|in:efectivo,transferencia,mercadopago',
+            'direccion_entrega' => $request->tipo_entrega === 'delivery' ? 'required|string' : 'nullable',
+            'total_productos' => 'required|numeric',
+            'total_final' => 'required|numeric',
+        ]);
+
+        // Iniciamos una transacción: si algo falla en el medio (ej: falla MP), no se guarda el pedido en la BD
+        DB::beginTransaction();
+        
+        try {
+            $comercio = Comercio::findOrFail($request->comercio_id);
+
+            // 2. GUARDAR EL PEDIDO (PADRE)
+            $pedido = PedidoWeb::create([
+                'comercio_id'      => $comercio->id,
+                'cliente_nombre'   => $request->user() ? $request->user()->name : 'Cliente Invitado',
+                'cliente_telefono' => $request->telefono_contacto,
+                'cliente_direccion' => $request->tipo_entrega === 'delivery' 
+                    ? trim($request->direccion_entrega . ' ' . ($request->piso_depto ?? ''))
+                    : 'Retiro en local',
+                'subtotal'       => $request->total_productos,
+                'costo_envio'    => $request->costo_envio ?? 0,
+                'total'          => $request->total_final,
+                'metodo_pago'    => $request->metodo_pago,
+                'estado_pago'    => 'pendiente',
+                'estado_pedido'  => 'nuevo',
+                'notas'          => $request->notas,
+            ]);
+
+            // 3. GUARDAR LOS ÍTEMS Y PREPARAR ARRAY PARA MERCADO PAGO
+            $itemsParaMercadoPago = [];
+
+            foreach ($request->items as $item) {
+                PedidoWebItem::create([
+                    'pedido_web_id'   => $pedido->id,
+                    'producto_id'     => $item['id'],
+                    'cantidad'        => $item['cantidad'],
+                    'precio_unitario' => $item['precio'],
+                    'subtotal'        => $item['precio'] * $item['cantidad'],
+                ]);
+
+                // Formato que exige la API de Mercado Pago
+                $itemsParaMercadoPago[] = [
+                    'title'       => $item['nombre'],
+                    'quantity'    => (int) $item['cantidad'],
+                    'unit_price'  => (float) $item['precio'],
+                    'currency_id' => 'ARS'
+                ];
+            }
+
+            // Si hay envío, MP lo toma como un ítem más
+            if ($request->costo_envio > 0) {
+                $itemsParaMercadoPago[] = [
+                    'title'       => 'Costo de Envío (Delivery)',
+                    'quantity'    => 1,
+                    'unit_price'  => (float) $request->costo_envio,
+                    'currency_id' => 'ARS'
+                ];
+            }
+
+            // ============================================================
+            // 4. LÓGICA DE PAGO
+            // ============================================================
+            
+            // CASO A: MERCADO PAGO
+            if ($request->metodo_pago === 'mercadopago') {
+                
+                if (!$comercio->mp_access_token) {
+                    throw new \Exception('El local no tiene configurado Mercado Pago.');
+                }
+
+                $urlTienda = url("/tienda/" . ($comercio->slug ?? 'default'));
+
+                $response = Http::withToken($comercio->mp_access_token)
+                    ->post('https://api.mercadopago.com/checkout/preferences', [
+                    'items' => $itemsParaMercadoPago,
+                    'external_reference' => (string) $pedido->id,
+                    'back_urls' => [
+                        'success' => $urlTienda . "?pago=exito",
+                        'pending' => $urlTienda . "?pago=pendiente",
+                        'failure' => $urlTienda . "?pago=error",
+                    ],
+                    // Comentamos esta línea para que MP no se ponga estricto con el localhost
+                    // 'auto_return' => 'approved', 
+                    'binary_mode' => true,
+                ]);
+
+                if ($response->successful()) {
+                    DB::commit(); // Todo bien, guardamos en BD
+                    return response()->json([
+                        'url_pago' => $response->json('init_point')
+                    ]);
+                } else {
+                    // Si MP falla, lanzamos excepción para hacer el Rollback de la BD
+                    $detalleError = $response->json();
+                    throw new \Exception('Error MP: ' . json_encode($detalleError));
+                }
+            }
+
+            // CASO B: EFECTIVO / TRANSFERENCIA
+            DB::commit();
+            return response()->json(['success' => true]);
+
+        } catch (\Exception $e) {
+            DB::rollBack(); // Si algo falló, borramos el intento de pedido de la BD
+            return response()->json([
+                'error' => 'Error al procesar el pedido',
+                'mensaje' => $e->getMessage()
+            ], 500);
+        }
+    }
+}

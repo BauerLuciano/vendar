@@ -5,11 +5,15 @@ import VueDevTools from 'vite-plugin-vue-devtools';
 
 export default defineConfig({
     server: {
-        host: '0.0.0.0',
+        host: '0.0.0.0', // Esto hace que funcione en TODAS las compus
         port: 5174, // CAMBIAMOS ACÁ PARA EVITAR EL CHOQUE CON DOCKER
         strictPort: true,
         hmr: {
             host: 'localhost',
+        },
+        cors: true,
+        watch: {
+            usePolling: true,
         }
     },
     plugins: [
