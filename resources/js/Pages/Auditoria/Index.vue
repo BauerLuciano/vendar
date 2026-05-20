@@ -126,7 +126,7 @@ const verCambios = (actividad) => {
     } else {
         contenido = `<div class="py-6 text-center text-sm text-slate-400">
             <p class="font-medium">${actividad.descripcion}</p>
-            <p class="mt-2 text-xs">IP: ${actividad.ip} · ${actividad.navegador?.nombre || '—'}</p>
+            <p class="mt-2 text-xs">IP: ${actividad.ip} · ${nombrarNavegador(actividad.navegador)?.nombre || '—'}</p>
         </div>`;
     }
 

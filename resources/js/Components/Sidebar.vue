@@ -138,7 +138,7 @@ const handleLogout = () => {
                 <img 
                     src="/img/LogoVendar-Sidebar.png" 
                     alt="VendAR Logo" 
-                    class="w-full h-auto max-h-24 object-contain mx-auto"
+                    class="w-full h-auto max-h-28 object-contain mx-auto"
                 >
             </Link>
         </div>

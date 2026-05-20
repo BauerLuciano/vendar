@@ -29,7 +29,7 @@ class AuditoriaController extends Controller
             $query->where('subject_type', $request->modelo);
         }
 
-        $actividades = $query->latest()->paginate(50)->through(function ($item) {
+        $actividades = $query->latest()->paginate(8)->through(function ($item) {
             $props = $item->properties ?? collect();
             $userAgent = $props->get('user_agent', '');
 
