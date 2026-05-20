@@ -449,7 +449,7 @@ onUnmounted(() => detenerRadar());
             <p class="text-slate-500 text-sm mt-1">Control de ingresos, egresos y arqueo de caja.</p>
           </div>
           <div class="header-buttons">
-            <button 
+              <button 
               class="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-xl transition-colors text-sm" 
               @click="mostrarHistorial = !mostrarHistorial"
             >

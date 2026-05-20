@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\Auditable;
 
 class PedidoWeb extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
 
     // Le decimos exactamente a qué tabla apunta
     protected $table = 'pedidos_web';

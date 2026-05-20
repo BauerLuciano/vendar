@@ -139,6 +139,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { usePage, router, Link } from '@inertiajs/vue3';
+import Swal from 'sweetalert2';
 
 defineEmits(['abrirMenu']);
 
@@ -152,7 +153,22 @@ const alertasInfo = computed(() => page.props.auth.alertas || { total: 0, detall
 const menuAbierto = ref(false);
 const campanaAbierta = ref(false);
 
-const logout = () => router.post(route('logout'));
+const logout = () => {
+    Swal.fire({
+        title: '¿Cerrar sesión?',
+        text: '¿Estás seguro/a que deseas cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cerrar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#e11d48',
+        cancelButtonColor: '#475569',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.post(route('logout'));
+        }
+    });
+};
 
 const closeMenus = (e) => {
     if (!e.target.closest('.relative')) {

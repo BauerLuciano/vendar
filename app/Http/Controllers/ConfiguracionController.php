@@ -12,11 +12,12 @@ class ConfiguracionController extends Controller
 {
     public function index(Request $request)
     {
-        // 1. Traemos las configuraciones globales del sistema (Tu código original)
         $configuraciones = Configuracion::pluck('valor', 'clave')->toArray();
 
-        // 2. Traemos las configuraciones específicas de este local/comercio
-        $comercio = Comercio::findOrFail($request->user()->comercio_id);
+        $user = $request->user();
+        $comercio = Comercio::findOrFail(
+            $user->comercio_id ?? $user->branch?->comercio_id
+        );
 
         return Inertia::render('Configuracion/Index', [
             'configuraciones' => $configuraciones,
@@ -26,10 +27,10 @@ class ConfiguracionController extends Controller
 
     public function update(Request $request)
     {
-        // ====================================================================
-        // 1. GUARDAR DATOS DEL COMERCIO (Envíos, Pagos, Pasarelas)
-        // ====================================================================
-        $comercio = Comercio::findOrFail($request->user()->comercio_id);
+        $user = $request->user();
+        $comercio = Comercio::findOrFail(
+            $user->comercio_id ?? $user->branch?->comercio_id
+        );
         
         // Filtramos del request SOLO las columnas que van en la tabla comercios
         $datosComercio = $request->only([
