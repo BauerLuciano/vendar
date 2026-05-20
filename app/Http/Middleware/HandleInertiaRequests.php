@@ -23,7 +23,7 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             
             'auth' => [
-                'user' => $request->user() ? [
+                'user' => $request->user() ? (method_exists($request->user(), 'getRoleNames') ? [
                     'id' => $request->user()->id,
                     'name' => $request->user()->name,
                     'email' => $request->user()->email,
@@ -32,7 +32,11 @@ class HandleInertiaRequests extends Middleware
                     'plan_deseado' => $request->user()->plan_deseado,
                     'roles' => $request->user()->getRoleNames(),
                     'permissions' => $request->user()->getAllPermissions()->pluck('name'),
-                ] : null,
+                ] : [
+                    'id' => $request->user()->id,
+                    'name' => $request->user()->nombre . ' ' . $request->user()->apellido,
+                    'email' => $request->user()->email,
+                ]) : null,
                 
                 // 🔥 VARIABLE CLAVE PARA EL MODO DIOS: Le avisa a Vue si estamos en el local de un cliente
                 'impersonating' => session()->has('admin_comercio_original_id'),
@@ -54,7 +58,7 @@ class HandleInertiaRequests extends Middleware
                         ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
                         
                     // Filtro por sucursal si no es jefe
-                    if (!$request->user()->hasRole(['SuperAdmin', 'Administrador Global']) && $request->user()->branch_id) {
+                    if (method_exists($request->user(), 'hasRole') && !$request->user()->hasRole(['SuperAdmin', 'Administrador Global']) && $request->user()->branch_id) {
                         $query->where('producto_sucursal.sucursal_id', $request->user()->branch_id);
                     }
 

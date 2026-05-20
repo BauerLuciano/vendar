@@ -25,7 +25,7 @@ class VerificarActivacionCuenta
 
         $user = $request->user();
 
-        if (!$user) {
+        if (!$user || !method_exists($user, 'hasRole')) {
             return $next($request);
         }
 

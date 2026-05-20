@@ -309,10 +309,6 @@ const planes = [
                 <p class="text-slate-600 text-[10px] font-black uppercase tracking-[0.3em]">
                     © 2026 VendAR SaaS. Asistencia profesional personalizada.
                 </p>
-                <div class="flex gap-10 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                    <a href="#" class="hover:text-white transition-colors">Instagram</a>
-                    <a href="#" class="hover:text-white transition-colors">Soporte</a>
-                </div>
             </div>
         </footer>
 

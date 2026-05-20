@@ -1,0 +1,16 @@
+[90m= [39m[34;4mApp\Models\User[39;24m {#8387
+    [34mid[39m: [35m1[39m,
+    [34mname[39m: [32m"[39m[32mLuciano[39m[32m"[39m,
+    [34memail[39m: [32m"[39m[32mluciano@gmail.com[39m[32m"[39m,
+    [34memail_verified_at[39m: [36mnull[39m,
+    #[33mpassword[39m: [32m"[39m\$[32m2y[39m\$[32m12[39m\$[32m1hxdkD80vCgytNkjjjOuLejsFUfKw0YQCV4F3QG.i5h3wzY5ra2I6[39m[32m"[39m,
+    #[33mremember_token[39m: [36mnull[39m,
+    [34mcreated_at[39m: [32m"[39m[32m2026-04-07 14:53:50[39m[32m"[39m,
+    [34mupdated_at[39m: [32m"[39m[32m2026-05-18 03:22:17[39m[32m"[39m,
+    [34mbranch_id[39m: [35m1[39m,
+    [34mgoogle_id[39m: [36mnull[39m,
+    [34mavatar[39m: [36mnull[39m,
+    [34mcomercio_id[39m: [36mnull[39m,
+    [34mis_active[39m: [36mfalse[39m,
+    [34mplan_deseado[39m: [36mnull[39m,
+  }

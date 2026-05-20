@@ -62,8 +62,5 @@ const plan = computed(() => page.props.auth?.user?.plan_deseado || 'tu plan');
             </div>
         </div>
 
-        <div class="relative z-10 mt-12 pb-6">
-            <p class="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em]">© 2026 VendAR SaaS</p>
-        </div>
     </div>
 </template>

@@ -54,6 +54,8 @@ const form = useForm({
     direccion: '',
     limite_cuenta_corriente: 0,
     estado: true,
+    password: '',
+    password_confirmation: '',
 });
 
 // ----- VALIDACIÓN EN TIEMPO REAL DEL DNI -----
@@ -94,6 +96,46 @@ watch(() => form.documento, () => {
     if (documentoDebounceTimer) clearTimeout(documentoDebounceTimer);
     documentoDebounceTimer = setTimeout(() => {
         checkDocumento();
+    }, 500);
+});
+
+// ----- VALIDACIÓN EN TIEMPO REAL DEL EMAIL -----
+const emailStatus = ref(null);
+let emailDebounceTimer = null;
+
+const checkEmail = async () => {
+    const mail = form.email?.trim();
+
+    if (!mail) {
+        emailStatus.value = null;
+        return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+        emailStatus.value = null;
+        return;
+    }
+
+    emailStatus.value = 'checking';
+
+    try {
+        const response = await axios.get(route('consumidores.checkEmail'), {
+            params: {
+                email: mail,
+                ignore_id: isEditing.value ? currentId.value : null
+            }
+        });
+        emailStatus.value = response.data.available ? 'available' : 'unavailable';
+    } catch (error) {
+        console.error('Error verificando email:', error);
+        emailStatus.value = null;
+    }
+};
+
+watch(() => form.email, () => {
+    if (emailDebounceTimer) clearTimeout(emailDebounceTimer);
+    emailDebounceTimer = setTimeout(() => {
+        checkEmail();
     }, 500);
 });
 
@@ -209,7 +251,8 @@ const cerrarMenu = () => {
 const openModal = (cliente = null) => {
     cerrarMenu();
     form.clearErrors();
-    documentoStatus.value = null; // Resetear estado del DNI
+    documentoStatus.value = null;
+    emailStatus.value = null;
     if (cliente) {
         isEditing.value = true;
         currentId.value = cliente.id;
@@ -232,25 +275,101 @@ const openModal = (cliente = null) => {
 
 const closeModal = () => {
     if (documentoDebounceTimer) clearTimeout(documentoDebounceTimer);
+    if (emailDebounceTimer) clearTimeout(emailDebounceTimer);
     documentoStatus.value = null;
+    emailStatus.value = null;
     isModalOpen.value = false;
     form.reset();
     form.clearErrors();
 };
 
-const submitForm = () => {
-    // Bloquear si el DNI no está disponible (y no es edición del mismo cliente)
+const checkDuplicadosNombre = async () => {
+    try {
+        const res = await axios.get(route('consumidores.checkDuplicados'), {
+            params: {
+                nombre: form.nombre,
+                apellido: form.apellido,
+                ignore_id: isEditing.value ? currentId.value : null
+            }
+        });
+        return res.data;
+    } catch {
+        return { duplicados: [], total: 0 };
+    }
+};
+
+const submitForm = async () => {
     if (form.documento && documentoStatus.value !== 'available') {
         Swal.fire({
-            icon: 'warning',
-            title: 'DNI no disponible',
+            icon: 'warning', title: 'DNI no disponible',
             text: 'El documento ingresado ya pertenece a otro cliente o tiene un formato inválido.',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 3000
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
         });
         return;
+    }
+
+    if (form.email && emailStatus.value === 'unavailable') {
+        Swal.fire({
+            icon: 'warning', title: 'Email no disponible',
+            text: 'El email ingresado ya pertenece a otro cliente.',
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+        });
+        return;
+    }
+
+    const { duplicados, total } = await checkDuplicadosNombre();
+
+    if (total > 0) {
+        let filas = duplicados.map(c =>
+            `<tr>
+                <td class="px-3 py-2 text-sm font-semibold text-slate-700 border-b">${c.nombre} ${c.apellido}</td>
+                <td class="px-3 py-2 text-sm text-slate-500 border-b font-mono">${c.documento || '—'}</td>
+                <td class="px-3 py-2 text-sm text-slate-500 border-b">${c.email || '—'}</td>
+                <td class="px-3 py-2 text-sm text-slate-500 border-b">${c.telefono || '—'}</td>
+                <td class="px-3 py-2 text-sm border-b text-center">
+                    <span class="${c.estado ? 'text-emerald-600' : 'text-rose-500'} font-bold">${c.estado ? 'Activo' : 'Inactivo'}</span>
+                </td>
+            </tr>`
+        ).join('');
+
+        const result = await Swal.fire({
+            html: `
+                <div class="text-left">
+                    <div class="px-6 pt-5 pb-3 border-b border-slate-100">
+                        <p class="text-base font-bold text-slate-800">Ya existe${total > 1 ? 'n' : ''} ${total} cliente${total > 1 ? 's' : ''} con este nombre</p>
+                        <p class="text-xs text-slate-400 mt-1">${form.nombre} ${form.apellido}</p>
+                    </div>
+                    <div class="max-h-52 overflow-y-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="text-[10px] uppercase tracking-widest text-slate-400 border-b-2 border-slate-200">
+                                    <th class="px-3 py-2 font-bold">Cliente</th>
+                                    <th class="px-3 py-2 font-bold">DNI</th>
+                                    <th class="px-3 py-2 font-bold">Email</th>
+                                    <th class="px-3 py-2 font-bold">Tel.</th>
+                                    <th class="px-3 py-2 font-bold text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>${filas}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Crear de todas formas',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#0284c7',
+            cancelButtonColor: '#6b7280',
+            width: 600,
+            padding: '0',
+            customClass: {
+                popup: 'rounded-2xl overflow-hidden',
+                confirmButton: '!rounded-xl !text-xs !font-bold !px-5 !py-2.5 !mx-2',
+                cancelButton: '!rounded-xl !text-xs !font-bold !px-5 !py-2.5 !mx-2',
+            }
+        });
+
+        if (!result.isConfirmed) return;
     }
 
     if (isEditing.value) {
@@ -679,14 +798,32 @@ const calcularDisponible = (limite, deuda) => {
 
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Email</label>
-                            <input 
-                                v-model="form.email" 
-                                maxlength="255"
-                                type="email" 
-                                class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.email}"
-                            >
+                            <div class="relative">
+                                <input 
+                                    v-model="form.email" 
+                                    maxlength="255"
+                                    type="email" 
+                                    class="w-full bg-slate-50 border rounded-xl px-4 py-2.5 pr-10 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
+                                    :class="{'border-rose-500': form.errors.email || emailStatus === 'unavailable', 'border-emerald-500': emailStatus === 'available' && !form.errors.email, 'border-slate-200': emailStatus !== 'available' && emailStatus !== 'unavailable' && !form.errors.email}"
+                                >
+                                <div class="absolute inset-y-0 right-0 flex items-center pr-3">
+                                    <svg v-if="emailStatus === 'checking'" class="w-5 h-5 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <svg v-else-if="emailStatus === 'available'" class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                    <svg v-else-if="emailStatus === 'unavailable'" class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                </div>
+                            </div>
                             <p v-if="form.errors.email" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.email }}</p>
+                            <p v-if="emailStatus === 'available' && !form.errors.email" class="mt-1 text-xs text-emerald-600 font-bold flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                Email disponible
+                            </p>
+                            <p v-if="emailStatus === 'unavailable' && !form.errors.email" class="mt-1 text-xs text-rose-500 font-bold flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                Este email ya está registrado
+                            </p>
                         </div>
                     </div>
 
@@ -739,6 +876,35 @@ const calcularDisponible = (limite, deuda) => {
                             </select>
                             <p v-if="form.errors.estado" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.estado }}</p>
                         </div>
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4 mt-4">
+                        <p class="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">Acceso a la Tienda Web</p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">
+                                    {{ isEditing ? 'Nueva contraseña' : 'Contraseña' }}
+                                </label>
+                                <input 
+                                    v-model="form.password" 
+                                    type="password" 
+                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
+                                    :class="{'border-rose-500': form.errors.password}" 
+                                    :placeholder="isEditing ? 'Dejar vacío para no cambiar' : 'Mínimo 6 caracteres'"
+                                >
+                                <p v-if="form.errors.password" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.password }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Repetir contraseña</label>
+                                <input 
+                                    v-model="form.password_confirmation" 
+                                    type="password" 
+                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700"
+                                    placeholder="Repetir contraseña"
+                                >
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-2 font-medium">Esta contraseña permite al cliente ingresar a la tienda online para hacer pedidos.</p>
                     </div>
 
                     <div class="pt-6 flex justify-end gap-3 border-t border-slate-100 mt-4">

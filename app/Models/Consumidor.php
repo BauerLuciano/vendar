@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
 use App\Traits\Auditable;
 
-class Consumidor extends Model
+class Consumidor extends Authenticatable
 {
-    use HasFactory, Auditable;
+    use HasFactory, Notifiable, Auditable;
 
     protected $table = 'consumidores';
 
     protected $fillable = [
+        'comercio_id',
         'nombre',
         'apellido',
         'documento',
@@ -21,6 +23,12 @@ class Consumidor extends Model
         'direccion',
         'limite_cuenta_corriente',
         'estado',
+        'password',
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
     ];
 
     protected $casts = [
@@ -38,8 +46,18 @@ class Consumidor extends Model
         });
     }
 
+    public function comercio()
+    {
+        return $this->belongsTo(Comercio::class);
+    }
+
     public function cuentaCorriente()
     {
         return $this->hasOne(CuentaCorriente::class);
+    }
+
+    public function scopeDeComercio($query, $comercioId)
+    {
+        return $query->where('comercio_id', $comercioId);
     }
 }

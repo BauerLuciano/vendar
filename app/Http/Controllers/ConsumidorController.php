@@ -10,9 +10,17 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class ConsumidorController extends Controller
 {
+    private function getComercioId(): ?int
+    {
+        $user = auth()->user();
+        if (!$user || !$user->branch_id) return null;
+        return $user->branch?->comercio_id;
+    }
+
     public function index(Request $request)
     {
         $search = $request->input('search');
@@ -20,6 +28,11 @@ class ConsumidorController extends Controller
         $deuda = $request->input('deuda', 'all');
 
         $query = Consumidor::with('cuentaCorriente');
+
+        $comercioId = $this->getComercioId();
+        if ($comercioId) {
+            $query->deComercio($comercioId);
+        }
 
         $query->when($search, function ($q, $search) {
             $q->where(function ($sub) use ($search) {
@@ -65,23 +78,33 @@ class ConsumidorController extends Controller
     {
         $this->normalizeInput($request);
 
+        $comercioId = $this->getComercioId();
+
         $validated = $request->validate([
             'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
             'apellido' => 'required|string|max:50|regex:/^[^0-9]+$/',
-            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', 'unique:consumidores,documento'],
-            'email' => ['nullable', 'email', 'max:255', 'unique:consumidores,email'],
+            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', $comercioId ? Rule::unique('consumidores', 'documento')->where(fn ($q) => $q->where('comercio_id', $comercioId)) : Rule::unique('consumidores', 'documento')],
+            'email' => ['nullable', 'email', 'max:255', $comercioId ? Rule::unique('consumidores', 'email')->where(fn ($q) => $q->where('comercio_id', $comercioId)) : Rule::unique('consumidores', 'email')],
             'telefono' => 'nullable|string|max:15|regex:/^\d+$/',
             'direccion' => 'nullable|string|max:255',
             'limite_cuenta_corriente' => 'required|numeric|min:0',
             'estado' => 'boolean',
+            'password' => 'nullable|string|min:6',
         ], [
             'nombre.regex' => 'El nombre no puede contener números.',
             'apellido.regex' => 'El apellido no puede contener números.',
             'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
-            'documento.unique' => 'El documento ya está registrado por otro cliente.',
+            'documento.unique' => 'El documento ya está registrado por otro cliente en tu comercio.',
             'telefono.regex' => 'El teléfono solo puede contener números.',
-            'email.unique' => 'El email ya pertenece a otro cliente.',
+            'email.unique' => 'El email ya pertenece a otro cliente de tu comercio.',
+            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
+
+        $validated['comercio_id'] = $comercioId;
+
+        if ($request->filled('password')) {
+            $validated['password'] = Hash::make($request->password);
+        }
 
         Consumidor::create($validated);
         
@@ -92,23 +115,39 @@ class ConsumidorController extends Controller
     {
         $this->normalizeInput($request);
 
+        $comercioId = $this->getComercioId();
+        $uniqueDocumento = $comercioId
+            ? Rule::unique('consumidores', 'documento')->ignore($consumidor->id)->where(fn ($q) => $q->where('comercio_id', $comercioId))
+            : Rule::unique('consumidores', 'documento')->ignore($consumidor->id);
+        $uniqueEmail = $comercioId
+            ? Rule::unique('consumidores', 'email')->ignore($consumidor->id)->where(fn ($q) => $q->where('comercio_id', $comercioId))
+            : Rule::unique('consumidores', 'email')->ignore($consumidor->id);
+
         $validated = $request->validate([
             'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
             'apellido' => 'required|string|max:50|regex:/^[^0-9]+$/',
-            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', Rule::unique('consumidores')->ignore($consumidor->id)],
-            'email' => ['nullable', 'email', 'max:255', Rule::unique('consumidores')->ignore($consumidor->id)],
+            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', $uniqueDocumento],
+            'email' => ['nullable', 'email', 'max:255', $uniqueEmail],
             'telefono' => ['nullable', 'string', 'max:15', 'regex:/^\d+$/'],
             'direccion' => 'nullable|string|max:255',
             'limite_cuenta_corriente' => 'required|numeric|min:0',
             'estado' => 'boolean',
+            'password' => 'nullable|string|min:6',
         ], [
             'nombre.regex' => 'El nombre no puede contener números.',
             'apellido.regex' => 'El apellido no puede contener números.',
             'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
-            'documento.unique' => 'El documento ya está registrado por otro cliente.',
+            'documento.unique' => 'El documento ya está registrado por otro cliente en tu comercio.',
             'telefono.regex' => 'El teléfono solo puede contener números.',
-            'email.unique' => 'El email ya pertenece a otro cliente.',
+            'email.unique' => 'El email ya pertenece a otro cliente de tu comercio.',
+            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
+
+        if ($request->filled('password')) {
+            $validated['password'] = Hash::make($request->password);
+        } else {
+            unset($validated['password']);
+        }
 
         $consumidor->update($validated);
         
@@ -213,6 +252,11 @@ class ConsumidorController extends Controller
         }
 
         $query = Consumidor::where('documento', $request->documento);
+
+        $comercioId = $this->getComercioId();
+        if ($comercioId) {
+            $query->where('comercio_id', $comercioId);
+        }
         
         if ($request->has('ignore_id')) {
             $query->where('id', '!=', $request->ignore_id);
@@ -223,6 +267,65 @@ class ConsumidorController extends Controller
         return response()->json([
             'available' => !$exists,
             'message' => $exists ? 'Este DNI ya está registrado' : 'DNI disponible'
+        ]);
+    }
+
+    public function checkEmail(Request $request)
+    {
+        $request->validate([
+            'email' => 'nullable|email|max:255',
+            'ignore_id' => 'nullable|integer|exists:consumidores,id'
+        ]);
+
+        if (empty($request->email)) {
+            return response()->json(['available' => true]);
+        }
+
+        $query = Consumidor::where('email', $request->email);
+
+        $comercioId = $this->getComercioId();
+        if ($comercioId) {
+            $query->where('comercio_id', $comercioId);
+        }
+
+        if ($request->has('ignore_id')) {
+            $query->where('id', '!=', $request->ignore_id);
+        }
+
+        $exists = $query->exists();
+
+        return response()->json([
+            'available' => !$exists,
+            'message' => $exists ? 'Este email ya está registrado' : 'Email disponible'
+        ]);
+    }
+
+    public function checkDuplicados(Request $request)
+    {
+        $request->validate([
+            'nombre' => 'required|string|max:50',
+            'apellido' => 'required|string|max:50',
+            'ignore_id' => 'nullable|integer|exists:consumidores,id'
+        ]);
+
+        $query = Consumidor::where('nombre', $request->nombre)
+            ->where('apellido', $request->apellido)
+            ->select('id', 'nombre', 'apellido', 'documento', 'email', 'telefono', 'estado');
+
+        $comercioId = $this->getComercioId();
+        if ($comercioId) {
+            $query->where('comercio_id', $comercioId);
+        }
+
+        if ($request->has('ignore_id')) {
+            $query->where('id', '!=', $request->ignore_id);
+        }
+
+        $duplicados = $query->get();
+
+        return response()->json([
+            'duplicados' => $duplicados,
+            'total' => $duplicados->count()
         ]);
     }
 }

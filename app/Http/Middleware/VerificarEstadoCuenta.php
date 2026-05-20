@@ -19,7 +19,7 @@ class VerificarEstadoCuenta
         $user = $request->user();
 
         // Si no está logueado o es el Admin Global maestro, pasa libre
-        if (!$user || !$user->branch_id || $user->hasRole('Administrador Global')) {
+        if (!$user || !$user->branch_id || (method_exists($user, 'hasRole') && $user->hasRole('Administrador Global'))) {
             return $next($request);
         }
 

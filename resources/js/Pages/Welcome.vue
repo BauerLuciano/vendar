@@ -6,15 +6,20 @@ import Swal from 'sweetalert2';
 
 const props = defineProps({
     comercio: Object,
-    canLogin: Boolean,
-    canRegister: Boolean,
     sucursalesBackend: Array,
     categorias: Array,
     tienda_slug: String,
+    consumidorLogueado: Object,
 });
 
 const page = usePage();
-const estaLogueado = computed(() => !!page.props.auth.user);
+const esAdminLogueado = computed(() => !!page.props.auth.user);
+const esConsumidorLogueado = computed(() => !!props.consumidorLogueado);
+const estaLogueado = computed(() => esAdminLogueado.value || esConsumidorLogueado.value);
+
+const consumidorActual = computed(() => props.consumidorLogueado);
+
+
 
 const sucursalElegida = ref('');
 const categoriaSeleccionada = ref('todas');
@@ -35,11 +40,15 @@ const mostrarCarrito = ref(false);
 const formPedido = useForm({
     tipo_entrega: 'local', 
     direccion_entrega: '',
-    piso_depto: '', // 🔥 NUEVO CAMPO
-    telefono_contacto: page.props.auth.user?.telefono || '',
+    piso_depto: '',
+    cliente_nombre: props.consumidorLogueado?.nombre || page.props.auth.user?.name || '',
+    cliente_email: props.consumidorLogueado?.email || page.props.auth.user?.email || '',
+    telefono_contacto: props.consumidorLogueado?.telefono || page.props.auth.user?.telefono || '',
     metodo_pago: '',
     notas: ''
 });
+
+
 
 // ── FILTRADO REACTIVO ──────────────────────────────────────────────────────────
 const productosFiltrados = computed(() => {
@@ -117,18 +126,7 @@ const totalFinalCheckout = computed(() => totalProductos.value + costoDeliveryEx
 
 const agregarAlCarrito = (producto) => {
     if (!estaLogueado.value) {
-        Swal.fire({
-            title: '¡Iniciá Sesión!',
-            text: 'Para pedir online necesitamos saber quién sos.',
-            icon: 'info',
-            background: '#0f1929',
-            color: '#fff',
-            showCancelButton: true,
-            confirmButtonText: 'Ingresar',
-            cancelButtonText: 'Seguir mirando',
-            confirmButtonColor: '#00adef',
-            cancelButtonColor: '#334155'
-        }).then((res) => { if (res.isConfirmed) router.get(route('login')); });
+        window.location.href = '/tienda/' + props.tienda_slug + '/login';
         return;
     }
     const precioLimpio = parsearPrecio(producto.precio);
@@ -202,6 +200,8 @@ const confirmarPedido = async () => {
         direccion_entrega: formPedido.direccion_entrega,
         piso_depto: formPedido.piso_depto,
         telefono_contacto: formPedido.telefono_contacto,
+        cliente_nombre: formPedido.cliente_nombre,
+        cliente_email: formPedido.cliente_email,
         notas: formPedido.notas,
         distancia_km: distanciaClienteKm.value
     };
@@ -329,6 +329,8 @@ const cargarProductos = async () => {
     } catch (error) { console.error(error); productos.value = []; } finally { cargando.value = false; }
 };
 
+
+
 onMounted(() => {
     setTimeout(() => { initMap(); cargarCarritoMemoria(); }, 500);
 });
@@ -373,9 +375,9 @@ onMounted(() => {
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2 pl-4 border-l border-white/5 shrink-0" v-if="canLogin">
+                <div class="flex items-center gap-2 pl-4 border-l border-white/5 shrink-0">
                     <button
-                        v-if="carrito.length > 0"
+                        v-if="carrito.length > 0 && estaLogueado"
                         @click="mostrarCarrito = true"
                         class="relative flex items-center gap-2.5 bg-[#f7941e] hover:bg-[#f7941e]/90 text-white px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-lg shadow-[#f7941e]/20 active:scale-95"
                     >
@@ -386,13 +388,24 @@ onMounted(() => {
                         <span class="hidden lg:inline font-black">{{ formatearDinero(totalFinalCheckout) }}</span>
                     </button>
 
-                    <Link
-                        v-if="estaLogueado && page.props.auth.user.roles?.some(r => ['SuperAdmin','Administrador Global','Encargado','cajero'].includes(r))"
-                        :href="route('dashboard')"
-                        class="text-[11px] font-bold uppercase tracking-wider text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 transition-all"
-                    >Mi Panel</Link>
+                    <!-- CONSUMIDOR logueado -->
+                    <div v-if="esConsumidorLogueado" class="flex items-center gap-1.5 bg-[#111c30] border border-white/8 px-2.5 py-1.5 rounded-xl">
+                        <Link :href="'/tienda/' + tienda_slug + '/panel'" class="text-[10px] font-bold text-[#8cc63f] hover:text-white bg-[#8cc63f]/10 hover:bg-[#8cc63f] px-2 py-1.5 rounded-lg transition-all flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            Mi Panel
+                        </Link>
+                        <span class="text-white/10">|</span>
+                        <div class="flex items-center gap-1.5">
+                            <div class="w-5 h-5 rounded-full bg-[#8cc63f]/15 border border-[#8cc63f]/30 flex items-center justify-center text-[#8cc63f] shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0"/></svg>
+                            </div>
+                            <span class="text-[11px] font-bold text-slate-200 max-w-[70px] truncate">{{ consumidorActual?.nombre }}</span>
+                            <Link :href="route('tienda.logout.consumidor')" method="get" as="button" class="text-[11px] font-bold text-rose-500 hover:text-white hover:bg-rose-600 px-1.5 py-0.5 rounded-lg transition-all">Salir</Link>
+                        </div>
+                    </div>
 
-                    <div v-else-if="estaLogueado" class="flex items-center gap-2 bg-[#111c30] border border-white/8 px-3 py-2 rounded-xl">
+                    <!-- ADMIN del sistema logueado -->
+                    <div v-else-if="esAdminLogueado" class="flex items-center gap-2 bg-[#111c30] border border-white/8 px-3 py-2 rounded-xl">
                         <div class="w-6 h-6 rounded-full bg-[#00adef]/15 border border-[#00adef]/30 flex items-center justify-center text-[#00adef] shrink-0">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0"/></svg>
                         </div>
@@ -401,9 +414,10 @@ onMounted(() => {
                         <Link :href="route('logout')" method="post" as="button" class="text-[11px] font-bold text-rose-500 hover:text-white hover:bg-rose-600 px-2 py-1 rounded-lg transition-all">Salir</Link>
                     </div>
 
+                    <!-- NO logueado -->
                     <template v-else>
-                        <Link :href="route('login')" class="text-[11px] font-bold uppercase tracking-wider text-[#00adef] hover:text-white px-3 py-2 transition-colors">Ingresar</Link>
-                        <Link v-if="canRegister" :href="route('register', { tienda: props.tienda_slug })" class="text-[11px] font-bold uppercase tracking-wider text-white bg-[#00adef] hover:bg-[#00adef]/80 rounded-xl px-4 py-2 shadow-lg shadow-[#00adef]/20 transition-all">Registrarse</Link>
+                        <Link :href="'/tienda/' + tienda_slug + '/login'" class="text-[11px] font-bold uppercase tracking-wider text-[#00adef] hover:text-white px-3 py-2 transition-colors">Ingresar</Link>
+                        <Link :href="'/tienda/' + tienda_slug + '/register'" class="text-[11px] font-bold uppercase tracking-wider text-white bg-[#00adef] hover:bg-[#00adef]/80 rounded-xl px-4 py-2 shadow-lg shadow-[#00adef]/20 transition-all">Registrarse</Link>
                     </template>
                 </div>
             </div>
@@ -518,7 +532,10 @@ onMounted(() => {
                     class="group bg-[#0f1929] border border-white/6 rounded-2xl overflow-hidden flex flex-col transition-all duration-200 hover:border-[#00adef]/30 hover:shadow-xl hover:shadow-[#00adef]/5 hover:-translate-y-0.5"
                 >
                     <div class="relative h-36 bg-white flex items-center justify-center p-3 overflow-hidden">
-                        <img :src="p.imagen_url || '/img/LogoVendar-Sidebar.png'" :alt="p.nombre" class="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300">
+                        <img v-if="p.imagen_url" :src="p.imagen_url" :alt="p.nombre" class="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300">
+                        <div v-else class="flex items-center justify-center w-full h-full bg-[#0f1929]">
+                            <svg class="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        </div>
                         <div class="absolute top-2 left-2 bg-[#8cc63f] text-white px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider shadow-sm">{{ p.categoria?.nombre || 'General' }}</div>
                         <div class="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[#0f1929]/20 to-transparent"></div>
                     </div>
@@ -600,7 +617,11 @@ onMounted(() => {
                                 
                                 <input v-model="formPedido.piso_depto" type="text" placeholder="Casa, Depto, Piso (Opcional)..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
                                 
+                                <input v-model="formPedido.cliente_nombre" type="text" placeholder="Tu nombre..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
+                                
                                 <input v-model="formPedido.telefono_contacto" type="text" placeholder="Teléfono de contacto..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
+                                
+                                <input v-model="formPedido.cliente_email" type="email" placeholder="Correo electrónico (opcional)..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
                                 
                                 <textarea v-model="formPedido.notas" placeholder="Observaciones (Ej: Tocar timbre fuerte, sin cebolla)..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all resize-none" rows="2"></textarea>
 
@@ -649,6 +670,8 @@ onMounted(() => {
                 </Transition>
             </div>
         </Transition>
+
+
 
     </div>
 </template>

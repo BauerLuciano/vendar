@@ -18,12 +18,23 @@ class PedidoWebController extends Controller
             'comercio_id' => 'required|exists:comercios,id',
             'sucursal_id' => 'required|exists:sucursales,id',
             'items' => 'required|array|min:1',
+            'tipo_entrega' => 'required|in:local,delivery',
             'telefono_contacto' => 'required_if:tipo_entrega,delivery|nullable|string|min:6',
             'metodo_pago' => 'required|in:efectivo,transferencia,mercadopago',
             'direccion_entrega' => 'required_if:tipo_entrega,delivery|nullable|string',
             'total_productos' => 'required|numeric',
             'total_final' => 'required|numeric',
         ]);
+
+        $user = $request->user();
+
+        // Resolvemos el nombre del cliente según el guard autenticado
+        $nombreCliente = 'Cliente Invitado';
+        if ($user) {
+            $nombreCliente = $user->name ?? ($user->nombre . ' ' . $user->apellido);
+        } elseif ($request->cliente_nombre) {
+            $nombreCliente = $request->cliente_nombre;
+        }
 
         // 2. VALIDACIÓN DE STOCK (Evita compras con stock insuficiente o manipulación del frontend)
         $sucursalId = $request->sucursal_id;
@@ -76,7 +87,7 @@ class PedidoWebController extends Controller
             $pedido = PedidoWeb::create([
                 'comercio_id'      => $comercio->id,
                 'sucursal_id'      => $request->sucursal_id,
-                'cliente_nombre'   => $request->user() ? $request->user()->name : 'Cliente Invitado',
+                'cliente_nombre'   => $nombreCliente,
                 'cliente_telefono' => $request->telefono_contacto,
                 'cliente_direccion' => $request->tipo_entrega === 'delivery' 
                     ? trim($request->direccion_entrega . ' ' . ($request->piso_depto ?? ''))

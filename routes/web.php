@@ -91,10 +91,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-
-    // 🔥 NUEVA RUTA PARA GUARDAR PEDIDOS WEB (Protegida)
-    Route::post('/api/pedidos-web', [PedidoWebController::class, 'store'])->name('pedidos.web.store');
 });
+
+// Ruta para pedidos web: acepta admin (User) y consumidores
+Route::post('/api/pedidos-web', [PedidoWebController::class, 'store'])
+    ->middleware('auth:web,consumidor')
+    ->name('pedidos.web.store');
 
 // ==========================================
 // RUTAS PARA LOGIN CON GOOGLE
@@ -147,6 +149,8 @@ Route::middleware(['auth', 'modulo:fiados'])->group(function () {
     Route::patch('/consumidores/{consumidor}/status', [ConsumidorController::class, 'status'])->name('consumidores.status');
     Route::get('/consumidores/{consumidor}/cuenta', [ConsumidorController::class, 'estadoCuenta'])->name('consumidores.cuenta');
     Route::get('/consumidores/check-documento', [ConsumidorController::class, 'checkDocumento'])->name('consumidores.checkDocumento');
+    Route::get('/consumidores/check-email', [ConsumidorController::class, 'checkEmail'])->name('consumidores.checkEmail');
+    Route::get('/consumidores/check-duplicados', [ConsumidorController::class, 'checkDuplicados'])->name('consumidores.checkDuplicados');
 });
 
 // ------------------------------------------------------------------
@@ -273,11 +277,64 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 // ------------------------------------------------------------------
 // TIENDA PÚBLICA POR SLUG
 // ------------------------------------------------------------------
+// Auth para consumidores en la tienda (API)
+Route::post('/api/tienda/login', [App\Http\Controllers\ConsumidorAuthController::class, 'login']);
+Route::post('/api/tienda/register', [App\Http\Controllers\ConsumidorAuthController::class, 'register']);
+Route::post('/api/tienda/logout', [App\Http\Controllers\ConsumidorAuthController::class, 'logout'])->middleware('auth:consumidor');
+Route::get('/api/tienda/me', [App\Http\Controllers\ConsumidorAuthController::class, 'me']);
+Route::post('/api/tienda/perfil', [App\Http\Controllers\ConsumidorAuthController::class, 'updateProfile'])->middleware('auth:consumidor');
+
+// Logout de consumidor (antes de la ruta {slug} para no colisionar)
+Route::get('/tienda/logout-consumidor', function () {
+    $slug = session('ultima_tienda_slug', '');
+    auth('consumidor')->logout();
+    request()->session()->invalidate();
+    request()->session()->regenerateToken();
+    return $slug ? redirect('/tienda/' . $slug) : redirect('/');
+})->name('tienda.logout.consumidor');
+
+// Panel del consumidor (antes de la ruta {slug})
+Route::get('/tienda/{slug}/panel', function ($slug) {
+    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    $consumidor = auth('consumidor')->user();
+
+    if (!$consumidor) {
+        return redirect('/tienda/' . $slug);
+    }
+
+    $pedidos = \App\Models\PedidoWeb::where('comercio_id', $comercio->id)
+        ->where('cliente_telefono', $consumidor->telefono)
+        ->orWhere(function ($q) use ($consumidor, $comercio) {
+            $q->where('comercio_id', $comercio->id)
+              ->where('cliente_nombre', $consumidor->nombre . ' ' . $consumidor->apellido);
+        })
+        ->orderBy('created_at', 'desc')
+        ->with('items')
+        ->get();
+
+    return Inertia::render('Cliente/Panel', [
+        'comercio'   => $comercio,
+        'consumidor' => [
+            'id'        => $consumidor->id,
+            'nombre'    => $consumidor->nombre,
+            'apellido'  => $consumidor->apellido,
+            'email'     => $consumidor->email,
+            'telefono'  => $consumidor->telefono,
+            'direccion' => $consumidor->direccion,
+        ],
+        'pedidos'    => $pedidos,
+        'tienda_slug'=> $slug,
+    ]);
+})->name('tienda.panel');
+
+// Tienda pública (slug catch-all debe ir último)
 Route::get('/tienda/{slug}', function ($slug) {
     $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
 
-    // Guardamos la última tienda visitada en sesión para redirección post-login
     session(['ultima_tienda_slug' => $slug]);
+    session(['comercio_id_actual' => $comercio->id]);
+
+    $consumidor = auth('consumidor')->user();
 
     $sucursales = \App\Models\Sucursal::where('comercio_id', $comercio->id)
         ->where('estado', true)
@@ -298,14 +355,42 @@ Route::get('/tienda/{slug}', function ($slug) {
         ]);
 
     return Inertia::render('Welcome', [
-        'comercio'          => $comercio,
-        'sucursalesBackend' => $sucursales,
-        'categorias'        => $categorias,
-        'canLogin'          => Route::has('login'),
-        'canRegister'       => Route::has('register'),
-        'tienda_slug'       => $slug,
+        'comercio'             => $comercio,
+        'sucursalesBackend'    => $sucursales,
+        'categorias'           => $categorias,
+        'tienda_slug'          => $slug,
+        'consumidorLogueado'   => $consumidor ? [
+            'id'       => $consumidor->id,
+            'nombre'   => $consumidor->nombre,
+            'apellido' => $consumidor->apellido,
+            'email'    => $consumidor->email,
+            'telefono' => $consumidor->telefono,
+        ] : null,
     ]);
 })->name('tienda.publica');
+
+// Login y registro como páginas dedicadas
+Route::get('/tienda/{slug}/login', function ($slug) {
+    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    session(['comercio_id_actual' => $comercio->id]);
+    session(['ultima_tienda_slug' => $slug]);
+
+    return Inertia::render('Cliente/Login', [
+        'comercio'    => $comercio,
+        'tienda_slug' => $slug,
+    ]);
+})->name('tienda.login');
+
+Route::get('/tienda/{slug}/register', function ($slug) {
+    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    session(['comercio_id_actual' => $comercio->id]);
+    session(['ultima_tienda_slug' => $slug]);
+
+    return Inertia::render('Cliente/Register', [
+        'comercio'    => $comercio,
+        'tienda_slug' => $slug,
+    ]);
+})->name('tienda.register');
 
 
 // ==========================================
