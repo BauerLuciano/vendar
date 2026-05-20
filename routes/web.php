@@ -262,6 +262,9 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
     Route::put('/comercios/{comercio}', [GlobalAdminController::class, 'update'])->name('admin.comercios.update');
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
+    Route::get('/solicitudes', [GlobalAdminController::class, 'solicitudesPendientes'])->name('admin.solicitudes');
+    Route::post('/solicitudes/{user}/aprobar', [GlobalAdminController::class, 'aprobarSolicitud'])->name('admin.solicitudes.aprobar');
+    Route::post('/solicitudes/{user}/rechazar', [GlobalAdminController::class, 'rechazarSolicitud'])->name('admin.solicitudes.rechazar');
 
     Route::post('/impersonate/enter/{comercio}', [ImpersonateController::class, 'enter'])->name('impersonate.enter');
     Route::post('/impersonate/leave', [ImpersonateController::class, 'leave'])->name('impersonate.leave');

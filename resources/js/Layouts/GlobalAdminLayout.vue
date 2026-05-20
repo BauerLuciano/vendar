@@ -36,6 +36,15 @@ const mostrarMenuMovil = ref(false);
                     <span class="mr-3 text-lg">🏢</span> Comercios (Tenants)
                 </Link>
 
+                <Link :href="route('admin.solicitudes')" 
+                      @click="mostrarMenuMovil = false"
+                      class="flex items-center px-6 py-3 transition-colors duration-200 font-bold text-sm"
+                      :class="route().current('admin.solicitudes*') 
+                        ? 'bg-[#00adef]/10 text-[#00adef] border-r-4 border-[#00adef]' 
+                        : 'hover:bg-slate-800 hover:text-white'">
+                    <span class="mr-3 text-lg">📋</span> Solicitudes de Comercios
+                </Link>
+
                 <Link :href="route('admin.metricas')" 
                       @click="mostrarMenuMovil = false"
                       class="flex items-center px-6 py-3 transition-colors duration-200 font-bold text-sm"

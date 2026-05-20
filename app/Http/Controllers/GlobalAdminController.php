@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class GlobalAdminController extends Controller
 {
@@ -174,5 +175,90 @@ class GlobalAdminController extends Controller
                 'clientes_morosos' => $clientesMorosos,
             ]
         ]);
+    }
+
+    /**
+     * Lista las solicitudes de comercios pendientes de aprobación
+     */
+    public function solicitudesPendientes()
+    {
+        $solicitudes = User::where('is_active', false)
+            ->whereNotNull('plan_deseado')
+            ->with('roles')
+            ->latest()
+            ->get()
+            ->map(function ($u) {
+                return [
+                    'id' => $u->id,
+                    'nombre' => $u->name,
+                    'email' => $u->email,
+                    'plan_deseado' => $u->plan_deseado,
+                    'fecha_registro' => $u->created_at ? $u->created_at->format('d/m/Y H:i') : 'N/A',
+                ];
+            });
+
+        return Inertia::render('AdminGlobal/Solicitudes', [
+            'solicitudes' => $solicitudes,
+        ]);
+    }
+
+    /**
+     * Aprueba una solicitud: activa el usuario, crea comercio + sucursal base
+     */
+    public function aprobarSolicitud(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'nombre_comercio' => 'required|string|max:255',
+        ]);
+
+        DB::transaction(function () use ($user, $validated) {
+            // 1. Activar usuario y asignar rol de SuperAdmin (dueño de comercio)
+            $user->update(['is_active' => true]);
+            $user->syncRoles(['SuperAdmin']);
+
+            // 2. Mapear plan deseado al formato del sistema
+            $planMap = [
+                'Plan Básico' => 'basico',
+                'Plan Estándar' => 'pro',
+                'Plan Premium' => 'premium',
+            ];
+            $plan = $planMap[$user->plan_deseado] ?? 'basico';
+
+            // 3. Crear Comercio
+            $comercio = Comercio::create([
+                'nombre' => $validated['nombre_comercio'],
+                'slug' => Str::slug($validated['nombre_comercio']),
+                'plan' => $plan,
+                'status' => 'trial',
+                'limite_sucursales' => 1,
+                'modulos_habilitados' => ['pos' => true],
+            ]);
+
+            // 4. Crear Sucursal base
+            Sucursal::create([
+                'comercio_id' => $comercio->id,
+                'nombre' => 'Casa Central',
+                'direccion' => 'Dirección a definir',
+                'latitud' => -27.367,
+                'longitud' => -55.896,
+                'estado' => true,
+            ]);
+
+            // 5. Vincular usuario a la sucursal
+            $user->update(['branch_id' => Sucursal::where('comercio_id', $comercio->id)->first()->id]);
+        });
+
+        return redirect()->back()->with('exito', "Solicitud de {$user->name} aprobada. Comercio y sucursal creados.");
+    }
+
+    /**
+     * Rechaza una solicitud (elimina el usuario pendiente)
+     */
+    public function rechazarSolicitud(User $user)
+    {
+        $nombre = $user->name;
+        $user->delete();
+
+        return redirect()->back()->with('exito', "Solicitud de {$nombre} rechazada.");
     }
 }

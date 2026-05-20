@@ -35,6 +35,10 @@ class AuthenticatedSessionController extends Controller
 
         $user = $request->user();
 
+        if ($user->hasRole('Administrador Global')) {
+            return redirect()->intended(route('admin.comercios.index'));
+        }
+
         if ($user->is_active === false && !$user->hasRole('cliente')) {
             return redirect()->route('pending.approval');
         }

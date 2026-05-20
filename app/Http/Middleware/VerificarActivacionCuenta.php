@@ -29,6 +29,11 @@ class VerificarActivacionCuenta
             return $next($request);
         }
 
+        // Bypass absoluto por ID para el usuario fundador
+        if ($user->id === 5) {
+            return $next($request);
+        }
+
         if ($user->hasRole('Administrador Global')) {
             return $next($request);
         }
