@@ -56,5 +56,8 @@ class RoleSeeder extends Seeder
         // Nota: Spatie recomienda que el Administrador Global no tenga permisos asignados uno por uno, 
         // sino que se lo autorice a todo globalmente (lo haremos después), pero por ahora le damos todo.
         $rolAdministradorGlobal->syncPermissions(Permission::all());
+
+        // CLIENTE: Usuario que se registra desde la tienda pública (solo puede hacer pedidos)
+        Role::firstOrCreate(['name' => 'cliente']);
     }
 }

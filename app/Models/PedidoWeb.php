@@ -16,6 +16,7 @@ class PedidoWeb extends Model
     // Todos los campos que permitimos guardar
     protected $fillable = [
         'comercio_id',
+        'sucursal_id',
         'cliente_nombre',
         'cliente_telefono',
         'cliente_direccion',
@@ -34,6 +35,12 @@ class PedidoWeb extends Model
     public function comercio()
     {
         return $this->belongsTo(Comercio::class);
+    }
+
+    // Relación: Este pedido pertenece a una Sucursal
+    public function sucursal()
+    {
+        return $this->belongsTo(Sucursal::class);
     }
 
     public function items()

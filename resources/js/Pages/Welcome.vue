@@ -10,6 +10,7 @@ const props = defineProps({
     canRegister: Boolean,
     sucursalesBackend: Array,
     categorias: Array,
+    tienda_slug: String,
 });
 
 const page = usePage();
@@ -42,7 +43,8 @@ const formPedido = useForm({
 
 // ── FILTRADO REACTIVO ──────────────────────────────────────────────────────────
 const productosFiltrados = computed(() => {
-    return productos.value.filter(p => {
+    const items = Array.isArray(productos.value) ? productos.value : [];
+    return items.filter(p => {
         const coincideCat = categoriaSeleccionada.value === 'todas' || p.categoria_id == categoriaSeleccionada.value;
         const coincideBusqueda = p.nombre.toLowerCase().includes(busqueda.value.toLowerCase());
         return coincideCat && coincideBusqueda;
@@ -154,7 +156,12 @@ const cambiarCantidad = (index, delta) => {
 const confirmarPedido = async () => {
     if (carrito.value.length === 0) return;
     
-    if (!formPedido.telefono_contacto || formPedido.telefono_contacto.trim() === '') {
+    if (!sucursalElegida.value) {
+        Swal.fire({ icon: 'warning', title: 'Falta la Sucursal', text: 'Elegí una sucursal antes de confirmar.', background: '#0f1929', color: '#fff' });
+        return;
+    }
+    
+    if (formPedido.tipo_entrega === 'delivery' && (!formPedido.telefono_contacto || formPedido.telefono_contacto.trim() === '')) {
         Swal.fire({ 
             icon: 'warning', 
             title: 'Falta tu teléfono', 
@@ -318,8 +325,8 @@ const cargarProductos = async () => {
     cargando.value = true;
     try {
         const response = await axios.get(`/api/catalogo/${sucursalElegida.value}`);
-        productos.value = response.data;
-    } catch (error) { console.error(error); } finally { cargando.value = false; }
+        productos.value = Array.isArray(response.data) ? response.data : [];
+    } catch (error) { console.error(error); productos.value = []; } finally { cargando.value = false; }
 };
 
 onMounted(() => {
@@ -396,7 +403,7 @@ onMounted(() => {
 
                     <template v-else>
                         <Link :href="route('login')" class="text-[11px] font-bold uppercase tracking-wider text-[#00adef] hover:text-white px-3 py-2 transition-colors">Ingresar</Link>
-                        <Link v-if="canRegister" :href="route('register')" class="text-[11px] font-bold uppercase tracking-wider text-white bg-[#00adef] hover:bg-[#00adef]/80 rounded-xl px-4 py-2 shadow-lg shadow-[#00adef]/20 transition-all">Registrarse</Link>
+                        <Link v-if="canRegister" :href="route('register', { tienda: props.tienda_slug })" class="text-[11px] font-bold uppercase tracking-wider text-white bg-[#00adef] hover:bg-[#00adef]/80 rounded-xl px-4 py-2 shadow-lg shadow-[#00adef]/20 transition-all">Registrarse</Link>
                     </template>
                 </div>
             </div>
@@ -518,7 +525,16 @@ onMounted(() => {
                     <div class="p-3 flex flex-col flex-grow">
                         <h3 class="text-[10px] font-bold text-slate-300 leading-tight line-clamp-2 mb-2 flex-grow">{{ p.nombre }}</h3>
                         <p class="text-[17px] font-black text-white tracking-tight">{{ formatearDinero(parsearPrecio(p.precio)) }}</p>
-                        <button @click="agregarAlCarrito(p)" class="mt-2.5 w-full bg-[#f7941e]/15 hover:bg-[#f7941e] text-[#f7941e] hover:text-white font-black text-[9px] uppercase tracking-widest py-2.5 rounded-xl border border-[#f7941e]/30 hover:border-[#f7941e] transition-all duration-150 active:scale-95">+ Agregar</button>
+                        <button
+                            @click="agregarAlCarrito(p)"
+                            :disabled="p.stock <= 0"
+                            class="mt-2.5 w-full font-black text-[9px] uppercase tracking-widest py-2.5 rounded-xl border transition-all duration-150"
+                            :class="p.stock <= 0
+                                ? 'bg-slate-700/30 text-slate-600 border-slate-700/30 cursor-not-allowed'
+                                : 'bg-[#f7941e]/15 hover:bg-[#f7941e] text-[#f7941e] hover:text-white border-[#f7941e]/30 hover:border-[#f7941e] active:scale-95'"
+                        >
+                            {{ p.stock <= 0 ? 'Sin Stock' : '+ Agregar' }}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -557,7 +573,7 @@ onMounted(() => {
                             </div>
                         </div>
 
-                        <div class="shrink-0 border-t border-white/5 bg-[#0f1929] p-5 space-y-4">
+                        <div class="shrink-0 border-t border-white/5 bg-[#0f1929] p-5 space-y-4 overflow-y-auto max-h-[75vh]">
                             
                             <div>
                                 <p class="text-[9px] font-black tracking-widest text-slate-500 uppercase mb-2">Tipo de entrega</p>

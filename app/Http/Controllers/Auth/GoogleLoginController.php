@@ -37,6 +37,8 @@ class GoogleLoginController extends Controller
                         'google_id' => $googleUser->getId(),
                         'avatar' => $googleUser->getAvatar(),
                         'password' => Hash::make(Str::random(24)),
+                        'is_active' => true,
+                        'plan_deseado' => 'Plan Básico',
                     ]);
 
                     $newUser->assignRole('cliente');
@@ -83,8 +85,15 @@ class GoogleLoginController extends Controller
 
             // 🔥 REGLA DE ORO: Enrutamiento Inteligente
             if ($user->hasRole('cliente')) {
-                // Regresa a la tienda donde armó el carrito, o a la raíz por defecto
-                return redirect()->intended('/'); 
+                $ultimaTienda = session('ultima_tienda_slug');
+                if ($ultimaTienda) {
+                    return redirect()->intended(route('tienda.publica', ['slug' => $ultimaTienda]));
+                }
+                return redirect()->intended(route('cliente.inicio'));
+            }
+
+            if ($user->is_active === false) {
+                return redirect()->route('pending.approval');
             }
 
             // Si es SuperAdmin, Cajero o Encargado, entra al sistema de gestión

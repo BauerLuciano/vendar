@@ -19,9 +19,11 @@ class RegisteredUserController extends Controller
     /**
      * Display the registration view.
      */
-    public function create(): Response
+    public function create(Request $request): Response
     {
-        return Inertia::render('Auth/Register');
+        return Inertia::render('Auth/Register', [
+            'tienda_slug' => $request->query('tienda'),
+        ]);
     }
 
     /**
@@ -31,22 +33,36 @@ class RegisteredUserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        $esDesdeTienda = $request->has('tienda');
+
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'plan_deseado' => $esDesdeTienda ? 'nullable|string' : 'required|in:Plan Básico,Plan Estándar,Plan Premium',
         ]);
 
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'plan_deseado' => $esDesdeTienda ? 'Plan Básico' : $request->plan_deseado,
+            'is_active' => $esDesdeTienda,
         ]);
+
+        // Asignar rol 'cliente' a todo usuario que se registra desde la tienda pública
+        $user->assignRole('cliente');
 
         event(new Registered($user));
 
         Auth::login($user);
 
-        return redirect(route('dashboard', absolute: false));
+        // Si viene del contexto de tienda, redirigir de vuelta a la tienda
+        if ($esDesdeTienda) {
+            return redirect()->route('tienda.publica', ['slug' => $request->input('tienda')]);
+        }
+
+        // Registro SaaS: redirigir a pending-approval
+        return redirect()->route('pending.approval');
     }
 }

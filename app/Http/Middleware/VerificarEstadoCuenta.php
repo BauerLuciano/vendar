@@ -12,7 +12,7 @@ class VerificarEstadoCuenta
     public function handle(Request $request, Closure $next): Response
     {
         // 1. Dejamos pasar las rutas de autenticación, logout y la vista de suspensión
-        if ($request->routeIs('login', 'logout', 'cuenta.suspendida', 'admin.comercios.*', 'impersonate.*')) {
+        if ($request->routeIs('login', 'logout', 'cuenta.suspendida', 'pending.approval', 'admin.comercios.*', 'impersonate.*')) {
             return $next($request);
         }
 

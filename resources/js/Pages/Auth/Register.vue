@@ -2,15 +2,20 @@
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import InputError from '@/Components/InputError.vue';
 
+const props = defineProps({
+    tienda_slug: String,
+});
+
 const form = useForm({
     name: '',
     email: '',
     password: '',
     password_confirmation: '',
+    plan_deseado: '',
 });
 
 const submit = () => {
-    form.post(route('register'), {
+    form.post(route('register', { tienda: props.tienda_slug }), {
         onFinish: () => form.reset('password', 'password_confirmation'),
     });
 };
@@ -36,9 +41,11 @@ const submit = () => {
                     >
                 </Link>
                 <h1 class="text-3xl font-black text-white uppercase tracking-tighter italic">
-                    Unite a Vend<span class="text-[#00adef]">AR</span>
+                    {{ props.tienda_slug ? 'Crear Cuenta' : 'Solicitá tu Cuenta' }} <span class="text-[#00adef]">Vend<span class="text-[#f7941e]">AR</span></span>
                 </h1>
-                <p class="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Gestioná tu comercio como un profesional</p>
+                <p class="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">
+                    {{ props.tienda_slug ? 'Para comprar en esta tienda' : 'Gestioná tu comercio como un profesional' }}
+                </p>
             </div>
 
             <form @submit.prevent="submit" class="space-y-5">
@@ -95,13 +102,29 @@ const submit = () => {
                     <InputError class="mt-2" :message="form.errors.password_confirmation" />
                 </div>
 
+                <div v-if="!props.tienda_slug">
+                    <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-2 ml-1">Plan Deseado</label>
+                    <select
+                        id="plan_deseado"
+                        v-model="form.plan_deseado"
+                        class="w-full bg-[#111c30] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00adef]/50 focus:ring-1 focus:ring-[#00adef]/20 transition-all shadow-inner appearance-none"
+                        required
+                    >
+                        <option value="" disabled selected>Elegí tu plan...</option>
+                        <option value="Plan Básico">Plan Básico</option>
+                        <option value="Plan Estándar">Plan Estándar</option>
+                        <option value="Plan Premium">Plan Premium</option>
+                    </select>
+                    <InputError class="mt-2" :message="form.errors.plan_deseado" />
+                </div>
+
                 <div class="pt-2">
                     <button
                         type="submit"
                         :disabled="form.processing"
                         class="w-full bg-[#00adef] hover:bg-[#00adef]/90 text-white font-black py-4 rounded-xl text-xs uppercase tracking-[0.2em] shadow-2xl shadow-[#00adef]/20 active:scale-95 transition-all disabled:opacity-50"
                     >
-                        Empezar Ahora
+                        {{ props.tienda_slug ? 'Crear Cuenta' : 'Solicitar Acceso' }}
                     </button>
                 </div>
 

@@ -16,13 +16,55 @@ class PedidoWebController extends Controller
         // 1. VALIDACIÓN RIGUROSA (Evita errores de Base de Datos como el de Postgres)
         $request->validate([
             'comercio_id' => 'required|exists:comercios,id',
+            'sucursal_id' => 'required|exists:sucursales,id',
             'items' => 'required|array|min:1',
-            'telefono_contacto' => 'required|string|min:6',
+            'telefono_contacto' => 'required_if:tipo_entrega,delivery|nullable|string|min:6',
             'metodo_pago' => 'required|in:efectivo,transferencia,mercadopago',
-            'direccion_entrega' => $request->tipo_entrega === 'delivery' ? 'required|string' : 'nullable',
+            'direccion_entrega' => 'required_if:tipo_entrega,delivery|nullable|string',
             'total_productos' => 'required|numeric',
             'total_final' => 'required|numeric',
         ]);
+
+        // 2. VALIDACIÓN DE STOCK (Evita compras con stock insuficiente o manipulación del frontend)
+        $sucursalId = $request->sucursal_id;
+        foreach ($request->items as $item) {
+            $producto = DB::table('producto_sucursal')
+                ->where('sucursal_id', $sucursalId)
+                ->where('producto_id', $item['id'])
+                ->first();
+
+            if (!$producto) {
+                return response()->json([
+                    'error' => 'Producto no disponible en esta sucursal',
+                    'mensaje' => "El producto con ID {$item['id']} no existe en la sucursal seleccionada."
+                ], 422);
+            }
+
+            $stockDisponible = $producto->cantidad_fisica - $producto->cantidad_reservada;
+            $cantidadSolicitada = (int) $item['cantidad'];
+
+            if ($stockDisponible <= 0) {
+                return response()->json([
+                    'error' => 'Sin Stock',
+                    'mensaje' => "El producto ya no está disponible."
+                ], 422);
+            }
+
+            if ($cantidadSolicitada > $stockDisponible) {
+                return response()->json([
+                    'error' => 'Stock Insuficiente',
+                    'mensaje' => "Solo quedan {$stockDisponible} unidades disponibles."
+                ], 422);
+            }
+        }
+
+        // Reservamos el stock para que otro pedido no lo tome mientras se procesa este
+        foreach ($request->items as $item) {
+            DB::table('producto_sucursal')
+                ->where('sucursal_id', $sucursalId)
+                ->where('producto_id', $item['id'])
+                ->increment('cantidad_reservada', (int) $item['cantidad']);
+        }
 
         // Iniciamos una transacción: si algo falla en el medio (ej: falla MP), no se guarda el pedido en la BD
         DB::beginTransaction();
@@ -33,6 +75,7 @@ class PedidoWebController extends Controller
             // 2. GUARDAR EL PEDIDO (PADRE)
             $pedido = PedidoWeb::create([
                 'comercio_id'      => $comercio->id,
+                'sucursal_id'      => $request->sucursal_id,
                 'cliente_nombre'   => $request->user() ? $request->user()->name : 'Cliente Invitado',
                 'cliente_telefono' => $request->telefono_contacto,
                 'cliente_direccion' => $request->tipo_entrega === 'delivery' 
@@ -123,6 +166,13 @@ class PedidoWebController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack(); // Si algo falló, borramos el intento de pedido de la BD
+            // Liberamos el stock reservado si el pedido no se concretó
+            foreach ($request->items as $item) {
+                DB::table('producto_sucursal')
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('producto_id', $item['id'])
+                    ->decrement('cantidad_reservada', (int) $item['cantidad']);
+            }
             return response()->json([
                 'error' => 'Error al procesar el pedido',
                 'mensaje' => $e->getMessage()

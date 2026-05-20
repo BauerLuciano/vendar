@@ -33,8 +33,22 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        $user = $request->user();
+
+        if ($user->is_active === false && !$user->hasRole('cliente')) {
+            return redirect()->route('pending.approval');
+        }
+
         // 🔥 MAGIA: Redirección inteligente por roles
-        if ($request->user()->hasRole('Administrador Global')) {
+        if ($user->hasRole('cliente')) {
+            $ultimaTienda = $request->session()->get('ultima_tienda_slug');
+            if ($ultimaTienda) {
+                return redirect()->intended(route('tienda.publica', ['slug' => $ultimaTienda]));
+            }
+            return redirect()->intended(route('cliente.inicio'));
+        }
+
+        if ($user->hasRole('Administrador Global')) {
             return redirect()->intended(route('admin.comercios.index'));
         }
 

@@ -14,8 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
-            // 🔥 EL PATOVICA DE PAGOS: Revisa en cada clic si la cuenta está activa o vencida
-            \App\Http\Middleware\VerificarEstadoCuenta::class, 
+            \App\Http\Middleware\VerificarEstadoCuenta::class,
+            \App\Http\Middleware\VerificarActivacionCuenta::class,
         ]);
 
         $middleware->alias([
@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class, 
             'modulo' => \App\Http\Middleware\VerificarModulo::class,
+            'redirect.cliente' => \App\Http\Middleware\RedirectIfCliente::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

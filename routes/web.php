@@ -46,6 +46,11 @@ Route::get('/cuenta-suspendida', function () {
     return Inertia::render('Suspendido');
 })->name('cuenta.suspendida');
 
+// PANTALLA DE ESPERA PARA NUEVOS REGISTROS (ONBOARDING)
+Route::get('/pending-approval', function () {
+    return Inertia::render('PendingApproval');
+})->name('pending.approval');
+
 Route::get('/api/catalogo/{sucursal_id}', function ($sucursal_id) {
     $sucursal = Sucursal::find($sucursal_id);
     if (!$sucursal) return response()->json([]);
@@ -55,7 +60,12 @@ Route::get('/api/catalogo/{sucursal_id}', function ($sucursal_id) {
         ->where('productos.estado', true)
         ->get();
 
-    return response()->json($productos->map(function ($prod) {
+    return response()->json($productos->map(function ($prod) use ($sucursal_id) {
+        $pivot = $prod->sucursales()->where('sucursal_id', $sucursal_id)->first()?->pivot;
+        $cantidad_fisica = $pivot?->cantidad_fisica ?? 0;
+        $cantidad_reservada = $pivot?->cantidad_reservada ?? 0;
+        $stock_disponible = max(0, $cantidad_fisica - $cantidad_reservada);
+
         return [
             'id'           => $prod->id,
             'nombre'       => $prod->nombre,
@@ -65,15 +75,18 @@ Route::get('/api/catalogo/{sucursal_id}', function ($sucursal_id) {
                 : null,
             'precio'       => $prod->precio_venta,
             'imagen_url'   => $prod->url_imagen,
+            'stock'        => $stock_disponible,
         ];
-    }));
+    })->values()->all());
 });
 
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->middleware('redirect.cliente')
+        ->name('dashboard');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -260,6 +273,9 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 Route::get('/tienda/{slug}', function ($slug) {
     $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
 
+    // Guardamos la última tienda visitada en sesión para redirección post-login
+    session(['ultima_tienda_slug' => $slug]);
+
     $sucursales = \App\Models\Sucursal::where('comercio_id', $comercio->id)
         ->where('estado', true)
         ->select('id', 'nombre', 'latitud', 'longitud', 'direccion', 'costo_delivery')
@@ -284,9 +300,20 @@ Route::get('/tienda/{slug}', function ($slug) {
         'categorias'        => $categorias,
         'canLogin'          => Route::has('login'),
         'canRegister'       => Route::has('register'),
+        'tienda_slug'       => $slug,
     ]);
 })->name('tienda.publica');
 
+
+// ==========================================
+// RUTA DE INICIO PARA CLIENTES (evita bucle de redirección)
+// ==========================================
+Route::get('/cliente/inicio', function () {
+    return Inertia::render('Cliente/Inicio', [
+        'canLogin' => Route::has('login'),
+        'canRegister' => Route::has('register'),
+    ]);
+})->name('cliente.inicio');
 
 // ==========================================
 // 🔥 TIP IMPORTANTE:
