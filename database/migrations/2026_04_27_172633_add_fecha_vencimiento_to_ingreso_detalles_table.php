@@ -14,6 +14,7 @@ return new class extends Migration
         });
     }
 
+
     public function down(): void
     {
         Schema::table('ingreso_detalles', function (Blueprint $table) {
