@@ -12,7 +12,7 @@ const props = defineProps({
 const page = usePage();
 const isSuperAdmin = computed(() => {
     const user = page.props.auth.user;
-    return user && (user.role === 'Superadmin' || user.role === 'superadmin' || user.id === 1);
+    return user?.roles?.includes('SuperAdmin') || user?.roles?.includes('Administrador Global');
 });
 
 // ─── Lógica de Máquina de Estados (Bloqueos) ──────────────────────────────────

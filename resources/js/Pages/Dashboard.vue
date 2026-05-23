@@ -9,6 +9,7 @@ const props = defineProps({
     ventasHoy: { type: Number, default: 0 },
     cajasActivas: { type: Number, default: 0 },
     productosBajoStock: { type: Array, default: () => [] },
+    pedidosWebPendientes: { type: Number, default: 0 },
     esJefe: { type: Boolean, default: false },
     sucursalUsuario: { type: String, default: 'Sin Asignar' }
 });
@@ -156,7 +157,7 @@ const generarOCS = () => {
                             <h2 class="text-xs font-black text-slate-500 uppercase tracking-widest">Pedidos Web</h2>
                         </div>
                         <div>
-                            <p class="text-3xl font-black text-slate-800 tracking-tighter">0</p>
+                            <p class="text-3xl font-black text-slate-800 tracking-tighter">{{ props.pedidosWebPendientes }}</p>
                             <p class="text-xs text-slate-400 font-bold mt-2">Pendientes de preparación</p>
                         </div>
                     </div>

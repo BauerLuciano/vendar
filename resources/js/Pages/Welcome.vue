@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue'; 
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'; 
 import { Head, Link, usePage, router, useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import Swal from 'sweetalert2';
@@ -10,6 +10,7 @@ const props = defineProps({
     categorias: Array,
     tienda_slug: String,
     consumidorLogueado: Object,
+    geoapifyKey: String,
 });
 
 const page = usePage();
@@ -33,6 +34,14 @@ const productos = ref([]);
 const cargando = ref(false);
 const localizando = ref(false);
 const distanciaClienteKm = ref(0);
+const ultimasCoordenadasDelivery = ref(null);
+
+// ── AUTOCOMPLETADO DE DIRECCIÓN ───────────────────────────────────────────────
+const sugerenciasDireccion = ref([]);
+const mostrandoSugerencias = ref(false);
+const buscandoDireccion = ref(false);
+let timeoutBusqueda = null;
+// ──
 
 const carrito = ref([]);
 const mostrarCarrito = ref(false);
@@ -41,7 +50,7 @@ const formPedido = useForm({
     tipo_entrega: 'local', 
     direccion_entrega: '',
     piso_depto: '',
-    cliente_nombre: props.consumidorLogueado?.nombre || page.props.auth.user?.name || '',
+    cliente_nombre: props.consumidorLogueado ? `${props.consumidorLogueado.nombre} ${props.consumidorLogueado.apellido}`.trim() : page.props.auth.user?.name || '',
     cliente_email: props.consumidorLogueado?.email || page.props.auth.user?.email || '',
     telefono_contacto: props.consumidorLogueado?.telefono || page.props.auth.user?.telefono || '',
     metodo_pago: '',
@@ -106,18 +115,28 @@ const validarCantidadInput = (index, event) => {
 
 const cargarCarritoMemoria = () => {
     if (!props.comercio) return;
-    const guardado = localStorage.getItem(`vendar_cart_${props.comercio.id}`);
+    const id = props.comercio.id;
+    const guardado = localStorage.getItem(`vendar_cart_${id}`);
     if (guardado) {
         try { 
             const items = JSON.parse(guardado);
             carrito.value = items.map(item => ({ ...item, precio: parsearPrecio(item.precio) }));
         } catch(e) {}
     }
+    const sucGuardada = localStorage.getItem(`vendar_suc_${id}`);
+    if (sucGuardada && props.sucursalesBackend?.some(s => s.id == sucGuardada)) {
+        sucursalElegida.value = sucGuardada;
+        cargarProductos();
+    }
 };
 
 const guardarCarritoMemoria = () => {
     if (!props.comercio) return;
-    localStorage.setItem(`vendar_cart_${props.comercio.id}`, JSON.stringify(carrito.value));
+    const id = props.comercio.id;
+    localStorage.setItem(`vendar_cart_${id}`, JSON.stringify(carrito.value));
+    if (sucursalElegida.value) {
+        localStorage.setItem(`vendar_suc_${id}`, sucursalElegida.value);
+    }
 };
 
 const totalItems       = computed(() => carrito.value.reduce((acc, i) => acc + i.cantidad, 0));
@@ -235,6 +254,7 @@ const confirmarPedido = async () => {
             }).then(() => {
                 carrito.value = [];
                 guardarCarritoMemoria();
+                if (props.comercio) localStorage.removeItem(`vendar_suc_${props.comercio.id}`);
                 mostrarCarrito.value = false;
                 formPedido.reset();
             });
@@ -250,6 +270,7 @@ const confirmarPedido = async () => {
 // ── MAPA & GPS ─────────────────────────────────────────────────────────────────
 let map = null;
 let markersLayer = null;
+let pinEntrega = null;
 
 const initMap = () => {
     const contenedor = document.getElementById('map-container');
@@ -267,7 +288,7 @@ const dibujarPines = () => {
         const lat = Number(suc.latitud);
         const lng = Number(suc.longitud);
         if (lat !== 0 && lng !== 0) {
-            L.circleMarker([lat, lng], { radius: 11, fillColor: '#00adef', color: '#ffffff', weight: 3, opacity: 1, fillOpacity: 1 })
+            L.marker([lat, lng], { icon: crearIconoSucursal() })
                 .addTo(markersLayer)
                 .bindPopup(`<div style="padding:4px"><b>${suc.nombre}</b><br><small>${suc.direccion || ''}</small></div>`)
                 .on('click', () => { sucursalElegida.value = suc.id; cargarProductos(); map.setView([lat, lng], 15); });
@@ -277,48 +298,186 @@ const dibujarPines = () => {
 
 watch(() => props.sucursalesBackend, () => dibujarPines(), { deep: true });
 
+watch(() => formPedido.tipo_entrega, (nuevo) => {
+    if (nuevo !== 'delivery') {
+        quitarPinEntrega();
+    } else if (ultimasCoordenadasDelivery.value) {
+        agregarPinEntrega(ultimasCoordenadasDelivery.value.lat, ultimasCoordenadasDelivery.value.lng);
+    }
+});
+
 const calcularDistanciaFisica = (lat1, lon1, lat2, lon2) => {
     const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
     const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 };
 
+// ── DISTANCIA CLIENTE-SUCURSAL ────────────────────────────────────────────────
+const actualizarDistanciaSucursal = (latCliente, lngCliente) => {
+    if (!props.sucursalesBackend?.length) return;
+    if (sucursalElegida.value) {
+        const suc = props.sucursalesBackend.find(s => s.id == sucursalElegida.value);
+        if (suc && Number(suc.latitud) && Number(suc.longitud)) {
+            distanciaClienteKm.value = calcularDistanciaFisica(latCliente, lngCliente, Number(suc.latitud), Number(suc.longitud));
+            return;
+        }
+    }
+    let masCercana = null, distanciaMinima = Infinity;
+    props.sucursalesBackend.forEach(suc => {
+        const sLat = Number(suc.latitud), sLng = Number(suc.longitud);
+        if (sLat !== 0 && sLng !== 0) {
+            const d = calcularDistanciaFisica(latCliente, lngCliente, sLat, sLng);
+            if (d < distanciaMinima) { distanciaMinima = d; masCercana = suc; }
+        }
+    });
+    if (masCercana) {
+        sucursalElegida.value = masCercana.id;
+        distanciaClienteKm.value = distanciaMinima;
+        cargarProductos();
+    }
+};
+// ── ───────────────────────────────────────────────────────────
+const crearIconoSucursal = () => L.divIcon({
+    className: 'marcador-sucursal',
+    html: `<div style="
+        width:36px;height:36px;
+        background:#00adef;
+        border:3px solid #fff;
+        border-radius:8px;
+        display:flex;align-items:center;justify-content:center;
+        box-shadow:0 2px 8px rgba(0,0,0,.5);
+        cursor:pointer;
+    "><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M1 9h22l-3-4H4L1 9z"/><rect x="9" y="14" width="6" height="7" rx=".5"/></svg></div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    popupAnchor: [0, -18]
+});
+
+const crearPinEntrega = () => L.divIcon({
+    className: 'pin-entrega',
+    html: `<div style="position:relative;width:24px;height:36px;">
+        <svg width="24" height="36" viewBox="0 0 24 36">
+            <path d="M12 1C5.9 1 1 5.9 1 12c0 7.5 11 23 11 23s11-15.5 11-23C23 5.9 18.1 1 12 1z" fill="#f7941e" stroke="#fff" stroke-width="2"/>
+            <circle cx="12" cy="11" r="4" fill="#fff"/>
+        </svg>
+    </div>`,
+    iconSize: [24, 36],
+    iconAnchor: [12, 36],
+    popupAnchor: [0, -36]
+});
+
+const agregarPinEntrega = (lat, lng) => {
+    if (pinEntrega) map.removeLayer(pinEntrega);
+    pinEntrega = L.marker([lat, lng], { icon: crearPinEntrega(), draggable: true }).addTo(map);
+    pinEntrega.on('dragend', async function () {
+        const pos = this.getLatLng();
+        localizando.value = true;
+        try {
+            const url = `https://api.geoapify.com/v1/geocode/reverse?lat=${pos.lat}&lon=${pos.lng}&apiKey=${props.geoapifyKey}`;
+            const resp = await axios.get(url, { headers: { 'X-Requested-With': null } });
+            if (resp.data?.features?.[0]) {
+                formPedido.direccion_entrega = resp.data.features[0].properties.formatted;
+            }
+            ultimasCoordenadasDelivery.value = { lat: pos.lat, lng: pos.lng };
+            actualizarDistanciaSucursal(pos.lat, pos.lng);
+        } catch (e) {
+            console.error('Error al obtener dirección al arrastrar:', e);
+        } finally {
+            localizando.value = false;
+        }
+    });
+};
+
+const quitarPinEntrega = () => {
+    if (pinEntrega) { map.removeLayer(pinEntrega); pinEntrega = null; }
+};
+// ──
+
 const usarGps = () => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+        Swal.fire({ icon: 'error', title: 'GPS no disponible', text: 'Tu navegador no soporta geolocalización.', background: '#0f1929', color: '#fff' });
+        return;
+    }
+    if (!map) initMap();
     localizando.value = true;
     navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
-        map.setView([latitude, longitude], 14);
+        if (map) map.setView([latitude, longitude], 14);
         
         try {
-            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
-            const response = await axios.get(url);
-            if (response.data && response.data.address) {
-                const calle = response.data.address.road || '';
-                const numero = response.data.address.house_number || '';
-                formPedido.direccion_entrega = `${calle} ${numero}`.trim();
+            const url = `https://api.geoapify.com/v1/geocode/reverse?lat=${latitude}&lon=${longitude}&apiKey=${props.geoapifyKey}`;
+            const response = await axios.get(url, { headers: { 'X-Requested-With': null } });
+            if (response.data?.features?.[0]) {
+                formPedido.direccion_entrega = response.data.features[0].properties.formatted;
             }
         } catch (error) {
             console.error("No se pudo obtener el nombre de la calle", error);
         }
         
-        let masCercana = null, distanciaMinima = Infinity;
-        props.sucursalesBackend?.forEach(suc => {
-            const sLat = Number(suc.latitud), sLng = Number(suc.longitud);
-            if (sLat !== 0 && sLng !== 0) {
-                const d = calcularDistanciaFisica(latitude, longitude, sLat, sLng);
-                if (d < distanciaMinima) { distanciaMinima = d; masCercana = suc; }
-            }
-        });
-        
-        if (masCercana) { 
-            sucursalElegida.value = masCercana.id; 
-            distanciaClienteKm.value = distanciaMinima;
-            cargarProductos(); 
-        }
+        ultimasCoordenadasDelivery.value = { lat: latitude, lng: longitude };
+        if (formPedido.tipo_entrega === 'delivery') agregarPinEntrega(latitude, longitude);
+        actualizarDistanciaSucursal(latitude, longitude);
         localizando.value = false;
-    }, () => { localizando.value = false; });
+    }, (error) => {
+        localizando.value = false;
+        if (error.code === 1) {
+            Swal.fire({ icon: 'warning', title: 'Permiso denegado', text: 'Activá la ubicación en tu navegador para usar esta función.', background: '#0f1929', color: '#fff' });
+        } else {
+            Swal.fire({ icon: 'error', title: 'Error de ubicación', text: 'No pudimos obtener tu ubicación. Probá escribir la dirección manualmente.', background: '#0f1929', color: '#fff' });
+        }
+    });
 };
+
+// ── AUTOCOMPLETADO DE DIRECCIÓN ───────────────────────────────────────────────
+const buscarDireccion = (query) => {
+    if (timeoutBusqueda) clearTimeout(timeoutBusqueda);
+    if (query.length < 3) {
+        sugerenciasDireccion.value = [];
+        mostrandoSugerencias.value = false;
+        return;
+    }
+    timeoutBusqueda = setTimeout(async () => {
+        buscandoDireccion.value = true;
+        try {
+            const response = await axios.get('https://api.geoapify.com/v1/geocode/autocomplete', {
+                params: { text: query, filter: 'countrycode:ar', limit: 5, apiKey: props.geoapifyKey },
+                headers: { 'X-Requested-With': null }
+            });
+            sugerenciasDireccion.value = response.data?.features || [];
+            mostrandoSugerencias.value = true;
+        } catch (error) {
+            console.error('Error buscando dirección:', error);
+            sugerenciasDireccion.value = [];
+        } finally {
+            buscandoDireccion.value = false;
+        }
+    }, 350);
+};
+
+const seleccionarDireccion = (sugerencia) => {
+    const p = sugerencia.properties || sugerencia;
+    formPedido.direccion_entrega = p.formatted || p.display_name;
+    mostrandoSugerencias.value = false;
+    if (p.lat && p.lon) {
+        const lat = parseFloat(p.lat);
+        const lng = parseFloat(p.lon);
+        ultimasCoordenadasDelivery.value = { lat, lng };
+        if (map) {
+            map.setView([lat, lng], 15);
+            if (formPedido.tipo_entrega === 'delivery') agregarPinEntrega(lat, lng);
+        }
+        actualizarDistanciaSucursal(lat, lng);
+    }
+};
+
+const ocultarSugerencias = () => {
+    setTimeout(() => { mostrandoSugerencias.value = false; }, 200);
+};
+
+onUnmounted(() => {
+    if (timeoutBusqueda) clearTimeout(timeoutBusqueda);
+});
+// ──
 
 const cargarProductos = async () => {
     if (!sucursalElegida.value) return;
@@ -611,9 +770,19 @@ onMounted(() => {
                                         <span v-else>📍</span> 
                                         Fijar mi ubicación GPS
                                     </button>
-                                    <span v-if="distanciaClienteKm > 0" class="text-[10px] text-slate-400 font-bold bg-white/5 px-2 py-0.5 rounded-full">A {{ distanciaClienteKm.toFixed(1) }} km</span>
+                                    <span v-if="distanciaClienteKm > 0" class="text-[10px] text-slate-400 font-bold bg-white/5 px-2 py-0.5 rounded-full">A {{ distanciaClienteKm < 1 ? Math.round(distanciaClienteKm * 1000) + ' m' : distanciaClienteKm.toFixed(1) + ' km' }}</span>
                                 </div>
-                                <input v-model="formPedido.direccion_entrega" type="text" placeholder="Calle y número..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
+                                    <div class="relative">
+                                        <input v-model="formPedido.direccion_entrega" @input="buscarDireccion(formPedido.direccion_entrega)" @focus="mostrandoSugerencias = sugerenciasDireccion.length > 0" @blur="ocultarSugerencias" type="text" placeholder="Calle y número..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
+                                        <div v-if="mostrandoSugerencias && sugerenciasDireccion.length > 0" class="absolute z-50 left-0 right-0 mt-1 bg-[#0f1929] border border-white/10 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+                                            <div v-for="sug in sugerenciasDireccion" :key="sug.properties?.place_id || sug.properties?.lat" @mousedown="seleccionarDireccion(sug)" class="px-3 py-2 text-xs text-slate-300 hover:bg-[#f7941e]/15 hover:text-white cursor-pointer border-b border-white/5 last:border-b-0 transition-all truncate">
+                                                {{ sug.properties?.formatted || sug.properties?.display_name || sug.display_name }}
+                                            </div>
+                                        </div>
+                                        <div v-if="buscandoDireccion" class="absolute right-3 top-1/2 -translate-y-1/2">
+                                            <span class="text-[10px] text-slate-500 animate-spin">⟳</span>
+                                        </div>
+                                    </div>
                                 
                                 <input v-model="formPedido.piso_depto" type="text" placeholder="Casa, Depto, Piso (Opcional)..." class="w-full bg-[#080f1e] border border-white/8 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#f7941e]/50 transition-all">
                                 
@@ -697,6 +866,12 @@ input[type=number] { -moz-appearance: textfield; }
     box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 .leaflet-popup-tip { background: #0f1929 !important; }
+
+/* Marcadores personalizados Leaflet */
+.marcador-sucursal, .pin-entrega {
+    background: none !important;
+    border: none !important;
+}
 
 /* Transitions */
 .backdrop-enter-active, .backdrop-leave-active { transition: opacity 0.25s ease; }

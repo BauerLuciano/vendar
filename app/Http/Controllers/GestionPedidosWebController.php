@@ -11,13 +11,25 @@ class GestionPedidosWebController extends Controller
     // Mostrar el panel con todos los pedidos
     public function index()
     {
-        // Buscamos los pedidos con sus ítems y los ordenamos por fecha (los más nuevos primero)
-        $pedidos = PedidoWeb::with(['items.producto'])
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $user = auth()->user();
+        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
+        $sucursalIds = $user->branch?->comercio_id
+            ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+            : collect();
+
+        $query = PedidoWeb::with(['items.producto', 'sucursal']);
+
+        if (!$esJefe && $user->branch_id) {
+            $query->where('sucursal_id', $user->branch_id);
+        } elseif ($sucursalIds->isNotEmpty()) {
+            $query->whereIn('sucursal_id', $sucursalIds);
+        }
+
+        $pedidos = $query->orderBy('created_at', 'desc')->get();
 
         return Inertia::render('Pedidos/Index', [
-            'pedidos' => $pedidos
+            'pedidos' => $pedidos,
+            'sucursal' => $user->branch,
         ]);
     }
 

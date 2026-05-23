@@ -45,7 +45,12 @@ class UsuarioController extends Controller
         
         // 🔥 Tampoco mostramos el rol de Administrador Global en el selector
         $roles = Role::whereNotIn('name', ['cliente', 'Administrador Global'])->get();
-        $sucursales = Sucursal::all();
+
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $sucursales = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->get()
+            : Sucursal::all();
 
         return Inertia::render('Usuarios/Index', [
             'usuarios' => $usuarios,

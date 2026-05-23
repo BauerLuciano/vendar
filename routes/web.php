@@ -366,6 +366,7 @@ Route::get('/tienda/{slug}', function ($slug) {
             'email'    => $consumidor->email,
             'telefono' => $consumidor->telefono,
         ] : null,
+        'geoapifyKey'          => config('services.geoapify.key'),
     ]);
 })->name('tienda.publica');
 
