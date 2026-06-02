@@ -15,8 +15,11 @@ class Comercio extends Model
         'nombre',
         'slug',
         'plan',
+        'plan_id',
+        'pending_plan_id',
         'status',
         'limite_sucursales',
+        'limite_usuarios',
         'vencimiento_pago',
         'modulos_habilitados',
         'envio_precio_base', 
@@ -45,4 +48,13 @@ class Comercio extends Model
         return $this->hasMany(PedidoWeb::class);
     }
 
+    public function plan()
+    {
+        return $this->belongsTo(Plan::class, 'plan_id');
+    }
+
+    public function pendingPlan()
+    {
+        return $this->belongsTo(Plan::class, 'pending_plan_id');
+    }
 }

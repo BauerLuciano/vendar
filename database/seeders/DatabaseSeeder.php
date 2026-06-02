@@ -40,7 +40,12 @@ class DatabaseSeeder extends Seeder
         $testUser->assignRole('Cajero'); 
 
 
-        // 4. Corremos el resto de tus Seeders
+        // 4. Planes SaaS
+        $this->call([
+            PlanSeeder::class,
+        ]);
+
+        // 5. Corremos el resto de tus Seeders
         $this->call([
             FixDatosMaestrosSeeder::class, // 1ro: Crea la Sucursal y el Consumidor Final
             CajaSeeder::class,             // 2do: Crea las Cajas (ahora sí encuentra la sucursal)

@@ -4,7 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Comercio;
 use App\Models\Sucursal; 
-use App\Models\User;    
+use App\Models\User;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
@@ -15,7 +16,8 @@ class GlobalAdminController extends Controller
     public function index()
     {
         return Inertia::render('AdminGlobal/Comercios/Index', [
-            'comercios' => Comercio::all(),
+            'comercios' => Comercio::with('plan')->get(),
+            'planes' => Plan::orderBy('orden')->orderBy('precio_mensual')->get(['id', 'nombre', 'slug']),
             'modulosDisponibles' => [
                 ['id' => 'pos', 'nombre' => 'Punto de Venta Base'],
                 ['id' => 'lotes', 'nombre' => 'Gestión de Stock Avanzada (Lotes)'],
@@ -31,15 +33,17 @@ class GlobalAdminController extends Controller
     {
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
-            'plan' => 'required|in:basico,pro,premium',
+            'plan_id' => 'required|exists:planes,id',
             'status' => 'required|in:activo,suspendido,trial',
             'limite_sucursales' => 'required|integer|min:1',
+            'limite_usuarios' => 'nullable|integer|min:0',
             'vencimiento_pago' => 'nullable|date',
             'modulos_habilitados' => 'nullable|array',
         ]);
 
         if (empty($validated['modulos_habilitados'])) {
-            $validated['modulos_habilitados'] = ['pos' => true];
+            $plan = Plan::find($validated['plan_id']);
+            $validated['modulos_habilitados'] = $plan ? $plan->modulos : ['pos' => true];
         }
         
         $validated['slug'] = Str::slug($request->nombre);
@@ -52,7 +56,7 @@ class GlobalAdminController extends Controller
             'direccion'   => 'Dirección a definir',
             'latitud'     => -27.367, 
             'longitud'    => -55.896,
-            'estado'      => true, // Activa por defecto
+            'estado'      => true,
         ]);
 
         return redirect()->back()->with('exito', 'Comercio y sucursal base registrados con éxito.');
@@ -63,9 +67,10 @@ class GlobalAdminController extends Controller
     {
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
-            'plan' => 'required|in:basico,pro,premium',
+            'plan_id' => 'required|exists:planes,id',
             'status' => 'required|in:activo,suspendido,trial',
             'limite_sucursales' => 'required|integer|min:1',
+            'limite_usuarios' => 'nullable|integer|min:0',
             'vencimiento_pago' => 'nullable|date',
             'modulos_habilitados' => 'required|array',
         ]);
@@ -86,17 +91,10 @@ class GlobalAdminController extends Controller
         $totalComercios = Comercio::count();
         $comerciosActivos = Comercio::where('status', 'activo')->count();
 
-        // 2. Cálculo dinámico de MRR (Ingreso Recurrente Mensual Estimado)
-        // Basado en los planes activos y los precios definidos en tu modelo de negocio
-        $comerciosPorPlan = Comercio::where('status', 'activo')
-            ->selectRaw('plan, count(*) as total')
-            ->groupBy('plan')
-            ->pluck('total', 'plan');
-
-        // Estimación: Básico ($8.000), Pro ($15.000), Premium ($35.000)
-        $mrr = (($comerciosPorPlan['basico'] ?? 0) * 8000) +
-               (($comerciosPorPlan['pro'] ?? 0) * 15000) +
-               (($comerciosPorPlan['premium'] ?? 0) * 35000);
+        // 2. Cálculo dinámico de MRR desde planes en DB
+        $mrr = Comercio::where('status', 'activo')
+            ->join('planes', 'comercios.plan_id', '=', 'planes.id')
+            ->sum('planes.precio_mensual');
 
         // 3. Total de sucursales operando en la nube
         $totalSucursales = Sucursal::count();
@@ -134,14 +132,12 @@ class GlobalAdminController extends Controller
     {
         $hoy = now();
 
-        // Traemos los comercios con datos clave para la facturación
-        $comercios = Comercio::select('id', 'nombre', 'plan', 'status', 'vencimiento_pago')
+        $comercios = Comercio::select('id', 'nombre', 'plan', 'plan_id', 'status', 'vencimiento_pago')
+            ->with('plan:id,precio_mensual,nombre as plan_nombre,slug')
             ->orderBy('vencimiento_pago', 'asc')
             ->get()
             ->map(function ($c) use ($hoy) {
-                // Precios de referencia según tu plan
-                $precios = ['basico' => 8000, 'pro' => 15000, 'premium' => 35000];
-                $monto = $precios[strtolower($c->plan)] ?? 0;
+                $monto = $c->plan?->precio_mensual ?? 0;
 
                 // Determinamos el estado financiero real
                 $estadoFinanciero = 'Al Día';
@@ -154,7 +150,8 @@ class GlobalAdminController extends Controller
                 return [
                     'id'               => $c->id,
                     'nombre'           => $c->nombre,
-                    'plan'             => strtoupper($c->plan),
+                    'plan'             => $c->plan?->nombre ?? strtoupper($c->plan),
+                    'slug'             => $c->plan?->slug ?? $c->plan,
                     'monto'            => $monto,
                     'vencimiento'      => $c->vencimiento_pago ? \Carbon\Carbon::parse($c->vencimiento_pago)->format('d/m/Y') : 'Sin fecha',
                     'estado_cobro'     => $estadoFinanciero,
@@ -216,22 +213,25 @@ class GlobalAdminController extends Controller
             $user->update(['is_active' => true]);
             $user->syncRoles(['SuperAdmin']);
 
-            // 2. Mapear plan deseado al formato del sistema
-            $planMap = [
+            // 2. Buscar plan en DB
+            $planSlug = match ($user->plan_deseado) {
                 'Plan Básico' => 'basico',
                 'Plan Estándar' => 'pro',
                 'Plan Premium' => 'premium',
-            ];
-            $plan = $planMap[$user->plan_deseado] ?? 'basico';
+                default => 'basico',
+            };
+            $plan = Plan::where('slug', $planSlug)->first();
 
             // 3. Crear Comercio
             $comercio = Comercio::create([
                 'nombre' => $validated['nombre_comercio'],
                 'slug' => Str::slug($validated['nombre_comercio']),
-                'plan' => $plan,
+                'plan' => $plan?->slug ?? 'basico',
+                'plan_id' => $plan?->id,
                 'status' => 'trial',
-                'limite_sucursales' => 1,
-                'modulos_habilitados' => ['pos' => true],
+                'limite_sucursales' => $plan?->sucursales_limit ?? 1,
+                'limite_usuarios' => $plan?->usuarios_limit ?? 1,
+                'modulos_habilitados' => $plan?->modulos ?? ['pos' => true],
             ]);
 
             // 4. Crear Sucursal base

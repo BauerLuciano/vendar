@@ -229,6 +229,9 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::get('/mi-plan', [SuscripcionController::class, 'miPlan'])->name('suscripcion.mi-plan');
     Route::post('/mi-plan/pagar', [SuscripcionController::class, 'generarPreferencia'])->name('suscripcion.pagar');
 
+    Route::post('/api/mi-plan/confirmar-upgrade', [SuscripcionController::class, 'confirmarUpgrade'])->name('suscripcion.confirmar-upgrade');
+    Route::get('/api/mi-plan/plan-actual', [SuscripcionController::class, 'planActual'])->name('suscripcion.plan-actual');
+
 });
 
 // ------------------------------------------------------------------
@@ -266,6 +269,12 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
     Route::get('/comercios', [GlobalAdminController::class, 'index'])->name('admin.comercios.index');
     Route::post('/comercios', [GlobalAdminController::class, 'store'])->name('admin.comercios.store');
     Route::put('/comercios/{comercio}', [GlobalAdminController::class, 'update'])->name('admin.comercios.update');
+
+    Route::get('/planes', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'index'])->name('admin.planes.index');
+    Route::post('/planes', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'store'])->name('admin.planes.store');
+    Route::put('/planes/{plan}', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'update'])->name('admin.planes.update');
+    Route::delete('/planes/{plan}', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'destroy'])->name('admin.planes.destroy');
+
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
     Route::get('/solicitudes', [GlobalAdminController::class, 'solicitudesPendientes'])->name('admin.solicitudes');

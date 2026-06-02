@@ -6,46 +6,69 @@ import Swal from 'sweetalert2';
 
 const props = defineProps({
     comercios: Array,
-    modulosDisponibles: Array
+    planes: Array,
+    modulosDisponibles: Array,
 });
 
 const busqueda = ref('');
 const mostrarModal = ref(false);
 const comercioSeleccionado = ref(null);
 
-// Filtrado de comercios
 const comerciosFiltrados = computed(() => {
     if (!busqueda.value) return props.comercios;
-    return props.comercios.filter(c => 
+    return props.comercios.filter(c =>
         c.nombre.toLowerCase().includes(busqueda.value.toLowerCase())
     );
 });
 
-// Formulario para Crear/Editar
 const form = useForm({
     nombre: '',
-    plan: 'basico',
+    plan_id: null,
     status: 'trial',
     limite_sucursales: 1,
+    limite_usuarios: 0,
     vencimiento_pago: '',
-    modulos_habilitados: { pos: true } // POS siempre activo por defecto
+    modulos_habilitados: { pos: true },
 });
+
+const planSeleccionado = computed(() => {
+    return props.planes.find(p => p.id === form.plan_id);
+});
+
+// Cuando cambia el plan, auto-completar límites y módulos
+const onPlanChange = () => {
+    const plan = props.planes.find(p => p.id === form.plan_id);
+    if (plan) {
+        form.limite_sucursales = plan.sucursales_limit;
+        form.limite_usuarios = plan.usuarios_limit;
+        // Pre-cargar módulos del plan
+        const mod = {};
+        props.modulosDisponibles.forEach(m => {
+            mod[m.id] = plan.modulos[m.id] ?? false;
+        });
+        form.modulos_habilitados = mod;
+    }
+};
 
 const abrirModal = (comercio = null) => {
     comercioSeleccionado.value = comercio;
     if (comercio) {
+        const planId = comercio.plan_id || (props.planes.find(p => p.slug === comercio.plan)?.id);
         form.nombre = comercio.nombre;
-        form.plan = comercio.plan;
+        form.plan_id = planId;
         form.status = comercio.status;
         form.limite_sucursales = comercio.limite_sucursales;
-        
-        form.vencimiento_pago = comercio.vencimiento_pago 
-            ? String(comercio.vencimiento_pago).substring(0, 10) 
+        form.limite_usuarios = comercio.limite_usuarios ?? 0;
+        form.vencimiento_pago = comercio.vencimiento_pago
+            ? String(comercio.vencimiento_pago).substring(0, 10)
             : '';
-            
-        form.modulos_habilitados = comercio.modulos_habilitados || { pos: true, transferencias: false };
+        form.modulos_habilitados = comercio.modulos_habilitados || { pos: true };
     } else {
         form.reset();
+        if (props.planes.length) {
+            form.plan_id = props.planes[0].id;
+            onPlanChange();
+        }
     }
     mostrarModal.value = true;
 };
@@ -68,10 +91,21 @@ const guardar = () => {
     }
 };
 
-// Formatear fecha
 const formatearFecha = (fecha) => {
     if (!fecha) return 'N/A';
     return new Date(fecha).toLocaleDateString();
+};
+
+const nombrePlan = (comercio) => {
+    if (comercio.plan?.nombre) return comercio.plan.nombre;
+    return comercio.plan?.slug ?? comercio.plan ?? 'N/A';
+};
+
+const colorPlan = (slug) => {
+    if (slug === 'basico') return 'bg-slate-50 text-slate-600 ring-slate-500/10';
+    if (slug === 'pro') return 'bg-blue-50 text-blue-700 ring-blue-700/10';
+    if (slug === 'premium') return 'bg-purple-50 text-purple-700 ring-purple-700/10';
+    return 'bg-slate-50 text-slate-600 ring-slate-500/10';
 };
 </script>
 
@@ -80,7 +114,7 @@ const formatearFecha = (fecha) => {
 
     <GlobalAdminLayout>
         <div class="py-8 px-6 max-w-7xl mx-auto">
-            
+
             <div class="sm:flex sm:items-center sm:justify-between mb-8">
                 <div>
                     <h1 class="text-2xl font-bold text-slate-900">Comercios Registrados</h1>
@@ -151,7 +185,7 @@ const formatearFecha = (fecha) => {
                         <input v-model="busqueda" type="text" class="block w-full rounded-xl border-0 py-2 pl-10 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" placeholder="Buscar comercio...">
                     </div>
                 </div>
-                
+
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-slate-200">
                         <thead class="bg-slate-50">
@@ -172,17 +206,13 @@ const formatearFecha = (fecha) => {
                                 </td>
                                 <td class="whitespace-nowrap px-3 py-4 text-sm">
                                     <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset"
-                                        :class="{
-                                            'bg-slate-50 text-slate-600 ring-slate-500/10': comercio.plan === 'basico',
-                                            'bg-blue-50 text-blue-700 ring-blue-700/10': comercio.plan === 'pro',
-                                            'bg-purple-50 text-purple-700 ring-purple-700/10': comercio.plan === 'premium',
-                                        }">
-                                        {{ comercio.plan.charAt(0).toUpperCase() + comercio.plan.slice(1) }}
+                                        :class="colorPlan(comercio.plan?.slug ?? comercio.plan)">
+                                        {{ nombrePlan(comercio) }}
                                     </span>
                                 </td>
                                 <td class="px-3 py-4 text-sm">
                                     <div class="flex flex-wrap gap-1">
-                                        <span v-for="(val, mod) in comercio.modulos_habilitados" :key="mod" 
+                                        <span v-for="(val, mod) in comercio.modulos_habilitados" :key="mod"
                                               v-show="val" class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10 uppercase">
                                             {{ mod }}
                                         </span>
@@ -204,17 +234,17 @@ const formatearFecha = (fecha) => {
                                         {{ comercio.status.charAt(0).toUpperCase() + comercio.status.slice(1) }}
                                     </span>
                                 </td>
-                                
+
                                 <td class="relative whitespace-nowrap py-4 pl-3 pr-6 text-right text-sm font-medium flex items-center justify-end gap-3">
-                                    <Link 
-                                        :href="route('impersonate.enter', comercio.id)" 
-                                        method="post" 
+                                    <Link
+                                        :href="route('impersonate.enter', comercio.id)"
+                                        method="post"
                                         as="button"
                                         class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
                                     >
                                         <span>👁️</span> Entrar
                                     </Link>
-                                    
+
                                     <button @click="abrirModal(comercio)" class="text-indigo-600 hover:text-indigo-900 font-semibold transition-colors">
                                         Configurar<span class="sr-only">, {{ comercio.nombre }}</span>
                                     </button>
@@ -253,10 +283,10 @@ const formatearFecha = (fecha) => {
                                         <div>
                                             <label class="block text-sm font-medium leading-6 text-slate-900">Plan SaaS</label>
                                             <div class="mt-1">
-                                                <select v-model="form.plan" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
-                                                    <option value="basico">Plan Básico</option>
-                                                    <option value="pro">Plan Profesional</option>
-                                                    <option value="premium">Plan Premium / Enterprise</option>
+                                                <select v-model="form.plan_id" @change="onPlanChange" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
+                                                    <option v-for="plan in planes" :key="plan.id" :value="plan.id">
+                                                        {{ plan.nombre }}
+                                                    </option>
                                                 </select>
                                             </div>
                                         </div>

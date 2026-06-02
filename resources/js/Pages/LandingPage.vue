@@ -274,9 +274,9 @@ const planes = [
                         </ul>
                     </div>
                     
-                    <button :class="['mt-12 w-full py-5 rounded-full text-white font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95', plan.bgBoton]">
+                    <Link :href="plan.nombre === 'Gran Empresa' ? '#' : route('register')" :class="['mt-12 w-full py-5 rounded-full text-white font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 inline-block text-center', plan.bgBoton]">
                         {{ plan.nombre === 'Gran Empresa' ? 'Consultar con ventas' : 'Elegir Plan' }}
-                    </button>
+                    </Link>
                 </div>
             </div>
         </section>
