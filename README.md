@@ -1,6 +1,6 @@
 # VendAR — Sistema de Gestión para Kioscos y Minimercados
 
-<img src="/img/LogoVendar-Sidebar.png" alt="VendAR" width="200">
+![VendAR](public/img/LogoVendar-Sidebar.png)
 
 **VendAR** es un sistema SaaS de gestión y punto de venta (POS) diseñado para kioscos, minimercados, almacenes y cadenas comerciales chicas y medianas. Funciona completamente en el navegador — no necesitás instalar nada, solo una PC, tablet o celular con internet.
 
