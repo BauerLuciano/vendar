@@ -5,8 +5,8 @@ import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
-    planes: Array,
-    modulosDisponibles: Array,
+    planes: { type: Array, default: () => [] },
+    modulosDisponibles: { type: Array, default: () => [] },
 });
 
 const busqueda = ref('');
@@ -153,6 +153,9 @@ const formatearDinero = (monto) => {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 bg-white">
+                            <tr v-if="!planesFiltrados.length">
+                                <td colspan="8" class="py-12 text-center text-sm text-slate-500">No hay planes registrados.</td>
+                            </tr>
                             <tr v-for="plan in planesFiltrados" :key="plan.id" class="hover:bg-slate-50 transition-colors">
                                 <td class="whitespace-nowrap py-4 pl-6 pr-3">
                                     <div class="font-medium text-slate-900">{{ plan.nombre }}</div>
@@ -295,7 +298,7 @@ const formatearDinero = (monto) => {
                             </div>
                         </div>
                         <div class="bg-slate-50 px-4 py-4 sm:flex sm:flex-row-reverse sm:px-6 border-t border-slate-100">
-                            <button type="button" @click="guardar" class="inline-flex w-full justify-center rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:ml-3 sm:w-auto transition-all">
+                            <button type="button" @click="guardar" :disabled="form.processing" class="inline-flex w-full justify-center rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:ml-3 sm:w-auto transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                 {{ planSeleccionado ? 'Guardar Cambios' : 'Crear Plan' }}
                             </button>
                             <button type="button" @click="mostrarModal = false" class="mt-3 inline-flex w-full justify-center rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 sm:mt-0 sm:w-auto transition-all">

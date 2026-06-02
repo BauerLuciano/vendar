@@ -1,10 +1,11 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import { ref } from 'vue';
 
-defineProps({
+
+const props = defineProps({
     canLogin: Boolean,
     canRegister: Boolean,
+    planes: Array,
 });
 
 const faqs = [
@@ -14,29 +15,40 @@ const faqs = [
     { q: "¿Puedo probar el sistema antes de pagar?", a: "¡Claro! Podés registrarte y configurar tu local. El pago se activa una vez que decidas empezar a operar formalmente con uno de nuestros planes." }
 ];
 
-const planes = [
-    { 
-        nombre: 'Emprendedor', 
-        precio: '$8.000', 
-        desc: 'Para quienes venden desde casa, showrooms o redes sociales.',
-        features: ['Tu catálogo online propio', 'Control de stock (100 prod.)', 'Recibí pedidos por WhatsApp', 'Gestión de ventas básica'], 
-        color: 'text-[#8cc63f]', bgBoton: 'bg-[#8cc63f]'
-    },
-    { 
-        nombre: 'Comercio Full', 
-        precio: '$15.000', 
-        desc: 'Para locales con atención al público y movimiento diario.',
-        features: ['Caja rápida (POS) pro', 'Gestión de Fiados y Cuentas', 'Alertas de Stock y Vencimiento', 'Sucursales ilimitadas', 'Múltiples vendedores'], 
-        color: 'text-[#00adef]', bgBoton: 'bg-[#00adef]', popular: true 
-    },
-    { 
-        nombre: 'Gran Empresa', 
-        precio: 'Consultar', 
-        desc: 'Para negocios con gran volumen, depósitos y varias cajas.',
-        features: ['Reportes de ganancias avanzados', 'Asistencia técnica prioritaria', 'Ventas por mayor y menor', 'Acceso a funciones Beta'], 
-        color: 'text-[#f7941e]', bgBoton: 'bg-[#f7941e]'
-    }
+const labelsModulos = {
+    pos: 'Caja rápida (POS)',
+    lotes: 'Control de stock con lotes y vencimientos',
+    fiados: 'Gestión de fiados y cuentas corrientes',
+    proveedores: 'Gestión de compras y proveedores',
+    auditoria: 'Auditoría y reportes avanzados',
+    transferencias: 'Transferencias entre sucursales',
+};
+
+const coloresPlan = [
+    { text: 'text-[#8cc63f]', bg: 'bg-[#8cc63f]' },
+    { text: 'text-[#00adef]', bg: 'bg-[#00adef]' },
+    { text: 'text-[#f7941e]', bg: 'bg-[#f7941e]' },
 ];
+
+const precioFormateado = (precio) => {
+    return '$' + Math.round(precio).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+const featuresDePlan = (plan) => {
+    const f = [];
+    if (plan.modulos) {
+        Object.entries(plan.modulos).forEach(([mod, activo]) => {
+            if (activo && labelsModulos[mod]) f.push(labelsModulos[mod]);
+        });
+    }
+    if (plan.sucursales_limit > 1) {
+        f.push(`Hasta ${plan.sucursales_limit} sucursales`);
+    }
+    if (plan.usuarios_limit > 1) {
+        f.push(`Hasta ${plan.usuarios_limit} usuarios`);
+    }
+    return f;
+};
 </script>
 
 <template>
@@ -175,77 +187,77 @@ const planes = [
             </div>
         </section>
 
-			<section id="como-funciona" class="relative z-10 max-w-7xl mx-auto px-6 py-24 border-t border-white/5">
-		<div class="text-center mb-20">
-			<h2 class="text-4xl font-black text-white uppercase italic tracking-tighter">Un sistema potente, <br> diseñado para ser simple.</h2>
-			<p class="text-slate-500 mt-4 max-w-2xl mx-auto">No necesitás ser un experto en computación. Si sabés usar WhatsApp, sabés usar VendAR.</p>
-		</div>
+    <section id="funcionalidades" class="relative z-10 max-w-7xl mx-auto px-6 py-24 border-t border-white/5">
+        <div class="text-center mb-20">
+            <h2 class="text-4xl font-black text-white uppercase italic tracking-tighter">Un sistema potente, <br> diseñado para ser simple.</h2>
+            <p class="text-slate-500 mt-4 max-w-2xl mx-auto">No necesitás ser un experto en computación. Si sabés usar WhatsApp, sabés usar VendAR.</p>
+        </div>
 
-		<div class="space-y-32">
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-				<div>
-					<div class="inline-block px-3 py-1 rounded-lg bg-[#00adef]/10 border border-[#00adef]/20 text-[#00adef] text-[10px] font-black uppercase mb-4">La Caja Inteligente</div>
-					<h3 class="text-3xl font-black text-white mb-6 italic">Cobrá en segundos, sin errores.</h3>
-					<p class="text-slate-400 leading-relaxed mb-8">
-						Nuestra pantalla de venta está optimizada para ser veloz. Buscá productos por nombre o usá un <strong>lector de códigos de barras</strong>. 
-						Podés aplicar descuentos, elegir el método de pago y entregar un ticket profesional al instante.
-					</p>
-					<ul class="space-y-3">
-						<li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#00adef]">✔</span> Compatible con pistolas láser.</li>
-						<li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#00adef]">✔</span> Cierre de caja diario automático.</li>
-					</ul>
-				</div>
-				<div class="relative group">
-					<div class="absolute inset-0 bg-[#00adef]/20 blur-[80px] rounded-full group-hover:bg-[#00adef]/30 transition-all"></div>
-					<div class="relative bg-[#111c30] border border-white/10 rounded-[2rem] p-2 shadow-2xl">
-						<img src="/img/capturas/pos-preview.png" alt="Caja rápida" class="rounded-[1.5rem] w-full grayscale-[20%] group-hover:grayscale-0 transition-all shadow-inner">
-					</div>
-				</div>
-			</div>
+        <div class="space-y-32">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                <div>
+                    <div class="inline-block px-3 py-1 rounded-lg bg-[#00adef]/10 border border-[#00adef]/20 text-[#00adef] text-[10px] font-black uppercase mb-4">La Caja Inteligente</div>
+                    <h3 class="text-3xl font-black text-white mb-6 italic">Cobrá en segundos, sin errores.</h3>
+                    <p class="text-slate-400 leading-relaxed mb-8">
+                        Nuestra pantalla de venta está optimizada para ser veloz. Buscá productos por nombre o usá un <strong>lector de códigos de barras</strong>. 
+                        Podés aplicar descuentos, elegir el método de pago y entregar un ticket profesional al instante.
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#00adef]">✔</span> Compatible con pistolas láser.</li>
+                        <li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#00adef]">✔</span> Cierre de caja diario automático.</li>
+                    </ul>
+                </div>
+                <div class="relative group">
+                    <div class="absolute inset-0 bg-[#00adef]/20 blur-[80px] rounded-full group-hover:bg-[#00adef]/30 transition-all"></div>
+                    <div class="relative bg-[#111c30] border border-white/10 rounded-[2rem] p-2 shadow-2xl">
+                        <img src="/img/capturas/pos-preview.png" alt="Caja rápida" class="rounded-[1.5rem] w-full grayscale-[20%] group-hover:grayscale-0 transition-all shadow-inner">
+                    </div>
+                </div>
+            </div>
 
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-				<div class="lg:order-2">
-					<div class="inline-block px-3 py-1 rounded-lg bg-[#f7941e]/10 border border-[#f7941e]/20 text-[#f7941e] text-[10px] font-black uppercase mb-4">Gestión de Fiados</div>
-					<h3 class="text-3xl font-black text-white mb-6 italic">Digitalizá tus Cuentas Corrientes.</h3>
-					<p class="text-slate-400 leading-relaxed mb-8">
-						¿Cansado de anotar en papel? Buscá a tu cliente, cargale la compra y mirá su deuda total en tiempo real. 
-						El sistema te permite registrar pagos parciales y tener un historial claro de cada movimiento.
-					</p>
-					<ul class="space-y-3">
-						<li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#f7941e]">✔</span> Alerta de clientes con deuda alta.</li>
-						<li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#f7941e]">✔</span> Exportá el estado de cuenta a PDF.</li>
-					</ul>
-				</div>
-				<div class="relative group lg:order-1">
-					<div class="absolute inset-0 bg-[#f7941e]/20 blur-[80px] rounded-full group-hover:bg-[#f7941e]/30 transition-all"></div>
-					<div class="relative bg-[#111c30] border border-white/10 rounded-[2rem] p-2 shadow-2xl">
-						<img src="/img/capturas/clientes-preview.png" alt="Cuentas corrientes" class="rounded-[1.5rem] w-full shadow-inner">
-					</div>
-				</div>
-			</div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                <div class="lg:order-2">
+                    <div class="inline-block px-3 py-1 rounded-lg bg-[#f7941e]/10 border border-[#f7941e]/20 text-[#f7941e] text-[10px] font-black uppercase mb-4">Gestión de Fiados</div>
+                    <h3 class="text-3xl font-black text-white mb-6 italic">Digitalizá tus Cuentas Corrientes.</h3>
+                    <p class="text-slate-400 leading-relaxed mb-8">
+                        ¿Cansado de anotar en papel? Buscá a tu cliente, cargale la compra y mirá su deuda total en tiempo real. 
+                        El sistema te permite registrar pagos parciales y tener un historial claro de cada movimiento.
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#f7941e]">✔</span> Alerta de clientes con deuda alta.</li>
+                        <li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#f7941e]">✔</span> Exportá el estado de cuenta a PDF.</li>
+                    </ul>
+                </div>
+                <div class="relative group lg:order-1">
+                    <div class="absolute inset-0 bg-[#f7941e]/20 blur-[80px] rounded-full group-hover:bg-[#f7941e]/30 transition-all"></div>
+                    <div class="relative bg-[#111c30] border border-white/10 rounded-[2rem] p-2 shadow-2xl">
+                        <img src="/img/capturas/clientes-preview.png" alt="Cuentas corrientes" class="rounded-[1.5rem] w-full shadow-inner">
+                    </div>
+                </div>
+            </div>
 
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-				<div>
-					<div class="inline-block px-3 py-1 rounded-lg bg-[#8cc63f]/10 border border-[#8cc63f]/20 text-[#8cc63f] text-[10px] font-black uppercase mb-4">Control de Mercadería</div>
-					<h3 class="text-3xl font-black text-white mb-6 italic">Que nunca te falte nada.</h3>
-					<p class="text-slate-400 leading-relaxed mb-8">
-						Configurá el stock mínimo para cada producto. Cuando te queden pocas unidades, VendAR te avisará con un ícono rojo en tu panel. 
-						También podés gestionar <strong>lotes y vencimientos</strong> para evitar pérdidas innecesarias.
-					</p>
-					<ul class="space-y-3">
-						<li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#8cc63f]">✔</span> Alertas visuales de stock bajo.</li>
-						<li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#8cc63f]">✔</span> Control de mercadería por sucursal.</li>
-					</ul>
-				</div>
-				<div class="relative group">
-					<div class="absolute inset-0 bg-[#8cc63f]/20 blur-[80px] rounded-full group-hover:bg-[#8cc63f]/30 transition-all"></div>
-					<div class="relative bg-[#111c30] border border-white/10 rounded-[2rem] p-2 shadow-2xl">
-						<img src="/img/capturas/stock-preview.png" alt="Control de stock" class="rounded-[1.5rem] w-full shadow-inner">
-					</div>
-				</div>
-			</div>
-		</div>
-	</section>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                <div>
+                    <div class="inline-block px-3 py-1 rounded-lg bg-[#8cc63f]/10 border border-[#8cc63f]/20 text-[#8cc63f] text-[10px] font-black uppercase mb-4">Control de Mercadería</div>
+                    <h3 class="text-3xl font-black text-white mb-6 italic">Que nunca te falte nada.</h3>
+                    <p class="text-slate-400 leading-relaxed mb-8">
+                        Configurá el stock mínimo para cada producto. Cuando te queden pocas unidades, VendAR te avisará con un ícono rojo en tu panel. 
+                        También podés gestionar <strong>lotes y vencimientos</strong> para evitar pérdidas innecesarias.
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#8cc63f]">✔</span> Alertas visuales de stock bajo.</li>
+                        <li class="flex items-center gap-3 text-sm text-slate-300 font-medium"><span class="text-[#8cc63f]">✔</span> Control de mercadería por sucursal.</li>
+                    </ul>
+                </div>
+                <div class="relative group">
+                    <div class="absolute inset-0 bg-[#8cc63f]/20 blur-[80px] rounded-full group-hover:bg-[#8cc63f]/30 transition-all"></div>
+                    <div class="relative bg-[#111c30] border border-white/10 rounded-[2rem] p-2 shadow-2xl">
+                        <img src="/img/capturas/stock-preview.png" alt="Control de stock" class="rounded-[1.5rem] w-full shadow-inner">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
         <section id="planes" class="relative z-10 max-w-7xl mx-auto px-6 py-32">
             <div class="text-center mb-20">
@@ -254,28 +266,28 @@ const planes = [
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div v-for="plan in planes" :key="plan.nombre" 
+                <div v-for="(plan, index) in planes" :key="plan.id" 
                     class="relative bg-[#091122] border rounded-[3.5rem] p-12 flex flex-col justify-between transition-all hover:scale-[1.02] duration-500 overflow-hidden shadow-2xl"
-                    :class="plan.popular ? 'border-[#00adef] scale-105 z-20 shadow-[#00adef]/10' : 'border-white/5'"
+                    :class="plan.destacado ? 'border-[#00adef] scale-105 z-20 shadow-[#00adef]/10' : 'border-white/5'"
                 >
-                    <div v-if="plan.popular" class="absolute top-0 right-0 bg-[#00adef] text-white text-[10px] font-black uppercase px-6 py-2 rounded-bl-3xl">Más Elegido</div>
+                    <div v-if="plan.destacado" class="absolute top-0 right-0 bg-[#00adef] text-white text-[10px] font-black uppercase px-6 py-2 rounded-bl-3xl">Más Elegido</div>
                     
                     <div>
                         <h4 class="text-xl font-black text-white mb-2 tracking-tight uppercase italic">{{ plan.nombre }}</h4>
-                        <p class="text-xs text-slate-500 font-bold mb-8 leading-relaxed">{{ plan.desc }}</p>
+                        <p class="text-xs text-slate-500 font-bold mb-8 leading-relaxed">{{ plan.descripcion }}</p>
                         <div class="flex items-baseline gap-1 mb-10 border-b border-white/5 pb-8">
-                            <span class="text-5xl font-black text-white tracking-tighter">{{ plan.precio }}</span>
-                            <span v-if="plan.precio !== 'Consultar'" class="text-xs text-slate-500 font-bold uppercase">/mes</span>
+                            <span class="text-5xl font-black text-white tracking-tighter">{{ precioFormateado(plan.precio_mensual) }}</span>
+                            <span v-if="plan.precio_mensual > 0" class="text-xs text-slate-500 font-bold uppercase">/mes</span>
                         </div>
                         <ul class="space-y-5">
-                            <li v-for="feat in plan.features" :key="feat" class="flex items-center gap-4 text-xs font-bold text-slate-400 leading-tight">
-                                <span class="text-lg" :class="plan.color">✔</span> {{ feat }}
+                            <li v-for="feat in featuresDePlan(plan)" :key="feat" class="flex items-center gap-4 text-xs font-bold text-slate-400 leading-tight">
+                                <span class="text-lg" :class="coloresPlan[index % 3].text">✔</span> {{ feat }}
                             </li>
                         </ul>
                     </div>
                     
-                    <Link :href="plan.nombre === 'Gran Empresa' ? '#' : route('register')" :class="['mt-12 w-full py-5 rounded-full text-white font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 inline-block text-center', plan.bgBoton]">
-                        {{ plan.nombre === 'Gran Empresa' ? 'Consultar con ventas' : 'Elegir Plan' }}
+                    <Link :href="plan.slug === 'premium' ? '#' : route('register')" :class="['mt-12 w-full py-5 rounded-full text-white font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 inline-block text-center', coloresPlan[index % 3].bg]">
+                        {{ plan.slug === 'premium' ? 'Consultar con ventas' : 'Elegir Plan' }}
                     </Link>
                 </div>
             </div>

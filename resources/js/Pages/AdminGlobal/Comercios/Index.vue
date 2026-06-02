@@ -5,9 +5,9 @@ import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
-    comercios: Array,
-    planes: Array,
-    modulosDisponibles: Array,
+    comercios: { type: Array, default: () => [] },
+    planes: { type: Array, default: () => [] },
+    modulosDisponibles: { type: Array, default: () => [] },
 });
 
 const busqueda = ref('');
@@ -17,7 +17,7 @@ const comercioSeleccionado = ref(null);
 const comerciosFiltrados = computed(() => {
     if (!busqueda.value) return props.comercios;
     return props.comercios.filter(c =>
-        c.nombre.toLowerCase().includes(busqueda.value.toLowerCase())
+        (c.nombre ?? '').toLowerCase().includes(busqueda.value.toLowerCase())
     );
 });
 
@@ -79,6 +79,9 @@ const guardar = () => {
             onSuccess: () => {
                 mostrarModal.value = false;
                 Swal.fire('Actualizado', 'Configuración de comercio guardada.', 'success');
+            },
+            onError: (errors) => {
+                Swal.fire('Error', Object.values(errors).join('\n'), 'error');
             }
         });
     } else {
@@ -86,6 +89,9 @@ const guardar = () => {
             onSuccess: () => {
                 mostrarModal.value = false;
                 Swal.fire('Registrado', 'Nuevo comercio añadido al sistema.', 'success');
+            },
+            onError: (errors) => {
+                Swal.fire('Error', Object.values(errors).join('\n'), 'error');
             }
         });
     }
@@ -199,6 +205,11 @@ const colorPlan = (slug) => {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 bg-white">
+                            <tr v-if="!comerciosFiltrados.length">
+                                <td colspan="6" class="py-12 text-center text-sm text-slate-500">
+                                    {{ busqueda ? 'No se encontraron comercios con ese nombre.' : 'No hay comercios registrados todavía.' }}
+                                </td>
+                            </tr>
                             <tr v-for="comercio in comerciosFiltrados" :key="comercio.id" class="hover:bg-slate-50 transition-colors">
                                 <td class="whitespace-nowrap py-4 pl-6 pr-3">
                                     <div class="font-medium text-slate-900">{{ comercio.nombre }}</div>
@@ -212,7 +223,7 @@ const colorPlan = (slug) => {
                                 </td>
                                 <td class="px-3 py-4 text-sm">
                                     <div class="flex flex-wrap gap-1">
-                                        <span v-for="(val, mod) in comercio.modulos_habilitados" :key="mod"
+                                        <span v-for="(val, mod) in (comercio.modulos_habilitados || {})" :key="mod"
                                               v-show="val" class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10 uppercase">
                                             {{ mod }}
                                         </span>
@@ -231,7 +242,7 @@ const colorPlan = (slug) => {
                                         <svg class="h-1.5 w-1.5" :class="{'fill-emerald-500': comercio.status === 'activo', 'fill-rose-500': comercio.status === 'suspendido', 'fill-amber-500': comercio.status === 'trial'}" viewBox="0 0 6 6" aria-hidden="true">
                                             <circle cx="3" cy="3" r="3" />
                                         </svg>
-                                        {{ comercio.status.charAt(0).toUpperCase() + comercio.status.slice(1) }}
+                                        {{ (comercio.status ?? '').charAt(0).toUpperCase() + (comercio.status ?? '').slice(1) }}
                                     </span>
                                 </td>
 
@@ -334,7 +345,7 @@ const colorPlan = (slug) => {
                             </div>
                         </div>
                         <div class="bg-slate-50 px-4 py-4 sm:flex sm:flex-row-reverse sm:px-6 border-t border-slate-100">
-                            <button type="button" @click="guardar" class="inline-flex w-full justify-center rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:ml-3 sm:w-auto transition-colors">
+                            <button type="button" @click="guardar" :disabled="form.processing" class="inline-flex w-full justify-center rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:ml-3 sm:w-auto transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 {{ comercioSeleccionado ? 'Guardar Cambios' : 'Crear Comercio' }}
                             </button>
                             <button type="button" @click="mostrarModal = false" class="mt-3 inline-flex w-full justify-center rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 sm:mt-0 sm:w-auto transition-colors">

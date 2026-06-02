@@ -1,10 +1,11 @@
 <script setup>
-import GlobalAdminLayout from '@/Layouts/GlobalAdminLayout.vue'; // Asegurate de que la ruta coincida con tu carpeta de Layouts
-import { Head, Link } from '@inertiajs/vue3';
+import GlobalAdminLayout from '@/Layouts/GlobalAdminLayout.vue';
+import { Head, Link, router } from '@inertiajs/vue3';
+import Swal from 'sweetalert2';
 
 const props = defineProps({
-    comercios: Array,
-    resumen: Object
+    comercios: { type: Array, default: () => [] },
+    resumen: { type: Object, default: () => ({}) },
 });
 
 const formatearDinero = (monto) => {
@@ -13,92 +14,166 @@ const formatearDinero = (monto) => {
 
 const badgeEstado = (estado) => {
     switch(estado) {
-        case 'Al Día': return 'bg-[#8cc63f]/10 text-[#8cc63f] border-[#8cc63f]/20';
-        case 'Vencido': return 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20 animate-pulse';
-        default: return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+        case 'Al Día': return 'bg-emerald-50 text-emerald-700 ring-emerald-600/20';
+        case 'Vencido': return 'bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-600/20';
+        default: return 'bg-rose-50 text-rose-700 ring-rose-600/20';
     }
+};
+
+const generarLinkMP = (comercio) => {
+    router.post(route('admin.facturacion.link-mp', comercio.id), {}, {
+        onSuccess: () => {
+            Swal.fire({
+                icon: 'info',
+                title: 'Próximamente',
+                text: 'La generación de links de pago con Mercado Pago estará disponible pronto.',
+            });
+        },
+        onError: (errors) => {
+            Swal.fire('Error', Object.values(errors).join('\n'), 'error');
+        }
+    });
+};
+
+const marcarPagado = (comercio) => {
+    Swal.fire({
+        title: '¿Marcar como pagado?',
+        text: `Vas a marcar a ${comercio.nombre} como al día. Se extiende el vencimiento un mes.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, marcar pagado',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#4f46e5',
+        cancelButtonColor: '#64748b',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.post(route('admin.facturacion.pagar', comercio.id), {}, {
+                onSuccess: () => {
+                    Swal.fire({ icon: 'success', title: '¡Pagado!', timer: 1500, showConfirmButton: false });
+                },
+                onError: (errors) => {
+                    Swal.fire('Error', Object.values(errors).join('\n'), 'error');
+                }
+            });
+        }
+    });
 };
 </script>
 
 <template>
     <GlobalAdminLayout>
-        <Head title="Facturación y Cobros | Admin VendAR" />
+        <Head title="Panel Global - Facturación" />
 
-        <div class="p-8 bg-[#050a15] rounded-3xl shadow-2xl border border-slate-800 text-slate-200 font-sans">
-            
-            <div class="mb-10 flex justify-between items-center">
+        <div class="py-8 px-6 max-w-7xl mx-auto">
+            <div class="sm:flex sm:items-center sm:justify-between mb-8">
                 <div>
-                    <h1 class="text-3xl font-black text-white uppercase tracking-tighter italic flex items-center gap-3">
-                        <span class="w-3 h-3 bg-[#8cc63f] rounded-full"></span>
-                        Control de Cobros
-                    </h1>
-                    <p class="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-                        Gestión de suscripciones y enlaces de Mercado Pago
-                    </p>
+                    <h1 class="text-2xl font-bold text-slate-900">Control de Cobros</h1>
+                    <p class="mt-1 text-sm text-slate-500">Gestión de suscripciones y enlaces de Mercado Pago</p>
                 </div>
-                
-                <button class="bg-[#00adef] hover:bg-[#00adef]/80 text-white font-black px-5 py-2.5 rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-[#00adef]/20 transition-all">
-                    ⚙️ Credenciales MP
-                </button>
+                <div class="mt-4 sm:mt-0">
+                    <button @click="Swal.fire({ icon: 'info', title: 'Próximamente', text: 'La configuración de credenciales de Mercado Pago estará disponible pronto.' })" class="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-all">
+                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                        </svg>
+                        Credenciales MP
+                    </button>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                <div class="bg-[#111c30] border-l-4 border-[#00adef] border-y border-r border-white/5 p-6 rounded-r-2xl shadow-xl">
-                    <span class="text-[10px] font-black tracking-widest text-slate-500 uppercase block mb-1">Proyección del Mes</span>
-                    <span class="text-3xl font-black text-white tracking-tight block">{{ formatearDinero(resumen?.total_esperado) }}</span>
+                <div class="overflow-hidden rounded-2xl bg-white px-6 py-5 shadow-sm ring-1 ring-slate-900/5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 rounded-xl bg-sky-50 p-3">
+                            <svg class="h-6 w-6 text-sky-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a6 6 0 0 1 6-6m0 0a6 6 0 0 1 6 6m-6-6a6 6 0 0 1 6-6m0 0a6 6 0 0 1 6 6" />
+                            </svg>
+                        </div>
+                        <div class="ml-4">
+                            <p class="truncate text-sm font-medium text-slate-500">Proyección del Mes</p>
+                            <p class="text-2xl font-semibold text-slate-900">{{ formatearDinero(resumen?.total_esperado) }}</p>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="bg-[#111c30] border-l-4 border-fuchsia-500 border-y border-r border-white/5 p-6 rounded-r-2xl shadow-xl">
-                    <span class="text-[10px] font-black tracking-widest text-slate-500 uppercase block mb-1">Pagos Atrasados</span>
-                    <span class="text-3xl font-black text-fuchsia-400 tracking-tight block">{{ formatearDinero(resumen?.total_vencido) }}</span>
+                <div class="overflow-hidden rounded-2xl bg-white px-6 py-5 shadow-sm ring-1 ring-slate-900/5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 rounded-xl bg-fuchsia-50 p-3">
+                            <svg class="h-6 w-6 text-fuchsia-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                            </svg>
+                        </div>
+                        <div class="ml-4">
+                            <p class="truncate text-sm font-medium text-slate-500">Pagos Atrasados</p>
+                            <p class="text-2xl font-semibold text-slate-900">{{ formatearDinero(resumen?.total_vencido) }}</p>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="bg-[#111c30] border-l-4 border-rose-500 border-y border-r border-white/5 p-6 rounded-r-2xl shadow-xl">
-                    <span class="text-[10px] font-black tracking-widest text-slate-500 uppercase block mb-1">Locales en Mora</span>
-                    <span class="text-3xl font-black text-rose-500 tracking-tight block">{{ resumen?.clientes_morosos }} comercios</span>
+                <div class="overflow-hidden rounded-2xl bg-white px-6 py-5 shadow-sm ring-1 ring-slate-900/5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 rounded-xl bg-rose-50 p-3">
+                            <svg class="h-6 w-6 text-rose-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                            </svg>
+                        </div>
+                        <div class="ml-4">
+                            <p class="truncate text-sm font-medium text-slate-500">Locales en Mora</p>
+                            <p class="text-2xl font-semibold text-slate-900">{{ resumen?.clientes_morosos }} comercios</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="bg-[#111c30] border border-white/5 p-7 rounded-2xl shadow-xl">
-                <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 mb-6">Estado de Cuentas por Tenant</h3>
-                
+            <div class="bg-white ring-1 ring-slate-900/5 sm:rounded-2xl shadow-sm overflow-hidden">
+                <div class="p-5 border-b border-slate-100">
+                    <h3 class="text-sm font-semibold text-slate-900">Estado de Cuentas por Tenant</h3>
+                </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="border-b border-white/5 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                <th class="pb-4 pr-4">Comercio</th>
-                                <th class="pb-4 pr-4">Plan</th>
-                                <th class="pb-4 pr-4">A Cobrar</th>
-                                <th class="pb-4 pr-4">Vencimiento</th>
-                                <th class="pb-4 pr-4">Estado</th>
-                                <th class="pb-4 text-right">Acción de Cobro</th>
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-slate-50">
+                            <tr>
+                                <th scope="col" class="py-3.5 pl-6 pr-3 text-left text-xs font-semibold text-slate-900">Comercio</th>
+                                <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Plan</th>
+                                <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">A Cobrar</th>
+                                <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Vencimiento</th>
+                                <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Estado</th>
+                                <th scope="col" class="relative py-3.5 pl-3 pr-6 text-right text-xs font-semibold text-slate-900">Acción</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/5 text-xs font-bold">
-                            <tr v-for="c in comercios" :key="c.id" class="hover:bg-white/[0.02] transition-colors">
-                                <td class="py-4 pr-4 text-white font-black">{{ c.nombre }}</td>
-                                <td class="py-4 pr-4 text-slate-400"><span class="text-[10px] uppercase tracking-wider">{{ c.plan }}</span></td>
-                                <td class="py-4 pr-4 text-[#8cc63f] font-mono">{{ formatearDinero(c.monto) }}</td>
-                                <td class="py-4 pr-4 text-slate-400">{{ c.vencimiento }}</td>
-                                <td class="py-4 pr-4">
-                                    <span class="px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest border" :class="badgeEstado(c.estado_cobro)">
+                        <tbody class="divide-y divide-slate-100 bg-white">
+                            <tr v-if="!comercios.length">
+                                <td colspan="6" class="py-12 text-center text-sm text-slate-500">No hay comercios registrados.</td>
+                            </tr>
+                            <tr v-for="c in comercios" :key="c.id" class="hover:bg-slate-50 transition-colors">
+                                <td class="whitespace-nowrap py-4 pl-6 pr-3 font-medium text-slate-900 text-sm">{{ c.nombre }}</td>
+                                <td class="whitespace-nowrap px-3 py-4 text-sm">
+                                    <span class="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10 uppercase">{{ c.plan }}</span>
+                                </td>
+                                <td class="whitespace-nowrap px-3 py-4 text-sm font-semibold text-slate-900 font-mono">{{ formatearDinero(c.monto) }}</td>
+                                <td class="whitespace-nowrap px-3 py-4 text-sm text-slate-500">{{ c.vencimiento }}</td>
+                                <td class="whitespace-nowrap px-3 py-4 text-center">
+                                    <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset" :class="badgeEstado(c.estado_cobro)">
+                                        <svg class="h-1.5 w-1.5" :class="{'fill-emerald-500': c.estado_cobro === 'Al Día', 'fill-fuchsia-500': c.estado_cobro === 'Vencido', 'fill-rose-500': c.estado_cobro !== 'Al Día' && c.estado_cobro !== 'Vencido'}" viewBox="0 0 6 6">
+                                            <circle cx="3" cy="3" r="3" />
+                                        </svg>
                                         {{ c.estado_cobro }}
                                     </span>
                                 </td>
-                                <td class="py-4 text-right space-x-2">
-                                    <button class="bg-[#00adef]/10 hover:bg-[#00adef] text-[#00adef] hover:text-white border border-[#00adef]/30 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all">
-                                        ⚡ Link MP
-                                    </button>
-                                    <button class="bg-[#8cc63f]/10 hover:bg-[#8cc63f] text-[#8cc63f] hover:text-white border border-[#8cc63f]/30 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all">
-                                        ✓ Pagó
-                                    </button>
+                                <td class="whitespace-nowrap py-4 pl-3 pr-6 text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button @click="generarLinkMP(c)" class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-inset ring-sky-600/20 hover:bg-sky-100 transition-colors">
+                                            Link MP
+                                        </button>
+                                        <button @click="marcarPagado(c)" class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 hover:bg-emerald-100 transition-colors">
+                                            Pagó
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
-
         </div>
     </GlobalAdminLayout>
 </template>

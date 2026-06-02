@@ -32,6 +32,7 @@ use App\Models\CuentaCorriente;
 use App\Models\Sucursal;
 use App\Models\Producto;
 use App\Models\PedidoWeb;
+use App\Models\Plan;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -277,6 +278,8 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
+    Route::post('/facturacion/{comercio}/pagar', [GlobalAdminController::class, 'marcarPagado'])->name('admin.facturacion.pagar');
+    Route::post('/facturacion/{comercio}/link-mp', [GlobalAdminController::class, 'generarLinkMP'])->name('admin.facturacion.link-mp');
     Route::get('/solicitudes', [GlobalAdminController::class, 'solicitudesPendientes'])->name('admin.solicitudes');
     Route::post('/solicitudes/{user}/aprobar', [GlobalAdminController::class, 'aprobarSolicitud'])->name('admin.solicitudes.aprobar');
     Route::post('/solicitudes/{user}/rechazar', [GlobalAdminController::class, 'rechazarSolicitud'])->name('admin.solicitudes.rechazar');
@@ -446,15 +449,16 @@ Route::get('/cliente/inicio', function () {
     ]);
 })->name('cliente.inicio');
 
-// ==========================================
-// 🔥 TIP IMPORTANTE:
-// ==========================================
-// En tu archivo original tenías dos `Route::get('/', ...)`
-// Dejé solo el que retorna la 'LandingPage' para que no haya conflictos.
 Route::get('/', function () {
+    $planes = Plan::where('activo', true)
+        ->orderBy('orden')
+        ->orderBy('precio_mensual')
+        ->get();
+
     return Inertia::render('LandingPage', [
         'canLogin' => Route::has('login'),
         'canRegister' => Route::has('register'),
+        'planes' => $planes,
     ]);
 });
 

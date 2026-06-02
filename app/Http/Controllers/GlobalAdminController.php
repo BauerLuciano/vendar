@@ -103,14 +103,15 @@ class GlobalAdminController extends Controller
         $totalUsuarios = User::count();
 
         // 5. Últimos 5 comercios registrados para la tabla rápida de monitoreo
-        $ultimosComercios = Comercio::latest()
+        $ultimosComercios = Comercio::with('plan')
+            ->latest()
             ->take(5)
             ->get()
             ->map(function ($c) {
                 return [
                     'id' => $c->id,
                     'nombre' => $c->nombre,
-                    'plan' => strtoupper($c->plan),
+                    'plan' => $c->plan?->nombre ?? $c->plan ?? 'N/A',
                     'fecha' => $c->created_at ? $c->created_at->format('d/m/Y') : 'N/A',
                     'estado' => ucfirst($c->status)
                 ];
@@ -260,5 +261,24 @@ class GlobalAdminController extends Controller
         $user->delete();
 
         return redirect()->back()->with('exito', "Solicitud de {$nombre} rechazada.");
+    }
+
+    public function marcarPagado(Request $request, Comercio $comercio)
+    {
+        $request->validate(['fecha' => 'nullable|date']);
+
+        $comercio->update([
+            'vencimiento_pago' => $request->fecha ?? now()->addMonth(),
+        ]);
+
+        return redirect()->back()->with('exito', "{$comercio->nombre} marcado como al día.");
+    }
+
+    public function generarLinkMP(Comercio $comercio)
+    {
+        return response()->json([
+            'message' => 'Funcionalidad próxima a implementarse.',
+            'preview' => route('admin.facturacion'),
+        ]);
     }
 }
