@@ -143,19 +143,22 @@ class PedidoWebController extends Controller
                     throw new \Exception('El local no tiene configurado Mercado Pago.');
                 }
 
-                $urlTienda = url("/tienda/" . ($comercio->slug ?? 'default'));
+                $backUrlBase = route('tienda.pedido.confirmacion', [
+                    'slug'   => $comercio->slug ?? 'default',
+                    'pedido' => $pedido->id,
+                ]);
 
                 $response = Http::withToken($comercio->mp_access_token)
                     ->post('https://api.mercadopago.com/checkout/preferences', [
                     'items' => $itemsParaMercadoPago,
                     'external_reference' => (string) $pedido->id,
                     'back_urls' => [
-                        'success' => $urlTienda . "?pago=exito",
-                        'pending' => $urlTienda . "?pago=pendiente",
-                        'failure' => $urlTienda . "?pago=error",
+                        'success' => $backUrlBase . '?status=approved',
+                        'pending' => $backUrlBase . '?status=pending',
+                        'failure' => $backUrlBase . '?status=rejected',
                     ],
-                    // Comentamos esta línea para que MP no se ponga estricto con el localhost
-                    // 'auto_return' => 'approved', 
+                    'auto_return' => 'approved',
+                    'notification_url' => url('/api/mercadopago/notificacion?comercio_id=' . $comercio->id),
                     'binary_mode' => true,
                 ]);
 

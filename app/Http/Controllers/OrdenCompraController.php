@@ -182,7 +182,7 @@ class OrdenCompraController extends Controller
                 }
 
                 $producto->sucursales()->updateExistingPivot($ordenCompra->sucursal_id, [
-                    'cantidad_fisica' => DB::raw("cantidad_fisica + {$detalle->cantidad_pedida}")
+                    'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad_pedida)
                 ]);
             }
 

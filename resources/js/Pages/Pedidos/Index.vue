@@ -220,7 +220,7 @@ const prepSelectClass = (estado) => ({
                              
                             <div class="p-5 flex flex-col xl:flex-row justify-between xl:items-center gap-6" :class="{'opacity-60': pedido.estado_pedido === 'cancelado'}">
 
-                                <div class="flex flex-col md:flex-row w-full xl:w-auto flex-1 items-start gap-4 md:gap-0">
+                                <div class="flex flex-col md:flex-row w-full xl:w-auto flex-1 min-w-0 items-start gap-4 md:gap-0">
                                     
                                     <div class="w-full md:w-1/4 flex flex-col gap-2 md:pr-5">
                                         <span class="font-mono text-sm font-black text-slate-700 w-fit">

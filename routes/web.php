@@ -31,6 +31,7 @@ use App\Http\Controllers\{
 use App\Models\CuentaCorriente;
 use App\Models\Sucursal;
 use App\Models\Producto;
+use App\Models\PedidoWeb;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -113,6 +114,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index');
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
+    Route::patch('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar');
 
     Route::get('/cajas', [CajaController::class, 'index'])->name('cajas.index');
     Route::post('/cajas', [CajaController::class, 'store'])->name('cajas.store');
@@ -327,6 +329,33 @@ Route::get('/tienda/{slug}/panel', function ($slug) {
     ]);
 })->name('tienda.panel');
 
+// Confirmación de pago MP (antes de la ruta pública {slug})
+Route::get('/tienda/{slug}/pedido/{pedido}/confirmacion', function ($slug, PedidoWeb $pedido) {
+    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    if ($pedido->comercio_id !== $comercio->id) abort(404);
+
+    session(['ultima_tienda_slug' => $slug]);
+    session(['comercio_id_actual' => $comercio->id]);
+
+    return Inertia::render('Cliente/Confirmacion', [
+        'comercio'      => $comercio,
+        'pedido'        => $pedido->load('items.producto'),
+        'status_inicial'=> request('status', 'pending'),
+        'tienda_slug'   => $slug,
+    ]);
+})->name('tienda.pedido.confirmacion');
+
+// Polling de estado de pago (liviano, solo strings)
+Route::get('/api/tienda/pedido/{pedido}/estado', function (PedidoWeb $pedido) {
+    if ($pedido->comercio_id !== (int) request('comercio_id')) {
+        abort(404);
+    }
+    return response()->json([
+        'estado_pago'   => $pedido->estado_pago,
+        'estado_pedido' => $pedido->estado_pedido,
+    ]);
+})->name('api.pedido.estado');
+
 // Tienda pública (slug catch-all debe ir último)
 Route::get('/tienda/{slug}', function ($slug) {
     $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
@@ -369,6 +398,10 @@ Route::get('/tienda/{slug}', function ($slug) {
         'geoapifyKey'          => config('services.geoapify.key'),
     ]);
 })->name('tienda.publica');
+
+// Webhook MercadoPago (sin CSRF ni auth, MP envía desde sus servidores)
+Route::post('/api/mercadopago/notificacion', [\App\Http\Controllers\MercadoPagoNotificacionController::class, 'notificacion'])
+    ->name('mercadopago.notificacion');
 
 // Login y registro como páginas dedicadas
 Route::get('/tienda/{slug}/login', function ($slug) {

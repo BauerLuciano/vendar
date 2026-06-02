@@ -159,7 +159,7 @@ class VentaController extends Controller
                 
                 $cantidadAVender = $item['cantidad'];
 
-                DetalleVenta::create([
+                $detalle = DetalleVenta::create([
                     'venta_id'        => $venta->id,
                     'producto_id'     => $item['id'],
                     'cantidad'        => $cantidadAVender,
@@ -171,21 +171,36 @@ class VentaController extends Controller
                 $lotes = Lote::where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId)
                     ->where('stock_actual', '>', 0)
-                    ->orderBy('fecha_vencimiento', 'asc') // El que vence más rápido sale primero
+                    ->orderBy('fecha_vencimiento', 'asc')
                     ->get();
 
                 $pendientePorRestar = $cantidadAVender;
+                $lotesConsumidos = [];
 
                 foreach ($lotes as $lote) {
-                    if ($pendientePorRestar <= 0) break; // Si ya restamos todo, salimos del bucle de lotes
+                    if ($pendientePorRestar <= 0) break;
 
                     if ($lote->stock_actual >= $pendientePorRestar) {
+                        $cantidadRestada = $pendientePorRestar;
                         $lote->decrement('stock_actual', $pendientePorRestar);
                         $pendientePorRestar = 0;
                     } else {
+                        $cantidadRestada = (float) $lote->stock_actual;
                         $pendientePorRestar -= $lote->stock_actual;
-                        $lote->update(['stock_actual' => 0]); // Vaciamos el lote y seguimos con el próximo
+                        $lote->update(['stock_actual' => 0]);
                     }
+
+                    $lotesConsumidos[] = [
+                        'detalle_venta_id' => $detalle->id,
+                        'lote_id'          => $lote->id,
+                        'cantidad'         => $cantidadRestada,
+                        'created_at'       => now(),
+                        'updated_at'       => now(),
+                    ];
+                }
+
+                if (!empty($lotesConsumidos)) {
+                    DB::table('detalle_venta_lote')->insert($lotesConsumidos);
                 }
 
                 // Obtenemos el registro actual para saber la cantidad anterior
@@ -235,13 +250,23 @@ class VentaController extends Controller
     public function cancelar(Request $request, Venta $venta)
     {
         $request->validate(['motivo' => 'required|string|max:255']);
-        if ($venta->estado === 'Cancelada') return back();
 
         return DB::transaction(function () use ($venta, $request) {
-            $venta->load('turno.caja', 'detalles');
+            $venta = Venta::lockForUpdate()->with('turno.caja', 'detalles.lotes')->findOrFail($venta->id);
+
+            if ($venta->estado === 'Cancelada') return redirect()->back();
+
             $sucursalId = $venta->turno->caja->sucursal_id;
 
-            // 1. Devolver Stock
+            // 1. Devolver Stock de LOTES (restauración FIFO)
+            foreach ($venta->detalles as $detalle) {
+                foreach ($detalle->lotes as $lote) {
+                    $cantidad = (float) $lote->pivot->cantidad;
+                    $lote->increment('stock_actual', $cantidad);
+                }
+            }
+
+            // 1b. Devolver Stock General
             foreach ($venta->detalles as $detalle) {
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)

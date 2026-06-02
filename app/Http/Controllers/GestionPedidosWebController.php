@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\PedidoWeb;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class GestionPedidosWebController extends Controller
 {
-    // Mostrar el panel con todos los pedidos
     public function index()
     {
         $user = auth()->user();
@@ -33,22 +33,71 @@ class GestionPedidosWebController extends Controller
         ]);
     }
 
-    // Cambiar estado de preparación (Nuevo -> En Preparación -> Enviado/Entregado)
     public function updateEstado(Request $request, $id)
     {
-        $request->validate(['estado_pedido' => 'required|string']);
-        
-        $pedido = PedidoWeb::findOrFail($id);
-        $pedido->update(['estado_pedido' => $request->estado_pedido]);
+        $request->validate(['estado_pedido' => 'required|in:nuevo,preparando,en_camino,entregado,cancelado']);
 
-        return redirect()->back();
+        $user = auth()->user();
+        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
+
+        return DB::transaction(function () use ($request, $id, $esJefe) {
+            $pedido = PedidoWeb::lockForUpdate()->with('items')->findOrFail($id);
+            $estadoActual = $pedido->estado_pedido;
+            $nuevoEstado = $request->estado_pedido;
+
+            if ($estadoActual === $nuevoEstado) return redirect()->back();
+
+            $forwardMap = [
+                'nuevo'      => 'preparando',
+                'preparando' => 'en_camino',
+                'en_camino'  => 'entregado',
+            ];
+
+            $esForward = ($forwardMap[$estadoActual] ?? null) === $nuevoEstado;
+            $esCancel = $nuevoEstado === 'cancelado';
+
+            if (!$esForward && !$esCancel && !$esJefe) {
+                return redirect()->back()->with('error', 'Transición de estado no permitida.');
+            }
+
+            if ($nuevoEstado === 'entregado') {
+                foreach ($pedido->items as $item) {
+                    DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->decrement('cantidad_reservada', $item->cantidad);
+                    DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->decrement('cantidad_fisica', $item->cantidad);
+                }
+            } elseif ($esCancel) {
+                if ($estadoActual === 'entregado') {
+                    foreach ($pedido->items as $item) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->increment('cantidad_fisica', $item->cantidad);
+                    }
+                } else {
+                    foreach ($pedido->items as $item) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->decrement('cantidad_reservada', $item->cantidad);
+                    }
+                }
+            }
+
+            $pedido->update(['estado_pedido' => $nuevoEstado]);
+            return redirect()->back();
+        });
     }
 
-    // Cambiar estado del pago (Pendiente -> Pagado)
     public function updatePago(Request $request, $id)
     {
-        $request->validate(['estado_pago' => 'required|string']);
-        
+        $request->validate(['estado_pago' => 'required|in:pendiente,pagado,reembolsado']);
+
         $pedido = PedidoWeb::findOrFail($id);
         $pedido->update(['estado_pago' => $request->estado_pago]);
 

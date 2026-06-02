@@ -28,7 +28,6 @@ class Lote extends Model
         'stock_actual' => 'decimal:2',
     ];
 
-    // Relaciones
     public function producto()
     {
         return $this->belongsTo(Producto::class);
@@ -37,5 +36,10 @@ class Lote extends Model
     public function sucursal()
     {
         return $this->belongsTo(Sucursal::class);
+    }
+
+    public function detallesVenta()
+    {
+        return $this->belongsToMany(DetalleVenta::class, 'detalle_venta_lote')->withPivot('cantidad');
     }
 }
