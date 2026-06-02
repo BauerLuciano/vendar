@@ -1,36 +1,58 @@
-#  VendAR - Sistema de Gestión para Kioscos (SaaS)
+# VendAR — Sistema de Gestión para Kioscos y Minimercados
 
-**VendAR** es un sistema integral de gestión y Punto de Venta (POS) diseñado para kioscos, minimercados y cadenas comerciales. 
+<img src="/img/LogoVendar-Sidebar.png" alt="VendAR" width="200">
 
-Construido bajo una arquitectura **SaaS Multi-Tenant**, permite que un solo código base sirva a múltiples clientes, manteniendo los datos de cada comercio (Tenant) totalmente aislados mediante esquemas de base de datos.
+**VendAR** es un sistema SaaS de gestión y punto de venta (POS) diseñado para kioscos, minimercados, almacenes y cadenas comerciales chicas y medianas. Funciona completamente en el navegador — no necesitás instalar nada, solo una PC, tablet o celular con internet.
 
-##  Stack Tecnológico (TALL + Filament)
+---
 
-* **Backend:** PHP 8.2+ / Laravel 11
-* **Base de Datos:** PostgreSQL (Multi-Schema)
-* **Frontend (POS):** Livewire v3 + Alpine.js + Tailwind CSS
-* **Back-office:** Filament PHP v3
-* **Arquitectura SaaS:** Stancl/Tenancy
-* **Autenticación y Roles:** Spatie Laravel Permission
+## ¿Para quién es?
 
-##  Características Principales
+| Si sos... | VendAR te sirve para... |
+|-----------|------------------------|
+| **Dueño de comercio** | Ver las ventas de todas tus sucursales en tiempo real desde el celular, controlar el stock sin ir al local, y saber si estás ganando o perdiendo plata. |
+| **Cajero** | Cobrar rápido con lector de barras, hacer tickets, y cerrar la caja sin descuadrar. |
+| **Encargado** | Gestionar el stock, hacer pedidos a proveedores, controlar lotes y vencimientos, y administrar las cuentas corrientes de los clientes. |
 
-* **Aislamiento de Datos:** Cada comercio opera en su propio esquema de PostgreSQL.
-* **Gestión Multi-Sucursal:** Soporte para múltiples locales por cliente, con inventario independiente.
-* **POS Reactivo:** Ventas en mostrador en tiempo real sin recargar la página.
-* **Catálogo Centralizado:** Productos administrados a nivel comercio, stock gestionado a nivel sucursal.
-* **Control de Accesos:** Roles y permisos granulares por sucursal.
+---
 
-##  Requisitos Previos
+## Funcionalidades principales
 
-* PHP 8.2+
-* Composer
-* Node.js & NPM
-* PostgreSQL (Estrictamente necesario para el aislamiento de schemas)
+- **Punto de Venta (POS)** — Cobro ágil con lector de código de barras, tickets profesionales, cierre de caja diario automático.
+- **Control de stock** — Gestión por sucursal, alertas de stock mínimo, control de lotes y fechas de vencimiento.
+- **Cuentas corrientes (fiados)** — Registro de deudas, pagos parciales, historial de movimientos por cliente.
+- **Pedidos web** — Catálogo online público. Los clientes ven precios reales y hacen pedidos por WhatsApp.
+- **Compras y proveedores** — Órdenes de compra, ingresos de stock, reposición automática.
+- **Múltiples sucursales** — Centralizá la gestión de todos tus locales desde una misma cuenta.
+- **Dashboard y reportes** — Métricas de ventas, productos más vendidos, evolución diaria.
+- **Multi-tenant (SaaS)** — Cada comercio opera con sus datos aislados. Un solo sistema, múltiples clientes.
 
-##  Instalación Local
+---
 
-1. **Clonar el repositorio:**
-   ```bash
-   git clone (https://github.com/tu-usuario/vendar.git)
-   cd vendar
+## Beneficios clave
+
+- **Sin inversión en hardware** — Funciona en cualquier navegador. Podés usar una PC vieja, una tablet o tu celular.
+- **Datos en la nube** — Backups automáticos diarios. No perdés ventas ni stock aunque se rompa la computadora.
+- **Sin contratos largos** — Pagás por mes y cancelás cuando quieras. Sin permanencia.
+- **Soporte humano** — Asistencia por WhatsApp y conexión remota. También coordinamos visitas presenciales si hace falta.
+
+---
+
+## Stack tecnológico
+
+Laravel 11 · Vue 3 · Inertia.js · PostgreSQL · Tailwind CSS · Spatie Roles & Permissions
+
+---
+
+## Estado del proyecto
+
+Actualmente en **desarrollo activo**. Próximamente:
+
+- Facturación electrónica
+- Integración con Mercado Pago (cobro automático de suscripciones)
+
+---
+
+## Contacto
+
+[Agregá acá tu mail, WhatsApp, Instagram o el canal que uses para recibir clientes]
