@@ -68,16 +68,16 @@ class ConsumidorAuthController extends Controller
             'password' => 'required|string|min:6|confirmed',
         ]);
 
-        $consumidor = Consumidor::create([
-            'comercio_id' => $comercioId,
-            'nombre'      => $request->nombre,
-            'apellido'    => $request->apellido,
-            'email'       => $request->email,
-            'telefono'    => $request->telefono,
-            'direccion'   => $request->direccion,
-            'password'    => Hash::make($request->password),
-            'estado'      => true,
-        ]);
+        $consumidor = new Consumidor();
+        $consumidor->comercio_id = $comercioId;
+        $consumidor->nombre = $request->nombre;
+        $consumidor->apellido = $request->apellido;
+        $consumidor->email = $request->email;
+        $consumidor->telefono = $request->telefono;
+        $consumidor->direccion = $request->direccion;
+        $consumidor->password = Hash::make($request->password);
+        $consumidor->estado = true;
+        $consumidor->save();
 
         auth('consumidor')->login($consumidor);
 
@@ -139,13 +139,14 @@ class ConsumidorAuthController extends Controller
             'password'  => 'nullable|string|min:6|confirmed',
         ]);
 
-        $data = $request->only(['nombre', 'apellido', 'telefono', 'direccion']);
-
+        $consumidor->nombre = $request->nombre;
+        $consumidor->apellido = $request->apellido;
+        $consumidor->telefono = $request->telefono;
+        $consumidor->direccion = $request->direccion;
         if ($request->filled('password')) {
-            $data['password'] = Hash::make($request->password);
+            $consumidor->password = Hash::make($request->password);
         }
-
-        $consumidor->update($data);
+        $consumidor->save();
 
         return response()->json([
             'consumidor' => [

@@ -37,7 +37,8 @@ class VerificarEstadoCuenta
                 
                 // Si la fecha pasó pero el status seguía "activo", lo cambiamos automáticamente
                 if ($comercio->status !== 'suspendido') {
-                    $comercio->update(['status' => 'suspendido']);
+                    $comercio->status = 'suspendido';
+                    $comercio->save();
                 }
 
                 // Si es una petición de Inercia/Axios, mandamos redirección limpia

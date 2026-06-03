@@ -33,14 +33,20 @@ class ConfiguracionController extends Controller
         );
         
         // Filtramos del request SOLO las columnas que van en la tabla comercios
-        $datosComercio = $request->only([
+        // Actualizamos el comercio en la base de datos (campos seguros via fillable)
+        $comercio->update($request->only([
             'envio_precio_base', 'envio_precio_km', 'envio_radio_km',
             'transferencia_cbu', 'transferencia_alias', 'transferencia_titular',
-            'mp_access_token', 'payway_public_key', 'acepta_efectivo'
-        ]);
-        
-        // Actualizamos el comercio en la base de datos
-        $comercio->update($datosComercio);
+            'acepta_efectivo',
+        ]));
+        // Campos sensibles: asignación explícita fuera de mass-assignment
+        if ($request->has('mp_access_token')) {
+            $comercio->mp_access_token = $request->mp_access_token;
+        }
+        if ($request->has('payway_public_key')) {
+            $comercio->payway_public_key = $request->payway_public_key;
+        }
+        $comercio->save();
 
         // ====================================================================
         // 2. GUARDAR CONFIGURACIONES GLOBALES (Textos, números, booleanos)

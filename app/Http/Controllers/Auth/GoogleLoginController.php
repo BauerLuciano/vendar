@@ -30,16 +30,16 @@ class GoogleLoginController extends Controller
             if (!$user) {
                 $user = DB::transaction(function () use ($googleUser, $googleData) {
                     
-                    $newUser = User::create([
-                        'name' => $googleUser->getName() ?? 'Usuario Google',
-                        'email' => $googleUser->getEmail(),
-                        'email_verified_at' => now(),
-                        'google_id' => $googleUser->getId(),
-                        'avatar' => $googleUser->getAvatar(),
-                        'password' => Hash::make(Str::random(24)),
-                        'is_active' => true,
-                        'plan_deseado' => 'Plan Básico',
-                    ]);
+                    $newUser = new User();
+                    $newUser->name = $googleUser->getName() ?? 'Usuario Google';
+                    $newUser->email = $googleUser->getEmail();
+                    $newUser->email_verified_at = now();
+                    $newUser->google_id = $googleUser->getId();
+                    $newUser->avatar = $googleUser->getAvatar();
+                    $newUser->password = Hash::make(Str::random(24));
+                    $newUser->is_active = true;
+                    $newUser->plan_deseado = 'Plan Básico';
+                    $newUser->save();
 
                     $newUser->assignRole('cliente');
 

@@ -102,11 +102,20 @@ class ConsumidorController extends Controller
 
         $validated['comercio_id'] = $comercioId;
 
+        $consumidor = new Consumidor();
+        $consumidor->comercio_id = $validated['comercio_id'];
+        $consumidor->nombre = $validated['nombre'];
+        $consumidor->apellido = $validated['apellido'];
+        $consumidor->documento = $validated['documento'] ?? null;
+        $consumidor->email = $validated['email'] ?? null;
+        $consumidor->telefono = $validated['telefono'] ?? null;
+        $consumidor->direccion = $validated['direccion'] ?? null;
+        $consumidor->limite_cuenta_corriente = $validated['limite_cuenta_corriente'];
+        $consumidor->estado = $validated['estado'] ?? true;
         if ($request->filled('password')) {
-            $validated['password'] = Hash::make($request->password);
+            $consumidor->password = Hash::make($request->password);
         }
-
-        Consumidor::create($validated);
+        $consumidor->save();
         
         return redirect()->back()->with('success', 'Cliente registrado exitosamente.');
     }
@@ -146,13 +155,18 @@ class ConsumidorController extends Controller
             'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
 
+        $consumidor->nombre = $validated['nombre'];
+        $consumidor->apellido = $validated['apellido'];
+        $consumidor->documento = $validated['documento'] ?? null;
+        $consumidor->email = $validated['email'] ?? null;
+        $consumidor->telefono = $validated['telefono'] ?? null;
+        $consumidor->direccion = $validated['direccion'] ?? null;
+        $consumidor->limite_cuenta_corriente = $validated['limite_cuenta_corriente'];
+        $consumidor->estado = $validated['estado'] ?? true;
         if ($request->filled('password')) {
-            $validated['password'] = Hash::make($request->password);
-        } else {
-            unset($validated['password']);
+            $consumidor->password = Hash::make($request->password);
         }
-
-        $consumidor->update($validated);
+        $consumidor->save();
         
         return redirect()->back()->with('success', 'Datos del cliente actualizados.');
     }

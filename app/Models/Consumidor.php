@@ -23,7 +23,6 @@ class Consumidor extends Authenticatable
         'direccion',
         'limite_cuenta_corriente',
         'estado',
-        'password',
     ];
 
     protected $hidden = [

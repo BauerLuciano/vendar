@@ -24,11 +24,9 @@ class PedidoWeb extends Model
         'costo_envio',
         'total',
         'metodo_pago',
-        'estado_pago',
         'estado_pedido',
         'comprobante_transferencia_url',
-        'pasarela_payment_id',
-        'notas'
+        'notas',
     ];
 
     // Relación: Este pedido le pertenece a un Comercio

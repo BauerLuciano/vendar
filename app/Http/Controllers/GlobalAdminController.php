@@ -48,7 +48,16 @@ class GlobalAdminController extends Controller
         
         $validated['slug'] = Str::slug($request->nombre);
 
-        $comercio = Comercio::create($validated);
+        $comercio = new Comercio();
+        $comercio->nombre = $validated['nombre'];
+        $comercio->slug = $validated['slug'];
+        $comercio->plan_id = $validated['plan_id'];
+        $comercio->status = $validated['status'];
+        $comercio->limite_sucursales = $validated['limite_sucursales'];
+        $comercio->limite_usuarios = $validated['limite_usuarios'] ?? null;
+        $comercio->vencimiento_pago = $validated['vencimiento_pago'] ?? null;
+        $comercio->modulos_habilitados = $validated['modulos_habilitados'];
+        $comercio->save();
 
         Sucursal::create([
             'comercio_id' => $comercio->id,
@@ -75,9 +84,15 @@ class GlobalAdminController extends Controller
             'modulos_habilitados' => 'required|array',
         ]);
 
-        $validated['slug'] = Str::slug($request->nombre);
-
-        $comercio->update($validated);
+        $comercio->nombre = $validated['nombre'];
+        $comercio->slug = Str::slug($request->nombre);
+        $comercio->plan_id = $validated['plan_id'];
+        $comercio->status = $validated['status'];
+        $comercio->limite_sucursales = $validated['limite_sucursales'];
+        $comercio->limite_usuarios = $validated['limite_usuarios'] ?? null;
+        $comercio->vencimiento_pago = $validated['vencimiento_pago'] ?? null;
+        $comercio->modulos_habilitados = $validated['modulos_habilitados'];
+        $comercio->save();
 
         return redirect()->back()->with('exito', 'Configuración del comercio actualizada.');
     }
@@ -211,7 +226,8 @@ class GlobalAdminController extends Controller
 
         DB::transaction(function () use ($user, $validated) {
             // 1. Activar usuario y asignar rol de SuperAdmin (dueño de comercio)
-            $user->update(['is_active' => true]);
+            $user->is_active = true;
+        $user->save();
             $user->syncRoles(['SuperAdmin']);
 
             // 2. Buscar plan en DB
@@ -224,16 +240,16 @@ class GlobalAdminController extends Controller
             $plan = Plan::where('slug', $planSlug)->first();
 
             // 3. Crear Comercio
-            $comercio = Comercio::create([
-                'nombre' => $validated['nombre_comercio'],
-                'slug' => Str::slug($validated['nombre_comercio']),
-                'plan' => $plan?->slug ?? 'basico',
-                'plan_id' => $plan?->id,
-                'status' => 'trial',
-                'limite_sucursales' => $plan?->sucursales_limit ?? 1,
-                'limite_usuarios' => $plan?->usuarios_limit ?? 1,
-                'modulos_habilitados' => $plan?->modulos ?? ['pos' => true],
-            ]);
+            $comercio = new Comercio();
+            $comercio->nombre = $validated['nombre_comercio'];
+            $comercio->slug = Str::slug($validated['nombre_comercio']);
+            $comercio->plan = $plan?->slug ?? 'basico';
+            $comercio->plan_id = $plan?->id;
+            $comercio->status = 'trial';
+            $comercio->limite_sucursales = $plan?->sucursales_limit ?? 1;
+            $comercio->limite_usuarios = $plan?->usuarios_limit ?? 1;
+            $comercio->modulos_habilitados = $plan?->modulos ?? ['pos' => true];
+            $comercio->save();
 
             // 4. Crear Sucursal base
             Sucursal::create([

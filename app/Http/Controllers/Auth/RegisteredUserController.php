@@ -42,13 +42,13 @@ class RegisteredUserController extends Controller
             'plan_deseado' => $esDesdeTienda ? 'nullable|string' : 'required|in:Plan Básico,Plan Estándar,Plan Premium',
         ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'plan_deseado' => $esDesdeTienda ? 'Plan Básico' : $request->plan_deseado,
-            'is_active' => $esDesdeTienda,
-        ]);
+        $user = new User();
+        $user->name = $request->name;
+        $user->email = $request->email;
+        $user->password = Hash::make($request->password);
+        $user->plan_deseado = $esDesdeTienda ? 'Plan Básico' : $request->plan_deseado;
+        $user->is_active = $esDesdeTienda;
+        $user->save();
 
         // Asignar rol 'cliente' a todo usuario que se registra desde la tienda pública
         $user->assignRole('cliente');

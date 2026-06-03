@@ -84,13 +84,13 @@ class UsuarioController extends Controller
             $comercioId = $userAuth->branch?->comercio_id;
         }
 
-        $usuario = User::create([
-            'name'        => $request->name,
-            'email'       => $request->email,
-            'password'    => Hash::make($request->password),
-            'branch_id'   => $request->branch_id,
-            'comercio_id' => $comercioId,
-        ]);
+        $usuario = new User();
+        $usuario->name = $request->name;
+        $usuario->email = $request->email;
+        $usuario->password = Hash::make($request->password);
+        $usuario->branch_id = $request->branch_id;
+        $usuario->comercio_id = $comercioId;
+        $usuario->save();
 
         $usuario->assignRole($request->rol);
 

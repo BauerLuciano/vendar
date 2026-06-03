@@ -73,22 +73,22 @@ class PedidoWebController extends Controller
             $comercio = Comercio::findOrFail($request->comercio_id);
 
             // 2. GUARDAR EL PEDIDO (PADRE)
-            $pedido = PedidoWeb::create([
-                'comercio_id'      => $comercio->id,
-                'sucursal_id'      => $request->sucursal_id,
-                'cliente_nombre'   => $nombreCliente,
-                'cliente_telefono' => $request->telefono_contacto,
-                'cliente_direccion' => $request->tipo_entrega === 'delivery' 
-                    ? trim($request->direccion_entrega . ' ' . ($request->piso_depto ?? ''))
-                    : 'Retiro en local',
-                'subtotal'       => $request->total_productos,
-                'costo_envio'    => $request->costo_envio ?? 0,
-                'total'          => $request->total_final,
-                'metodo_pago'    => $request->metodo_pago,
-                'estado_pago'    => 'pendiente',
-                'estado_pedido'  => 'nuevo',
-                'notas'          => $request->notas,
-            ]);
+            $pedido = new PedidoWeb();
+            $pedido->comercio_id = $comercio->id;
+            $pedido->sucursal_id = $request->sucursal_id;
+            $pedido->cliente_nombre = $nombreCliente;
+            $pedido->cliente_telefono = $request->telefono_contacto;
+            $pedido->cliente_direccion = $request->tipo_entrega === 'delivery'
+                ? trim($request->direccion_entrega . ' ' . ($request->piso_depto ?? ''))
+                : 'Retiro en local';
+            $pedido->subtotal = $request->total_productos;
+            $pedido->costo_envio = $request->costo_envio ?? 0;
+            $pedido->total = $request->total_final;
+            $pedido->metodo_pago = $request->metodo_pago;
+            $pedido->estado_pago = 'pendiente';
+            $pedido->estado_pedido = 'nuevo';
+            $pedido->notas = $request->notas;
+            $pedido->save();
 
             // 3. GUARDAR LOS ÍTEMS Y PREPARAR ARRAY PARA MERCADO PAGO
             $itemsParaMercadoPago = [];

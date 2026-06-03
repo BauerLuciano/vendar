@@ -112,7 +112,8 @@ class GestionPedidosWebController extends Controller
         $pedido = PedidoWeb::where('id', $id)
             ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
             ->firstOrFail();
-        $pedido->update(['estado_pago' => $request->estado_pago]);
+        $pedido->estado_pago = $request->estado_pago;
+        $pedido->save();
 
         return redirect()->back();
     }

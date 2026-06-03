@@ -154,13 +154,12 @@ class SuscripcionController extends Controller
         DB::transaction(function () use ($comercio, $plan) {
             $comercio = Comercio::lockForUpdate()->find($comercio->id);
 
-            $comercio->update([
-                'plan_id' => $plan->id,
-                'pending_plan_id' => null,
-                'modulos_habilitados' => $plan->modulos,
-                'limite_sucursales' => $plan->sucursales_limit,
-                'limite_usuarios' => $plan->usuarios_limit,
-            ]);
+            $comercio->plan_id = $plan->id;
+            $comercio->pending_plan_id = null;
+            $comercio->modulos_habilitados = $plan->modulos;
+            $comercio->limite_sucursales = $plan->sucursales_limit;
+            $comercio->limite_usuarios = $plan->usuarios_limit;
+            $comercio->save();
 
             activity()
                 ->performedOn($comercio)
