@@ -46,7 +46,12 @@ class SuscripcionController extends Controller
                 return response()->json(['error' => 'Plan no disponible'], 400);
             }
 
-            // Guardar intención de upgrade
+            // TODO: Evaluar si se permite downgrade de plan.
+            // Actualmente no hay restricción de precio: el comercio puede pasar
+            // a un plan más barato sin validación. Un downgrade podría dejar
+            // límites (sucursales/usuarios) por debajo del uso actual del comercio.
+            // Si se decide bloquear, comparar $plan->precio_mensual con
+            // $comercio->plan->precio_mensual y abort(400) si es menor.
             $comercio->update(['pending_plan_id' => $plan->id]);
 
             $token = trim(config('services.mercadopago.access_token'));

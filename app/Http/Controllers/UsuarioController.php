@@ -72,9 +72,17 @@ class UsuarioController extends Controller
         ]);
 
         $userAuth = auth()->user();
-        $comercioId = $request->branch_id
-            ? \App\Models\Sucursal::find($request->branch_id)?->comercio_id
-            : ($userAuth->branch?->comercio_id ?? null);
+        $comercioId = null;
+        if ($request->branch_id) {
+            $sucursal = \App\Models\Sucursal::where('comercio_id', $userAuth->branch?->comercio_id)
+                ->find($request->branch_id);
+            if (!$sucursal) {
+                return redirect()->back()->withErrors(['branch_id' => 'La sucursal seleccionada no pertenece a tu comercio.']);
+            }
+            $comercioId = $sucursal->comercio_id;
+        } else {
+            $comercioId = $userAuth->branch?->comercio_id;
+        }
 
         $usuario = User::create([
             'name'        => $request->name,

@@ -245,8 +245,11 @@ class GlobalAdminController extends Controller
                 'estado' => true,
             ]);
 
-            // 5. Vincular usuario a la sucursal
-            $user->update(['branch_id' => Sucursal::where('comercio_id', $comercio->id)->first()->id]);
+            // 5. Vincular usuario a la sucursal y al comercio
+            $user->update([
+                'comercio_id' => $comercio->id,
+                'branch_id' => Sucursal::where('comercio_id', $comercio->id)->first()->id,
+            ]);
         });
 
         return redirect()->back()->with('exito', "Solicitud de {$user->name} aprobada. Comercio y sucursal creados.");

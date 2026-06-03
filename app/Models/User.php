@@ -21,6 +21,7 @@ class User extends Authenticatable
         'is_active',
         'plan_deseado',
         'branch_id',
+        'comercio_id',
         'google_id',
         'avatar',
     ];
@@ -42,5 +43,10 @@ class User extends Authenticatable
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Sucursal::class, 'branch_id');
+    }
+
+    public function comercio(): BelongsTo
+    {
+        return $this->belongsTo(Comercio::class, 'comercio_id');
     }
 }

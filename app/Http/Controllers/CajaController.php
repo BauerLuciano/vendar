@@ -56,6 +56,12 @@ class CajaController extends Controller
 
     public function update(Request $request, Caja $caja)
     {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        if ($comercioId && $caja->sucursal->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         $validated = $request->validate(['nombre' => 'required|string|max:255']);
         $caja->update($validated);
         return redirect()->back()->with('success', 'Caja actualizada correctamente.');
@@ -63,6 +69,12 @@ class CajaController extends Controller
 
     public function toggleEstado(Caja $caja)
     {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        if ($comercioId && $caja->sucursal->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         $caja->update(['estado' => !$caja->estado]);
         $mensaje = $caja->estado ? 'reactivada' : 'inactivada';
         
@@ -71,6 +83,12 @@ class CajaController extends Controller
 
     public function destroy(Caja $caja)
     {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        if ($comercioId && $caja->sucursal->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         if (!$caja->puedeEliminarse()) {
             return redirect()->back()->with('error', 'No se puede eliminar esta caja porque tiene historial de turnos asociados. Por favor, utiliza la opción de inactivarla.');
         }

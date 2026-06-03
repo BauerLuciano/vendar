@@ -51,7 +51,7 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['error' => 'No external reference in payment'], 400);
         }
 
-        $pedido = PedidoWeb::findOrFail($externalRef);
+        $pedido = PedidoWeb::where('comercio_id', $comercio->id)->findOrFail($externalRef);
 
         if ($pedido->pasarela_payment_id === $paymentId && $pedido->estado_pago === 'pagado') {
             return response()->json(['status' => 'already_processed']);

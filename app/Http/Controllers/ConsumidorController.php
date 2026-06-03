@@ -113,9 +113,12 @@ class ConsumidorController extends Controller
 
     public function update(Request $request, Consumidor $consumidor)
     {
-        $this->normalizeInput($request);
-
         $comercioId = $this->getComercioId();
+        if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
+            abort(403, 'Este cliente no pertenece a tu comercio.');
+        }
+
+        $this->normalizeInput($request);
         $uniqueDocumento = $comercioId
             ? Rule::unique('consumidores', 'documento')->ignore($consumidor->id)->where(fn ($q) => $q->where('comercio_id', $comercioId))
             : Rule::unique('consumidores', 'documento')->ignore($consumidor->id);
@@ -156,6 +159,11 @@ class ConsumidorController extends Controller
 
     public function status(Consumidor $consumidor)
     {
+        $comercioId = $this->getComercioId();
+        if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         $consumidor->estado = !$consumidor->estado;
         $consumidor->save();
         
@@ -164,6 +172,11 @@ class ConsumidorController extends Controller
 
     public function estadoCuenta(Consumidor $consumidor)
     {
+        $comercioId = $this->getComercioId();
+        if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         $cuenta = $consumidor->cuentaCorriente;
         if (!$cuenta) {
             return response()->json([]);
@@ -179,6 +192,11 @@ class ConsumidorController extends Controller
 
     public function cobrarDeuda(Request $request, Consumidor $consumidor)
     {
+        $comercioId = $this->getComercioId();
+        if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         $request->validate([
             'pagos' => 'required|array|min:1',
             'pagos.*.monto' => 'required|numeric|min:0.01',
@@ -197,6 +215,7 @@ class ConsumidorController extends Controller
         DB::beginTransaction();
 
         try {
+            $cuenta = CuentaCorriente::where('id', $cuenta->id)->lockForUpdate()->first();
             $cuenta->saldo_deudor -= $totalAbono;
             $cuenta->fecha_ultimo_movimiento = now();
             $cuenta->save();

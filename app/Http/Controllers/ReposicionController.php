@@ -20,8 +20,13 @@ class ReposicionController extends Controller
         $user = auth()->user();
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
         
-        // Si es jefe, que vea por defecto su sucursal o la primera. Si es cajero, la suya.
-        $sucursalId = $esJefe && $user->branch_id ? $user->branch_id : ($user->branch_id ?? Sucursal::first()->id);
+        $sucursalId = $user->branch_id;
+        if (!$sucursalId) {
+            $sucursalId = null;
+        }
+        if (!$sucursalId) {
+            return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
+        }
 
         // 1. Buscamos TODOS los productos que están por debajo del mínimo en esa sucursal
         $faltantes = DB::table('productos')
@@ -56,7 +61,10 @@ class ReposicionController extends Controller
         ]);
 
         $user = auth()->user();
-        $sucursalId = $user->branch_id ?? Sucursal::first()->id;
+        $sucursalId = $user->branch_id;
+        if (!$sucursalId) {
+            return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
+        }
 
         DB::beginTransaction();
 

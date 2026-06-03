@@ -8,19 +8,33 @@ use Illuminate\Support\Facades\DB;
 
 class TransferenciaSugeridaController extends Controller
 {
+    private function getSucursalIds(): array
+    {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        if (!$comercioId) return [];
+        return \App\Models\Sucursal::where('comercio_id', $comercioId)->pluck('id')->toArray();
+    }
+
     /**
      * Devuelve la lista para que Vue la muestre en la tabla.
      */
     public function index()
     {
+        $sucursalIds = $this->getSucursalIds();
+        if (empty($sucursalIds)) {
+            return inertia('Transferencias/Index', ['sugerencias' => [], 'historial' => []]);
+        }
+
         // =================================================================
         // 1. EL MOTOR PREVENTIVO: Detectar bajo stock y armar sugerencias
         // =================================================================
-        
+
         // Unimos producto_sucursal con productos para saber el stock_minimo de cada uno
         $necesitados = DB::table('producto_sucursal')
             ->join('productos', 'productos.id', '=', 'producto_sucursal.producto_id')
             ->select('producto_sucursal.*', 'productos.stock_minimo')
+            ->whereIn('producto_sucursal.sucursal_id', $sucursalIds)
             ->whereRaw('producto_sucursal.cantidad_fisica < productos.stock_minimo')
             ->get();
 
@@ -32,6 +46,7 @@ class TransferenciaSugeridaController extends Controller
             if ($cantidadFaltante > 0) {
                 $salvador = DB::table('producto_sucursal')
                     ->join('productos', 'productos.id', '=', 'producto_sucursal.producto_id')
+                    ->whereIn('producto_sucursal.sucursal_id', $sucursalIds)
                     ->where('producto_sucursal.producto_id', $necesitado->producto_id)
                     ->where('producto_sucursal.sucursal_id', '!=', $necesitado->sucursal_id)
                     ->whereRaw('producto_sucursal.cantidad_fisica >= (CAST(? AS NUMERIC) + CAST(productos.stock_minimo AS NUMERIC))', [$cantidadFaltante])
@@ -58,12 +73,14 @@ class TransferenciaSugeridaController extends Controller
         
         // Traemos las sugerencias pendientes para la primera pestaña
         $sugerencias = TransferenciaSugerida::with(['origen', 'destino', 'producto'])
+            ->whereIn('origen_id', $sucursalIds)
             ->where('estado', 'pendiente')
             ->get();
 
         // NUEVO: Traemos las aprobadas para la segunda pestaña (Historial)
         // Ordenamos por updated_at desc para ver las últimas que aprobaste arriba de todo
         $historial = TransferenciaSugerida::with(['origen', 'destino', 'producto'])
+            ->whereIn('origen_id', $sucursalIds)
             ->where('estado', 'aprobada')
             ->orderBy('updated_at', 'desc')
             ->take(50) // Limitamos a 50 para que la carga sea rápida
@@ -80,6 +97,11 @@ class TransferenciaSugeridaController extends Controller
      */
     public function aprobar(TransferenciaSugerida $transferencia)
     {
+        $sucursalIds = $this->getSucursalIds();
+        if (!empty($sucursalIds) && !in_array($transferencia->origen_id, $sucursalIds)) {
+            return redirect()->back()->with('error', 'Esta transferencia no pertenece a tu comercio.');
+        }
+
         if ($transferencia->estado !== 'pendiente') {
             return redirect()->back()->with('error', 'Esta transferencia ya fue procesada.');
         }

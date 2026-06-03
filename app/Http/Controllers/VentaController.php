@@ -20,7 +20,11 @@ class VentaController extends Controller
 {
     public function index(Request $request)
     {
-        $sucursalId = auth()->user()->branch_id ?? 1;
+        $user = auth()->user();
+        if (!$user->branch_id) {
+            abort(403, 'No tienes una sucursal asignada.');
+        }
+        $sucursalId = $user->branch_id;
         
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');
@@ -300,7 +304,9 @@ class VentaController extends Controller
 
             // 2. Ajustar dinero (Revertir deuda o egreso de caja)
             if ($venta->metodo_pago === 'Cuenta Corriente' && $venta->consumidor_id) {
-                $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)->first();
+                $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
+                    ->lockForUpdate()
+                    ->first();
                 if ($cuenta) {
                     $cuenta->decrement('saldo_deudor', $venta->total);
                     MovimientoCuentaCorriente::create([

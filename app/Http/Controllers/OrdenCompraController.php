@@ -124,6 +124,14 @@ class OrdenCompraController extends Controller
 
     public function confirmarPedido(OrdenCompra $ordenCompra)
     {
+        $user = auth()->user();
+        $sucursalIds = $user->branch?->comercio_id
+            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+            : collect();
+        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
+            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        }
+
         if ($ordenCompra->estado !== 'Cotizada') {
             return redirect()->back()->with('error', 'Solo se pueden confirmar órdenes cotizadas.');
         }
@@ -138,6 +146,14 @@ class OrdenCompraController extends Controller
 
     public function aprobarYRecibir(OrdenCompra $ordenCompra)
     {
+        $user = auth()->user();
+        $sucursalIds = $user->branch?->comercio_id
+            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+            : collect();
+        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
+            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        }
+
         if ($ordenCompra->estado !== 'Aprobada') {
             return redirect()->back()->with('error', 'Primero debes confirmar el pedido al proveedor.');
         }
@@ -202,6 +218,14 @@ class OrdenCompraController extends Controller
 
     public function cambiarEstado(Request $request, OrdenCompra $ordenCompra)
     {
+        $user = auth()->user();
+        $sucursalIds = $user->branch?->comercio_id
+            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+            : collect();
+        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
+            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        }
+
         $validated = $request->validate([
             'estado' => 'required|in:Sugerida,Borrador,Enviada,Cotizada,Aprobada,Recepcionada,Cancelada'
         ]);
@@ -211,6 +235,14 @@ class OrdenCompraController extends Controller
 
     public function destroy(OrdenCompra $ordenCompra)
     {
+        $user = auth()->user();
+        $sucursalIds = $user->branch?->comercio_id
+            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+            : collect();
+        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
+            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        }
+
         if (in_array($ordenCompra->estado, ['Enviada', 'Recepcionada', 'Cotizada', 'Aprobada'])) {
             return redirect()->back()->with('error', 'No se puede eliminar una orden con actividad.');
         }
@@ -219,6 +251,14 @@ class OrdenCompraController extends Controller
     }
     public function descargarPDF(OrdenCompra $ordenCompra)
         {
+            $user = auth()->user();
+            $sucursalIds = $user->branch?->comercio_id
+                ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+                : collect();
+            if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
+                abort(403, 'Esta orden no pertenece a tu comercio.');
+            }
+
             $ordenCompra->load(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
             $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
 

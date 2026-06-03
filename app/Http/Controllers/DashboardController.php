@@ -23,8 +23,10 @@ class DashboardController extends Controller
             ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
             : collect();
 
-        // 1. Deuda Total (global, sin filtro)
-        $deudaTotal = CuentaCorriente::sum('saldo_deudor') ?? 0;
+        // 1. Deuda Total (filtrada por comercio)
+        $deudaTotal = CuentaCorriente::when($comercioId, function ($q) use ($comercioId) {
+            $q->whereHas('consumidor', fn ($sub) => $sub->where('comercio_id', $comercioId));
+        })->sum('saldo_deudor') ?? 0;
 
         // 2. Ventas de Hoy (filtradas por sucursal)
         $ventasHoyQuery = DB::table('ventas')

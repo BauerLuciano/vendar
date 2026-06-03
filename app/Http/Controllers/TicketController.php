@@ -11,6 +11,12 @@ class TicketController extends Controller
 {
         public function imprimir(Venta $venta)
     {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        if ($comercioId && $venta->turno->caja->sucursal->comercio_id !== $comercioId) {
+            abort(403);
+        }
+
         $venta->load(['detalles.producto', 'consumidor', 'turno.caja.sucursal', 'turno.cajero']);
         
         // Obtenemos todas las configuraciones
