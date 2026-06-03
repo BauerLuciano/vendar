@@ -24,6 +24,7 @@ class GlobalAdminSeeder extends Seeder
                 'name' => 'Admin Vendar',
                 'password' => Hash::make('admin'), // Poné una contraseña fuerte
                 'branch_id' => null, // 🔥 La clave del éxito: Sin sucursal
+                'is_active' => true,
             ]
         );
 

@@ -12,6 +12,7 @@ class PlanSeeder extends Seeder
         // Crear planes por defecto
         $planes = [
             [
+                'id' => 1,
                 'nombre' => 'Plan Básico',
                 'slug' => 'basico',
                 'descripcion' => 'Para emprendedores que inician.',
@@ -24,6 +25,7 @@ class PlanSeeder extends Seeder
                 'activo' => true,
             ],
             [
+                'id' => 2,
                 'nombre' => 'Plan Profesional',
                 'slug' => 'pro',
                 'descripcion' => 'Para comercios en crecimiento.',
@@ -36,6 +38,7 @@ class PlanSeeder extends Seeder
                 'activo' => true,
             ],
             [
+                'id' => 3,
                 'nombre' => 'Plan Premium',
                 'slug' => 'premium',
                 'descripcion' => 'Para empresas con operaciones completas.',
@@ -50,7 +53,10 @@ class PlanSeeder extends Seeder
         ];
 
         foreach ($planes as $plan) {
-            DB::table('planes')->insert($plan);
+            DB::table('planes')->updateOrInsert(
+            ['slug' => $plan['slug']],
+            $plan
+            );       
         }
 
         // Backfill: mapear comercios existentes con plan string a plan_id
