@@ -18,8 +18,6 @@ class GenerarOrdenesCompraSugeridas implements ShouldQueue
 
     public function handle(): void
     {
-        // 1. Buscamos productos que, sumando el stock de TODAS las sucursales, no lleguen al mínimo
-        // Los agrupamos por proveedor para no mandarle 20 mails al mismo tipo
         $productosFaltantes = Producto::where('estado', true)
             ->whereExists(function ($query) {
                 $query->select(DB::raw(1))
@@ -32,33 +30,31 @@ class GenerarOrdenesCompraSugeridas implements ShouldQueue
             ->groupBy('supplier_id');
 
         foreach ($productosFaltantes as $supplierId => $items) {
-            
-            // 2. Creamos la "Cabecera" de la orden para este proveedor
-            $orden = OrdenCompraSugerida::create([
-                'supplier_id' => $supplierId,
-                'estado' => 'pendiente',
-                'total_estimado' => 0
-            ]);
-
-            $totalOrden = 0;
-
-            foreach ($items as $item) {
-                // Sugerimos comprar el doble del stock mínimo para estar tranquilos
-                $cantidadAComprar = $item->stock_minimo * 2; 
-
-                // 3. Creamos el renglón del "Detalle"
-                OrdenCompraSugeridaDetalle::create([
-                    'orden_compra_sugerida_id' => $orden->id,
-                    'producto_id' => $item->id,
-                    'cantidad_sugerida' => $cantidadAComprar,
-                    'precio_costo_momento' => $item->precio_costo
+            DB::transaction(function () use ($supplierId, $items) {
+                $orden = OrdenCompraSugerida::create([
+                    'supplier_id' => $supplierId,
+                    'estado' => 'pendiente',
+                    'total_estimado' => 0,
                 ]);
 
-                $totalOrden += ($cantidadAComprar * $item->precio_costo);
-            }
+                $totalOrden = 0;
 
-            // 4. Actualizamos el precio final de la orden
-            $orden->update(['total_estimado' => $totalOrden]);
+                foreach ($items as $item) {
+                    $cantidadAComprar = $item->stock_minimo * 2;
+
+                    OrdenCompraSugeridaDetalle::create([
+                        'orden_compra_sugerida_id' => $orden->id,
+                        'producto_id' => $item->id,
+                        'cantidad_sugerida' => $cantidadAComprar,
+                        'precio_costo_momento' => $item->precio_costo,
+                    ]);
+
+                    $totalOrden += ($cantidadAComprar * $item->precio_costo);
+                }
+
+                $orden->total_estimado = $totalOrden;
+                $orden->save();
+            });
         }
     }
 }
