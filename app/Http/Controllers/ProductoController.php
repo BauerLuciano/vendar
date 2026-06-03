@@ -57,7 +57,10 @@ class ProductoController extends Controller
             $validados['estado'] = true; 
             $producto = Producto::create($validados);
 
-            $sucursalId = auth()->user()->sucursal_id ?? Sucursal::first()->id;
+            $sucursalId = auth()->user()->branch_id;
+            if (!$sucursalId) {
+                throw new \Exception('No tenés una sucursal asignada para registrar productos.');
+            }
             $cantidadInicial = $request->stock_inicial ?? 0;
 
             $producto->sucursales()->attach($sucursalId, [
@@ -93,6 +96,11 @@ class ProductoController extends Controller
 
     public function update(Request $request, Producto $producto)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+            abort(403, 'Este producto no pertenece a tu comercio.');
+        }
+
         $validados = $request->validate([
             'nombre'        => 'required|string|max:255',
             'codigo_barras' => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
@@ -126,12 +134,22 @@ class ProductoController extends Controller
 
     public function status(Producto $producto)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+            abort(403, 'Este producto no pertenece a tu comercio.');
+        }
+
         $producto->update(['estado' => !$producto->estado]);
         return redirect()->back()->with('success', 'Estado modificado.');
     }
 
     public function ajustarStock(Request $request, Producto $producto)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+            abort(403, 'Este producto no pertenece a tu comercio.');
+        }
+
         $validados = $request->validate([
             'sucursal_id' => 'required|exists:sucursales,id',
             'tipo_ajuste' => 'required|in:Sumar,Restar',

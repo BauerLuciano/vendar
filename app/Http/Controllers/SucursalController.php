@@ -73,6 +73,11 @@ class SucursalController extends Controller
 
    public function update(Request $request, Sucursal $sucursal)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && $sucursal->comercio_id !== $comercioId) {
+            abort(403, 'Esta sucursal no pertenece a tu comercio.');
+        }
+
         $validados = $request->validate([
             'nombre'         => 'required|string|max:100',
             'direccion'      => 'required|string|max:255',
@@ -95,6 +100,11 @@ class SucursalController extends Controller
 
     public function status(Sucursal $sucursal)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && $sucursal->comercio_id !== $comercioId) {
+            abort(403, 'Esta sucursal no pertenece a tu comercio.');
+        }
+
         $sucursal->update(['estado' => !$sucursal->estado]);
         return redirect()->back()->with('success', 'Estado de la sucursal modificado.');
     }

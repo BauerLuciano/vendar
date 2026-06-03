@@ -13,8 +13,13 @@ class MercadoPagoNotificacionController extends Controller
 {
     public function notificacion(Request $request)
     {
-        $topic = $request->input('topic');
         $paymentId = $request->input('data.id') ?? $request->input('id');
+
+        if (!$this->verificarFirma($request, $paymentId)) {
+            return response()->json(['error' => 'Invalid signature'], 401);
+        }
+
+        $topic = $request->input('topic');
 
         if ($topic !== 'payment' || !$paymentId) {
             return response()->json(['error' => 'Invalid notification'], 400);
@@ -65,9 +70,61 @@ class MercadoPagoNotificacionController extends Controller
         return response()->json(['status' => 'ok']);
     }
 
+    private function verificarFirma(Request $request, ?string $paymentId): bool
+    {
+        $secret = config('services.mercadopago.webhook_secret');
+
+        if (!$secret) {
+            if (app()->environment('production')) {
+                \Log::critical('MercadoPago webhook secret is missing in production — rejecting webhook');
+                return false;
+            }
+            \Log::warning('MercadoPago webhook secret not configured — skipping signature verification');
+            return true;
+        }
+
+        $signature = $request->header('X-Signature');
+        if (!$signature) {
+            \Log::warning('MercadoPago webhook rejected: missing X-Signature header');
+            return false;
+        }
+
+        $parts = [];
+        foreach (explode(',', $signature) as $part) {
+            $segments = explode('=', $part, 2);
+            if (count($segments) === 2) {
+                $parts[trim($segments[0])] = trim($segments[1]);
+            }
+        }
+
+        $ts = $parts['ts'] ?? null;
+        $v1 = $parts['v1'] ?? null;
+
+        if (!$ts || !$v1 || !$paymentId) {
+            \Log::warning('MercadoPago webhook rejected: missing ts, v1, or paymentId');
+            return false;
+        }
+
+        // Anti-replay: reject timestamps older than 5 minutes
+        $age = abs(time() - (int) $ts);
+        if ($age > 300) {
+            \Log::warning('MercadoPago webhook rejected: timestamp too old', ['ts' => $ts, 'age' => $age]);
+            return false;
+        }
+
+        $payload = "{$paymentId}|{$ts}|{$secret}";
+        $expected = hash_hmac('sha256', $payload, $secret);
+
+        $valid = hash_equals($expected, $v1);
+        if (!$valid) {
+            \Log::warning('MercadoPago webhook rejected: invalid signature');
+        }
+        return $valid;
+    }
+
     private function procesarUpgradePlan(string $paymentId)
     {
-        $token = trim(env('MERCADOPAGO_ACCESS_TOKEN'));
+        $token = trim(config('services.mercadopago.access_token'));
 
         $response = Http::withToken($token)
             ->get("https://api.mercadopago.com/v1/payments/{$paymentId}");

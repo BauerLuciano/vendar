@@ -40,8 +40,14 @@ class GestionPedidosWebController extends Controller
         $user = auth()->user();
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
 
-        return DB::transaction(function () use ($request, $id, $esJefe) {
-            $pedido = PedidoWeb::lockForUpdate()->with('items')->findOrFail($id);
+        return DB::transaction(function () use ($request, $id, $esJefe, $user) {
+            $sucursalIds = $user->branch?->comercio_id
+                ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+                : collect();
+
+            $pedido = PedidoWeb::lockForUpdate()->with('items')
+                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
+                ->findOrFail($id);
             $estadoActual = $pedido->estado_pedido;
             $nuevoEstado = $request->estado_pedido;
 
@@ -98,7 +104,14 @@ class GestionPedidosWebController extends Controller
     {
         $request->validate(['estado_pago' => 'required|in:pendiente,pagado,reembolsado']);
 
-        $pedido = PedidoWeb::findOrFail($id);
+        $user = auth()->user();
+        $sucursalIds = $user->branch?->comercio_id
+            ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
+            : collect();
+
+        $pedido = PedidoWeb::where('id', $id)
+            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
+            ->firstOrFail();
         $pedido->update(['estado_pago' => $request->estado_pago]);
 
         return redirect()->back();

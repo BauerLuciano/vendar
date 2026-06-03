@@ -71,11 +71,17 @@ class UsuarioController extends Controller
             'rol'       => 'required|string|exists:roles,name'
         ]);
 
+        $userAuth = auth()->user();
+        $comercioId = $request->branch_id
+            ? \App\Models\Sucursal::find($request->branch_id)?->comercio_id
+            : ($userAuth->branch?->comercio_id ?? null);
+
         $usuario = User::create([
-            'name'      => $request->name,
-            'email'     => $request->email,
-            'password'  => Hash::make($request->password),
-            'branch_id' => $request->branch_id,
+            'name'        => $request->name,
+            'email'       => $request->email,
+            'password'    => Hash::make($request->password),
+            'branch_id'   => $request->branch_id,
+            'comercio_id' => $comercioId,
         ]);
 
         $usuario->assignRole($request->rol);
@@ -85,6 +91,11 @@ class UsuarioController extends Controller
 
     public function update(Request $request, User $usuario)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && $usuario->comercio_id !== $comercioId) {
+            abort(403, 'Este usuario no pertenece a tu comercio.');
+        }
+
         $request->validate([
             'name'      => 'required|string|max:255',
             'email'     => 'required|string|email|max:255|unique:users,email,' . $usuario->id,
@@ -110,6 +121,11 @@ class UsuarioController extends Controller
 
     public function destroy(User $usuario)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && $usuario->comercio_id !== $comercioId) {
+            abort(403, 'Este usuario no pertenece a tu comercio.');
+        }
+
         if ($usuario->id === auth()->id()) {
             return redirect()->back()->withErrors(['error' => 'No podés eliminar tu propio usuario.']);
         }
