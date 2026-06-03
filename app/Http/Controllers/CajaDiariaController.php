@@ -16,6 +16,18 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class CajaDiariaController extends Controller
 {
+    private function autorizarTurno(int $turnoId): void
+    {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        if (!$comercioId) return;
+
+        $turno = TurnoCaja::with('caja.sucursal')->findOrFail($turnoId);
+        if ($turno->caja->sucursal->comercio_id !== $comercioId) {
+            abort(403);
+        }
+    }
+
     /**
      * Obtiene el historial de todas las sesiones de caja de la sucursal del usuario
      * (incluye las cerradas y la actual si la hubiera)
@@ -23,10 +35,10 @@ class CajaDiariaController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $sucursalId = $user->branch_id ?? 1;
+        $sucursalId = $user->branch_id;
 
         $sesiones = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])
-            ->where('sucursal_id', $sucursalId)
+            ->when($sucursalId, fn ($q) => $q->where('sucursal_id', $sucursalId))
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function ($turno) {
@@ -86,7 +98,10 @@ class CajaDiariaController extends Controller
             ]);
 
             $user = auth()->user();
-            $cajaFisica = Caja::find($request->caja);
+            $comercioId = $user->branch?->comercio_id;
+
+            $cajaFisica = Caja::whereHas('sucursal', fn ($q) => $q->when($comercioId, fn ($sq) => $sq->where('comercio_id', $comercioId)))
+                ->find($request->caja);
 
             if (!$cajaFisica) {
                 return response()->json(['error' => 'La caja seleccionada no existe.'], 404);
@@ -180,11 +195,11 @@ class CajaDiariaController extends Controller
     public function getCajasDisponibles(Request $request)
     {
         $user = $request->user();
-        $sucursalId = $user->branch_id ?? 1;
+        $sucursalId = $user->branch_id;
         
-        $cajas = Caja::where('sucursal_id', $sucursalId)
-                     ->where('estado', true)
-                     ->get();
+        $cajas = Caja::where('estado', true)
+            ->when($sucursalId, fn ($q) => $q->where('sucursal_id', $sucursalId))
+            ->get();
                      
         return response()->json($cajas);
     }
@@ -202,6 +217,8 @@ class CajaDiariaController extends Controller
      */
     public function getBalance($id)
     {
+        $this->autorizarTurno($id);
+
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)->get();
         $efectivo = 0;
         $mp = 0;
@@ -230,6 +247,8 @@ class CajaDiariaController extends Controller
      */
     public function getMovimientos($id)
     {
+        $this->autorizarTurno($id);
+
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)
             ->orderBy('created_at', 'desc')
             ->get()
@@ -255,7 +274,13 @@ class CajaDiariaController extends Controller
             'observaciones' => 'nullable|string|max:500',
         ]);
 
-        $turno = TurnoCaja::findOrFail($id);
+        $user = $request->user();
+        $turno = TurnoCaja::where('id', $id)
+            ->when($user->branch?->comercio_id, function ($q) use ($user) {
+                $sucursalIds = \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id');
+                $q->whereIn('sucursal_id', $sucursalIds);
+            })
+            ->firstOrFail();
 
         if ($turno->estado !== 'Abierto') {
             return response()->json(['error' => 'Esta caja ya está cerrada'], 400);
@@ -283,7 +308,14 @@ class CajaDiariaController extends Controller
      */
     public function descargarPdf(Request $request, $id)
     {
-        $turno = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])->findOrFail($id);
+        $user = $request->user();
+        $turno = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])
+            ->where('id', $id)
+            ->when($user->branch?->comercio_id, function ($q) use ($user) {
+                $sucursalIds = \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id');
+                $q->whereIn('sucursal_id', $sucursalIds);
+            })
+            ->firstOrFail();
         $sucursal = Sucursal::find($turno->sucursal_id);
         
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)

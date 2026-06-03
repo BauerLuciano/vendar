@@ -16,6 +16,12 @@ class IngresoMercaderiaController extends Controller
 {
     public function index(Request $request)
     {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $sucursalIds = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
+            : collect();
+
         $search = $request->input('search');
         $proveedor_id = $request->input('proveedor_id', 'all');
         $sucursal_id = $request->input('sucursal_id', 'all');
@@ -23,6 +29,7 @@ class IngresoMercaderiaController extends Controller
         $fecha_hasta = $request->input('fecha_hasta');
 
         $ingresos = IngresoMercaderia::with(['proveedor', 'sucursal', 'detalles.producto', 'usuario'])
+            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
             ->when($search, function ($q, $search) {
                 $q->where('numero_remito', 'LIKE', "%{$search}%");
             })
@@ -45,9 +52,13 @@ class IngresoMercaderiaController extends Controller
 
         return Inertia::render('Ingresos/Index', [
             'ingresos' => $ingresos,
-            'productos' => Producto::where('estado', true)->get(),
+            'productos' => Producto::where('estado', true)
+                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                ->get(),
             'proveedores' => Proveedor::where('estado', true)->get(),
-            'sucursales' => Sucursal::where('estado', true)->get(),
+            'sucursales' => $sucursalIds->isNotEmpty()
+                ? Sucursal::whereIn('id', $sucursalIds)->where('estado', true)->get()
+                : Sucursal::where('estado', true)->get(),
             'filtros' => $request->only(['search', 'proveedor_id', 'sucursal_id', 'fecha_desde', 'fecha_hasta'])
         ]);
     }
@@ -60,10 +71,19 @@ class IngresoMercaderiaController extends Controller
             'numero_remito' => 'nullable|string',
             'items' => 'required|array|min:1',
             'items.*.producto_id' => 'required|exists:productos,id',
-            'items.*.cantidad' => 'required|numeric|min:1', // Cambiado a numeric por si venden por Kilos
+            'items.*.cantidad' => 'required|numeric|min:1',
             'items.*.costo' => 'required|numeric|min:0',
-            'items.*.fecha_vencimiento' => 'nullable|date', // 🔥 NUEVA VALIDACIÓN
+            'items.*.fecha_vencimiento' => 'nullable|date',
         ]);
+
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $sucursalIds = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
+            : collect();
+        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($request->sucursal_id)) {
+            return redirect()->back()->withErrors(['error' => 'La sucursal seleccionada no pertenece a tu comercio.']);
+        }
 
         $alertasInflacion = [];
 
@@ -98,7 +118,8 @@ class IngresoMercaderiaController extends Controller
                     ]);
                 }
 
-                $producto = Producto::find($item['producto_id']);
+                $producto = Producto::when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                    ->findOrFail($item['producto_id']);
                 $costoNuevo = $item['costo'];
                 $costoAnterior = $producto->precio_costo;
 

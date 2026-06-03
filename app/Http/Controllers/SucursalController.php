@@ -10,10 +10,13 @@ class SucursalController extends Controller
 {
     public function index(Request $request)
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');
 
-        $sucursales = Sucursal::when($search, function ($q, $search) {
+        $sucursales = Sucursal::when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+            ->when($search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('nombre', 'LIKE', "%{$search}%")
                         ->orWhere('direccion', 'LIKE', "%{$search}%")

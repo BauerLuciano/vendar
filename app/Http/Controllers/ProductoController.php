@@ -17,12 +17,22 @@ class ProductoController extends Controller
 {
     public function index()
     {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $sucursalIds = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
+            : collect();
+
         return Inertia::render('Productos/Index', [
-            'productos' => Producto::with(['categoria', 'marca', 'sucursales', 'proveedor'])->orderBy('id', 'desc')->get(),
-            'categorias' => Categoria::all(), 
-            'marcas' => Marca::all(),        
+            'productos' => Producto::with(['categoria', 'marca', 'sucursales', 'proveedor'])
+                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                ->orderBy('id', 'desc')
+                ->get(),
+            'categorias' => Categoria::all(),
+            'marcas' => Marca::all(),
             'proveedores' => Proveedor::where('estado', true)->get(),
-            'sucursales' => Sucursal::all()
+            'sucursales' => $sucursalIds->isNotEmpty()
+                ? Sucursal::whereIn('id', $sucursalIds)->get()
+                : Sucursal::all(),
         ]);
     }
 

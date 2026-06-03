@@ -22,9 +22,13 @@ class PosController extends Controller
             ->first();
 
         if ($turnoAbierto) {
-            $sucursalId = $user->branch_id ?? 1;
+            $sucursalId = $user->branch_id;
+            if (!$sucursalId) {
+                return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
+            }
 
             $productos = Producto::where('estado', true)
+                ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
                 ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
                 ->with([
                     'sucursales' => function($q) use ($sucursalId) {
@@ -67,8 +71,10 @@ class PosController extends Controller
                     return $p;
                 });
 
+            $comercioId = $user->branch?->comercio_id;
             $clientesActivos = Consumidor::with('cuentaCorriente')
                 ->where('estado', true)
+                ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
                 ->get();
 
             return Inertia::render('Pos/Terminal', [
@@ -78,7 +84,12 @@ class PosController extends Controller
             ]);
         }
 
-        $cajasDisponibles = Caja::where('sucursal_id', $user->branch_id ?? 1)
+        $sucursalId = $user->branch_id;
+        if (!$sucursalId) {
+            return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
+        }
+
+        $cajasDisponibles = Caja::where('sucursal_id', $sucursalId)
             ->where('estado', true)
             ->get();
 
