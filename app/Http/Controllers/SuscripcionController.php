@@ -17,16 +17,6 @@ class SuscripcionController extends Controller
         $user = auth()->user();
         $comercio = Comercio::with('plan')->find($user->comercio_id);
 
-        if (!$comercio) {
-            $comercio = (object)[
-                'id' => 999,
-                'nombre' => 'Local de Pruebas',
-                'plan' => 'basico',
-                'plan_id' => null,
-                'status' => 'activo'
-            ];
-        }
-
         $planes = Plan::where('activo', true)
             ->orderBy('orden')
             ->orderBy('precio_mensual')
@@ -59,7 +49,7 @@ class SuscripcionController extends Controller
             // Guardar intención de upgrade
             $comercio->update(['pending_plan_id' => $plan->id]);
 
-            $token = trim(env('MERCADOPAGO_ACCESS_TOKEN'));
+            $token = trim(config('services.mercadopago.access_token'));
             MercadoPagoConfig::setAccessToken($token);
 
             if (app()->environment('local')) {
@@ -121,8 +111,21 @@ class SuscripcionController extends Controller
             return response()->json(['status' => 'already_upgraded', 'plan_id' => $comercio->plan_id]);
         }
 
+        // Validar que el plan solicitado coincida con la intención de compra activa
+        if ((int) $comercio->pending_plan_id !== (int) $request->plan_id) {
+            \Log::warning('Intento de upgrade con plan_id no coincidente', [
+                'user_id' => $user->id,
+                'comercio_id' => $comercio->id,
+                'requested_plan_id' => $request->plan_id,
+                'pending_plan_id' => $comercio->pending_plan_id,
+            ]);
+            return response()->json([
+                'error' => 'El plan solicitado no coincide con la intención de pago. Generá una nueva preferencia.'
+            ], 400);
+        }
+
         // Validar pago contra MP API
-        $token = trim(env('MERCADOPAGO_ACCESS_TOKEN'));
+        $token = trim(config('services.mercadopago.access_token'));
         $response = \Illuminate\Support\Facades\Http::withToken($token)
             ->get("https://api.mercadopago.com/v1/payments/{$request->payment_id}");
 

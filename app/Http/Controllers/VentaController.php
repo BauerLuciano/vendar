@@ -72,32 +72,43 @@ class VentaController extends Controller
         $permitirStockNegativo = \App\Models\Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
         $permitirStockNegativo = filter_var($permitirStockNegativo, FILTER_VALIDATE_BOOLEAN);
 
-        // 🛑 VALIDACIÓN DE CUENTA CORRIENTE (FIADO)
-        if ($request->metodo_pago === 'Cuenta Corriente') {
-            if (!$request->consumidor_id) {
-                return redirect()->back()->withErrors(['error' => 'Debe seleccionar un cliente para realizar una venta en cuenta corriente.']);
-            }
-
-            $consumidor = Consumidor::with('cuentaCorriente')->findOrFail($request->consumidor_id);
-            $deudaActual = $consumidor->cuentaCorriente ? $consumidor->cuentaCorriente->saldo_deudor : 0;
-            $disponible = $consumidor->limite_cuenta_corriente - $deudaActual;
-
-            if ($request->total > $disponible) {
-                $montoFormateado = number_format($disponible, 2, ',', '.');
-                return redirect()->back()->withErrors([
-                    'error' => "Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado."
-                ]);
-            }
-        }
-
         try {
             DB::beginTransaction();
 
-            $turno = TurnoCaja::with('caja')->findOrFail($request->turno_caja_id);
+            $comercioId = auth()->user()->branch?->comercio_id;
+
+            // Ordenar items por producto_id para reducir deadlocks en locks concurrentes
+            $items = collect($request->items)->sortBy('id')->values()->all();
+
+            $turno = TurnoCaja::with('caja')
+                ->when($comercioId, fn ($q) => $q->whereHas('caja.sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
+                ->findOrFail($request->turno_caja_id);
             $sucursalId = $turno->caja->sucursal_id;
 
+            // 🛑 VALIDACIÓN DE CUENTA CORRIENTE (FIADO) — dentro de la transacción para evitar race conditions
+            $cuenta = null;
+            if ($request->metodo_pago === 'Cuenta Corriente') {
+                if (!$request->consumidor_id) {
+                    throw new \Exception('Debe seleccionar un cliente para realizar una venta en cuenta corriente.');
+                }
+
+                $consumidor = Consumidor::with('cuentaCorriente')
+                    ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+                    ->findOrFail($request->consumidor_id);
+                $cuenta = CuentaCorriente::lockForUpdate()
+                    ->where('consumidor_id', $request->consumidor_id)
+                    ->first();
+                $deudaActual = $cuenta ? $cuenta->saldo_deudor : 0;
+                $disponible = $consumidor->limite_cuenta_corriente - $deudaActual;
+
+                if ($request->total > $disponible) {
+                    $montoFormateado = number_format($disponible, 2, ',', '.');
+                    throw new \Exception("Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado.");
+                }
+            }
+
             // 🛑 VALIDACIÓN DE STOCK ANTES DE CREAR LA VENTA
-            foreach ($request->items as $item) {
+            foreach ($items as $item) {
                 $stockActual = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId)
@@ -126,10 +137,12 @@ class VentaController extends Controller
 
             // 3. Lógica Financiera (CC o Movimiento de Caja)
             if ($request->metodo_pago === 'Cuenta Corriente') {
-                $cuenta = CuentaCorriente::firstOrCreate(
-                    ['consumidor_id' => $request->consumidor_id],
-                    ['saldo_deudor' => 0]
-                );
+                if (!$cuenta) {
+                    $cuenta = CuentaCorriente::create([
+                        'consumidor_id' => $request->consumidor_id,
+                        'saldo_deudor' => 0,
+                    ]);
+                }
                 
                 $cuenta->increment('saldo_deudor', $request->total);
                 
@@ -155,7 +168,7 @@ class VentaController extends Controller
             }
 
             // 4. Procesar Detalle, Descuento de Stock, Auditoría Y LOTES
-            foreach ($request->items as $item) {
+            foreach ($items as $item) {
                 
                 $cantidadAVender = $item['cantidad'];
 
@@ -172,6 +185,7 @@ class VentaController extends Controller
                     ->where('sucursal_id', $sucursalId)
                     ->where('stock_actual', '>', 0)
                     ->orderBy('fecha_vencimiento', 'asc')
+                    ->lockForUpdate()
                     ->get();
 
                 $pendientePorRestar = $cantidadAVender;
@@ -250,6 +264,16 @@ class VentaController extends Controller
     public function cancelar(Request $request, Venta $venta)
     {
         $request->validate(['motivo' => 'required|string|max:255']);
+
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId) {
+            $existe = Venta::where('id', $venta->id)
+                ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
+                ->exists();
+            if (!$existe) {
+                abort(403, 'Esta venta no pertenece a tu comercio.');
+            }
+        }
 
         return DB::transaction(function () use ($venta, $request) {
             $venta = Venta::lockForUpdate()->with('turno.caja', 'detalles.lotes')->findOrFail($venta->id);
