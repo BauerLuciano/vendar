@@ -413,6 +413,7 @@ Route::get('/tienda/{slug}', function ($slug) {
 
 // Webhook MercadoPago (sin CSRF ni auth, MP envía desde sus servidores)
 Route::post('/api/mercadopago/notificacion', [\App\Http\Controllers\MercadoPagoNotificacionController::class, 'notificacion'])
+    ->middleware('throttle:30,1')
     ->name('mercadopago.notificacion');
 
 // Login y registro como páginas dedicadas
