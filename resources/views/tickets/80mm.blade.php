@@ -54,7 +54,7 @@
 
     <div class="border-bottom" style="margin-top: 10px; text-align: right;">
         <div style="font-size: 16px;">TOTAL: <span class="bold">${{ number_format($venta->total, 2) }}</span></div>
-        <div style="font-size: 11px;">Método: {{ $venta->metodo_pago }}</div>
+        <div style="font-size: 11px;">Método: {{ $venta->metodo_pago_display }}</div>
     </div>
 
     <div class="text-center" style="margin-top: 15px; font-style: italic;">

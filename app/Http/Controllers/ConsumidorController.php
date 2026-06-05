@@ -2,15 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MetodoPago;
 use App\Models\Consumidor;
-use App\Models\TurnoCaja;
-use App\Models\MovimientoCaja;
+use App\Models\CuentaCorriente;
 use App\Models\MovimientoCuentaCorriente;
+use App\Models\MovimientoCaja;
+use App\Models\TurnoCaja;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class ConsumidorController extends Controller
 {
@@ -38,8 +39,10 @@ class ConsumidorController extends Controller
             $q->where(function ($sub) use ($search) {
                 $sub->where('nombre', 'LIKE', "%{$search}%")
                     ->orWhere('apellido', 'LIKE', "%{$search}%")
-                    ->orWhere('documento', 'LIKE', "%{$search}%")
-                    ->orWhere('id', 'LIKE', "%{$search}%");
+                    ->orWhere('documento', 'LIKE', "%{$search}%");
+                if (is_numeric($search)) {
+                    $sub->orWhere('id', $search);
+                }
             });
         });
 
@@ -243,17 +246,18 @@ class ConsumidorController extends Controller
 
             if ($turno) {
                 foreach ($request->pagos as $pago) {
+                    $metodoPagoNormalizado = MetodoPago::fromString($pago['metodo_pago'])->value;
+                    $metodoPagoLabel = MetodoPago::fromString($pago['metodo_pago'])->label();
                     MovimientoCaja::create([
                         'turno_caja_id' => $turno->id,
                         'tipo'          => 'INGRESO',
                         'concepto'      => 'COBRO_CUENTA_CORRIENTE',
-                        'metodo_pago'   => $pago['metodo_pago'],
+                        'metodo_pago'   => $metodoPagoNormalizado,
                         'monto'         => $pago['monto'],
-                        // 🔥 MAGIA ACÁ: Ahora se guarda "Pago deuda: Juan Perez (Efectivo)"
-                        'descripcion'   => 'Pago deuda: ' . $consumidor->nombre . ' ' . $consumidor->apellido . ' (' . $pago['metodo_pago'] . ')'
+                        'descripcion'   => 'Pago deuda: ' . $consumidor->nombre . ' ' . $consumidor->apellido . ' (' . $metodoPagoLabel . ')'
                     ]);
 
-                    $detallesPago[] = $pago['metodo_pago'] . ': $' . number_format($pago['monto'], 2, ',', '.');
+                    $detallesPago[] = $metodoPagoLabel . ': $' . number_format($pago['monto'], 2, ',', '.');
                 }
             }
 

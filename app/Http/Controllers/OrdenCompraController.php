@@ -36,7 +36,9 @@ class OrdenCompraController extends Controller
         }
 
         $ordenes = $query->when($search, function ($q, $search) {
-                $q->where('id', 'LIKE', "%{$search}%");
+                if (is_numeric($search)) {
+                    $q->where('id', $search);
+                }
             })
             ->when($estado !== 'all', function ($q) use ($estado) {
                 $q->where('estado', $estado);

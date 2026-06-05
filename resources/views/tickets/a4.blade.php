@@ -69,7 +69,7 @@
             <span>TOTAL:</span>
             <span class="bold">${{ number_format($venta->total, 2) }}</span>
         </div>
-        <p style="text-align: right; margin-top: 10px; font-size: 12px;">Método de pago: {{ $venta->metodo_pago }}</p>
+        <p style="text-align: right; margin-top: 10px; font-size: 12px;">Método de pago: {{ $venta->metodo_pago_display }}</p>
     </div>
 
     <div class="clear"></div>

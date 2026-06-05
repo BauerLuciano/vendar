@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MetodoPago;
 use App\Models\Venta;
 use App\Models\DetalleVenta;
 use App\Models\Producto;
@@ -36,11 +37,17 @@ class VentaController extends Controller
                 $q->where('sucursal_id', $sucursalId);
             })
             ->when($search, function ($q, $search) {
-                // 🔥 BUSCAR POR ID DE VENTA O POR NOMBRE/APELLIDO DEL CLIENTE
-                $q->where('id', 'LIKE', "%{$search}%")
-                ->orWhereHas('consumidor', function ($sub) use ($search) {
-                    $sub->where('nombre', 'LIKE', "%{$search}%")
-                        ->orWhere('apellido', 'LIKE', "%{$search}%");
+                $q->where(function ($sub) use ($search) {
+                    if (is_numeric($search)) {
+                        $sub->where('id', $search)
+                            ->orWhere(function ($sub2) use ($search) {
+                                $sub2->whereHas('consumidor', fn ($q) => $q->where('nombre', 'LIKE', "%{$search}%")
+                                    ->orWhere('apellido', 'LIKE', "%{$search}%"));
+                            });
+                    } else {
+                        $sub->whereHas('consumidor', fn ($q) => $q->where('nombre', 'LIKE', "%{$search}%")
+                            ->orWhere('apellido', 'LIKE', "%{$search}%"));
+                    }
                 });
             })
             ->when($estado !== 'all', function ($q) use ($estado) {
@@ -91,7 +98,8 @@ class VentaController extends Controller
 
             // 🛑 VALIDACIÓN DE CUENTA CORRIENTE (FIADO) — dentro de la transacción para evitar race conditions
             $cuenta = null;
-            if ($request->metodo_pago === 'Cuenta Corriente') {
+            $metodoPagoNormalizado = MetodoPago::fromString($request->metodo_pago)->value;
+            if ($metodoPagoNormalizado === MetodoPago::CUENTA_CORRIENTE->value) {
                 if (!$request->consumidor_id) {
                     throw new \Exception('Debe seleccionar un cliente para realizar una venta en cuenta corriente.');
                 }
@@ -134,13 +142,13 @@ class VentaController extends Controller
             $venta = Venta::create([
                 'turno_caja_id' => $request->turno_caja_id,
                 'consumidor_id' => $request->consumidor_id,
-                'metodo_pago'   => $request->metodo_pago,
+                'metodo_pago'   => $metodoPagoNormalizado,
                 'total'         => $request->total,
                 'estado'        => 'Completada',
             ]);
 
             // 3. Lógica Financiera (CC o Movimiento de Caja)
-            if ($request->metodo_pago === 'Cuenta Corriente') {
+            if ($metodoPagoNormalizado === MetodoPago::CUENTA_CORRIENTE->value) {
                 if (!$cuenta) {
                     $cuenta = CuentaCorriente::create([
                         'consumidor_id' => $request->consumidor_id,
@@ -159,13 +167,11 @@ class VentaController extends Controller
                 ]);
             } 
             else {
-                $metodoPagoCaja = strtoupper(str_replace(' ', '_', $request->metodo_pago));
-
                 MovimientoCaja::create([
                     'turno_caja_id' => $request->turno_caja_id,
                     'tipo'          => 'INGRESO',
                     'concepto'      => 'VENTA_MOSTRADOR',
-                    'metodo_pago'   => $metodoPagoCaja,
+                    'metodo_pago'   => $metodoPagoNormalizado,
                     'monto'         => $request->total,
                     'descripcion'   => 'Ticket de venta #' . $venta->id,
                 ]);
@@ -303,7 +309,8 @@ class VentaController extends Controller
             }
 
             // 2. Ajustar dinero (Revertir deuda o egreso de caja)
-            if ($venta->metodo_pago === 'Cuenta Corriente' && $venta->consumidor_id) {
+            $metodoPagoCancelar = MetodoPago::fromString($venta->metodo_pago)->value;
+            if ($metodoPagoCancelar === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
                 $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
                     ->lockForUpdate()
                     ->first();
@@ -318,12 +325,11 @@ class VentaController extends Controller
                     ]);
                 }
             } else {
-                $metodoPagoCaja = strtoupper(str_replace(' ', '_', $venta->metodo_pago));
                 MovimientoCaja::create([
                     'turno_caja_id' => $venta->turno_caja_id,
                     'tipo'          => 'EGRESO',
                     'concepto'      => 'ANULACION_VENTA',
-                    'metodo_pago'   => $metodoPagoCaja,
+                    'metodo_pago'   => $metodoPagoCancelar,
                     'monto'         => $venta->total,
                     'descripcion'   => 'Anulación de venta #' . $venta->id . ' - Motivo: ' . $request->motivo,
                 ]);

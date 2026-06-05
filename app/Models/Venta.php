@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MetodoPago;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Traits\Auditable;
@@ -29,5 +30,10 @@ class Venta extends Model
     
     public function detalles() {
         return $this->hasMany(DetalleVenta::class); 
+    }
+
+    public function getMetodoPagoDisplayAttribute()
+    {
+        return MetodoPago::fromString($this->metodo_pago)->label();
     }
 }

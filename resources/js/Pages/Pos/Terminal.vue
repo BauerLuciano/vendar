@@ -2,7 +2,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import LectorCamara from '@/Components/LectorCamara.vue'; // 🔥 IMPORTAMOS LA CÁMARA
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
@@ -20,7 +20,7 @@ const permitirStockNegativo = computed(() => {
 
 const buscar = ref('');
 const carrito = ref([]);
-const metodoPago = ref('Efectivo'); 
+const metodoPago = ref('EFECTIVO'); 
 
 const clienteSeleccionado = ref(null); 
 const busquedaCliente = ref('');
@@ -56,12 +56,28 @@ const disponibleCliente = computed(() => {
     return limite - deuda;
 });
 
+const montoRecibido = ref(null);
+const vuelto = computed(() => {
+    if (montoRecibido.value === null || montoRecibido.value === '' || Number(montoRecibido.value) < totalVenta.value) return null;
+    return Number(montoRecibido.value) - totalVenta.value;
+});
+const sugerencias = computed(() => {
+    const t = totalVenta.value;
+    const montos = [];
+    const base = [100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+    for (const m of base) {
+        const sug = Math.ceil(t / m) * m;
+        if (sug > t && !montos.includes(sug)) montos.push(sug);
+    }
+    return montos.slice(0, 4);
+});
+
 const totalVenta = computed(() => {
     return carrito.value.reduce((acc, item) => acc + (item.precio_venta * item.cantidad), 0);
 });
 
 const bloqueoPorSaldo = computed(() => {
-    if (metodoPago.value === 'Cuenta Corriente' && clienteActivoObj.value) {
+    if (metodoPago.value === 'CUENTA_CORRIENTE' && clienteActivoObj.value) {
         return totalVenta.value > disponibleCliente.value;
     }
     return false;
@@ -96,11 +112,9 @@ const procesarBusquedaEnter = () => {
     const exactMatch = props.productos.find(p => p.codigo_barras === query);
     if (exactMatch) {
         clickEnProducto(exactMatch);
-        return;
     } else {
-        // Opcional: Aviso si la cámara lee algo que no existe
-        Swal.fire('No encontrado', 'El código escaneado no pertenece a ningún producto.', 'warning');
         buscar.value = '';
+        nextTick(() => { if (inputBusqueda.value) inputBusqueda.value.focus(); });
     }
 };
 
@@ -224,7 +238,7 @@ const eliminarDelCarrito = (index) => carrito.value.splice(index, 1);
 const finalizarVenta = () => {
     if (carrito.value.length === 0) return;
     
-    if (metodoPago.value === 'Cuenta Corriente' && !clienteSeleccionado.value) {
+    if (metodoPago.value === 'CUENTA_CORRIENTE' && !clienteSeleccionado.value) {
         Swal.fire('Falta Cliente', 'Tenés que seleccionar a quién le vas a fiar.', 'warning');
         return;
     }
@@ -253,6 +267,7 @@ const finalizarVenta = () => {
             carrito.value = [];
             clienteSeleccionado.value = null;
             buscar.value = '';
+            montoRecibido.value = null;
             
             Swal.fire({
                 icon: 'success',
@@ -274,6 +289,37 @@ const finalizarVenta = () => {
         }
     });
 };
+
+// ─── Atajos de teclado ───────────────────────────────────────────────
+const atajos = {
+    F1: 'EFECTIVO',
+    F2: 'DEBITO',
+    F3: 'CREDITO',
+    F4: 'TRANSFERENCIA',
+    F5: 'MERCADO_PAGO',
+    F8: 'CUENTA_CORRIENTE',
+};
+
+const handleKeydown = (e) => {
+    const key = e.key;
+    if (key.startsWith('F') && atajos[key]) {
+        e.preventDefault();
+        metodoPago.value = atajos[key];
+        return;
+    }
+    if (key === 'F9') {
+        e.preventDefault();
+        if (carrito.value.length > 0) finalizarVenta();
+        return;
+    }
+    if (key === 'Escape') {
+        montoRecibido.value = null;
+        return;
+    }
+};
+
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 </script>
 
 <template>
@@ -420,21 +466,21 @@ const finalizarVenta = () => {
                         <div class="px-5 pt-4 pb-2 bg-slate-50 flex flex-col gap-3">
                             <div class="flex gap-2">
                                 <label class="flex-1 cursor-pointer">
-                                    <input type="radio" v-model="metodoPago" value="Efectivo" class="peer sr-only">
+                                    <input type="radio" v-model="metodoPago" value="EFECTIVO" class="peer sr-only">
                                     <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                                         Efectivo
                                     </div>
                                 </label>
                                 <label class="flex-1 cursor-pointer">
-                                    <input type="radio" v-model="metodoPago" value="Débito" class="peer sr-only">
+                                    <input type="radio" v-model="metodoPago" value="DEBITO" class="peer sr-only">
                                     <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-sky-500 peer-checked:bg-sky-50 peer-checked:text-sky-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
                                         Digital
                                     </div>
                                 </label>
                                 <label class="flex-1 cursor-pointer">
-                                    <input type="radio" v-model="metodoPago" value="Cuenta Corriente" class="peer sr-only">
+                                    <input type="radio" v-model="metodoPago" value="CUENTA_CORRIENTE" class="peer sr-only">
                                     <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                                         Fiado
@@ -442,13 +488,13 @@ const finalizarVenta = () => {
                                 </label>
                             </div>
 
-                            <div v-if="metodoPago === 'Cuenta Corriente' && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
+                            <div v-if="metodoPago === 'CUENTA_CORRIENTE' && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
                                 <div>
                                     <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Crédito Disponible</p>
                                     <p class="font-bold text-sm">${{ disponibleCliente.toFixed(2) }}</p>
                                 </div>
                             </div>
-                            <div v-else-if="metodoPago === 'Cuenta Corriente' && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
+                            <div v-else-if="metodoPago === 'CUENTA_CORRIENTE' && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
                                 <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
                             </div>
                         </div>
@@ -499,9 +545,41 @@ const finalizarVenta = () => {
                                 <span class="text-3xl font-black text-slate-900 tracking-tight" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
                             </div>
 
+                            <div v-if="carrito.length > 0 && metodoPago !== 'CUENTA_CORRIENTE'" class="mb-4 space-y-3">
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Recibido ($)</label>
+                                    <div class="relative">
+                                        <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
+                                        <input
+                                            v-model.number="montoRecibido"
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            class="w-full pl-8 pr-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-emerald-500 focus:ring-0 transition-colors text-lg"
+                                            placeholder="0.00"
+                                        >
+                                    </div>
+                                </div>
+
+                                <div v-if="vuelto !== null" class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-3 flex justify-between items-center">
+                                    <span class="text-emerald-700 font-black text-sm uppercase tracking-widest">Vuelto</span>
+                                    <span class="text-emerald-600 font-black text-2xl">${{ vuelto.toFixed(2) }}</span>
+                                </div>
+
+                                <div v-if="sugerencias.length > 0 && montoRecibido === null" class="flex flex-wrap gap-1.5">
+                                    <button
+                                        v-for="sug in sugerencias" :key="sug"
+                                        @click="montoRecibido = sug"
+                                        class="px-3 py-1.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 border border-slate-200 hover:border-sky-300 rounded-lg text-xs font-bold text-slate-600 transition-all"
+                                    >
+                                        ${{ sug.toFixed(2) }}
+                                    </button>
+                                </div>
+                            </div>
+
                             <button 
                                 @click="finalizarVenta"
-                                :disabled="carrito.length === 0 || bloqueoPorSaldo || (metodoPago === 'Cuenta Corriente' && !clienteActivoObj)"
+                                :disabled="carrito.length === 0 || bloqueoPorSaldo || (metodoPago === 'CUENTA_CORRIENTE' && !clienteActivoObj)"
                                 class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-3.5 rounded-xl shadow-lg uppercase tracking-widest active:scale-95 transition-all text-sm"
                             >
                                 {{ bloqueoPorSaldo ? 'SALDO INSUFICIENTE' : 'Cobrar' }}

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MetodoPago;
 use Illuminate\Database\Eloquent\Model;
 
 class MovimientoCaja extends Model
@@ -18,5 +19,10 @@ class MovimientoCaja extends Model
     public function turno()
     {
         return $this->belongsTo(TurnoCaja::class, 'turno_caja_id');
+    }
+
+    public function getMetodoPagoDisplayAttribute()
+    {
+        return MetodoPago::fromString($this->metodo_pago)->label();
     }
 }

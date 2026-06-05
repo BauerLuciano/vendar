@@ -26,8 +26,10 @@ class UsuarioController extends Controller
         $query->when($search, function ($q, $search) {
             $q->where(function ($sub) use ($search) {
                 $sub->where('name', 'LIKE', "%{$search}%")
-                    ->orWhere('email', 'LIKE', "%{$search}%")
-                    ->orWhere('id', 'LIKE', "%{$search}%");
+                    ->orWhere('email', 'LIKE', "%{$search}%");
+                if (is_numeric($search)) {
+                    $sub->orWhere('id', $search);
+                }
             });
         });
 

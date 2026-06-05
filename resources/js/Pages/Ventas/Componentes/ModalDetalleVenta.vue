@@ -18,6 +18,18 @@ const formatearFecha = (fecha) => {
 const formatearDinero = (monto) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
 };
+
+const metodoPagoLabel = (metodo) => {
+    const labels = {
+        'EFECTIVO': 'Efectivo',
+        'DEBITO': 'Débito',
+        'CREDITO': 'Crédito',
+        'TRANSFERENCIA': 'Transferencia',
+        'MERCADO_PAGO': 'Mercado Pago',
+        'CUENTA_CORRIENTE': 'Cuenta Corriente',
+    };
+    return labels[metodo] || metodo;
+};
 </script>
 
 <template>
@@ -48,7 +60,7 @@ const formatearDinero = (monto) => {
                     </div>
                     <div>
                         <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Método de Pago</label>
-                        <span class="text-xs font-black text-sky-600 uppercase">{{ venta?.metodo_pago.replace('_', ' ') }}</span>
+                        <span class="text-xs font-black text-sky-600">{{ metodoPagoLabel(venta?.metodo_pago) }}</span>
                     </div>
                     <div>
                         <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Atendido por</label>

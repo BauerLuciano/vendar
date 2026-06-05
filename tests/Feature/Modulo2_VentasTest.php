@@ -27,7 +27,7 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
         $this->assertDatabaseHas('ventas', [
             'turno_caja_id' => 2,
             'total' => 1600,
-            'metodo_pago' => 'Efectivo',
+            'metodo_pago' => 'EFECTIVO',
             'estado' => 'Completada',
         ]);
     }
@@ -52,7 +52,7 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
         $this->assertDatabaseHas('ventas', [
             'turno_caja_id' => 4,
             'total' => 2250,
-            'metodo_pago' => 'Efectivo',
+            'metodo_pago' => 'EFECTIVO',
             'estado' => 'Completada',
         ]);
     }
@@ -90,7 +90,7 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
 
         $this->assertDatabaseHas('ventas', [
             'consumidor_id' => $this->consumidorA->id,
-            'metodo_pago' => 'Cuenta Corriente',
+            'metodo_pago' => 'CUENTA_CORRIENTE',
             'estado' => 'Completada',
         ]);
     }

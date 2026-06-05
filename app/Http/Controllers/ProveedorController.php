@@ -17,8 +17,10 @@ class ProveedorController extends Controller
         $proveedores = Proveedor::when($search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('razon_social', 'LIKE', "%{$search}%")
-                        ->orWhere('cuit', 'LIKE', "%{$search}%")
-                        ->orWhere('id', 'LIKE', "%{$search}%");
+                        ->orWhere('cuit', 'LIKE', "%{$search}%");
+                    if (is_numeric($search)) {
+                        $sub->orWhere('id', $search);
+                    }
                 });
             })
             ->when($estado !== 'all', function ($q) use ($estado) {

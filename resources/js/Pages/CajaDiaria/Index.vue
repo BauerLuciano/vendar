@@ -651,7 +651,7 @@ onUnmounted(() => detenerRadar());
                       <td class="px-6 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{{ mov.concepto }}</td>
                       <td class="px-6 py-3 whitespace-nowrap">
                         <span :class="getMetodoPagoBadgeClass(mov.metodo_pago)" class="px-2 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide">
-                          {{ mov.metodo_pago || 'N/D' }}
+                          {{ mov.metodo_pago_display || mov.metodo_pago || 'N/D' }}
                         </span>
                       </td>
                       <td class="px-6 py-3 text-sm text-slate-500 truncate max-w-[200px]">{{ mov.descripcion }}</td>
@@ -907,7 +907,7 @@ onUnmounted(() => detenerRadar());
                 <td class="px-4 py-3 text-sm font-medium text-slate-700">{{ mov.concepto }}</td>
                 <td class="px-4 py-3">
                   <span :class="getMetodoPagoBadgeClass(mov.metodo_pago)" class="px-2 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide">
-                    {{ mov.metodo_pago || 'N/D' }}
+                    {{ mov.metodo_pago_display || mov.metodo_pago || 'N/D' }}
                   </span>
                 </td>
                 <td class="px-4 py-3 text-right font-bold" :class="mov.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'">

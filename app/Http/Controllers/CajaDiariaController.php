@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MetodoPago;
 use App\Models\TurnoCaja;
 use App\Models\MovimientoCaja;
 use App\Models\Caja;
@@ -131,7 +132,7 @@ class CajaDiariaController extends Controller
                     'turno_caja_id' => $turno->id,
                     'tipo'          => 'INGRESO',
                     'concepto'      => 'FONDO_INICIAL',
-                    'metodo_pago'   => 'EFECTIVO',
+                    'metodo_pago'   => MetodoPago::EFECTIVO->value,
                     'monto'         => $efectivo,
                     'descripcion'   => 'Apertura de caja (Fondo Efectivo)'
                 ]);
@@ -142,7 +143,7 @@ class CajaDiariaController extends Controller
                     'turno_caja_id' => $turno->id,
                     'tipo'          => 'INGRESO',
                     'concepto'      => 'FONDO_INICIAL',
-                    'metodo_pago'   => 'MERCADO_PAGO',
+                    'metodo_pago'   => MetodoPago::MERCADO_PAGO->value,
                     'monto'         => $mp,
                     'descripcion'   => 'Apertura de caja (Fondo Mercado Pago)'
                 ]);
@@ -226,9 +227,9 @@ class CajaDiariaController extends Controller
 
         foreach ($movimientos as $mov) {
             $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
-            if ($mov->metodo_pago === 'EFECTIVO') {
+            if ($mov->metodo_pago === MetodoPago::EFECTIVO->value) {
                 $efectivo += $monto;
-            } elseif (in_array($mov->metodo_pago, ['MERCADO_PAGO', 'MERCADOPAGO'])) {
+            } elseif ($mov->metodo_pago === MetodoPago::MERCADO_PAGO->value) {
                 $mp += $monto;
             } else {
                 $transf += $monto;
@@ -255,7 +256,7 @@ class CajaDiariaController extends Controller
             ->map(function ($mov) {
                 $mov->fecha = $mov->created_at;
                 $mov->concepto_display = str_replace('_', ' ', $mov->concepto);
-                $mov->metodo_pago_display = str_replace('_', ' ', $mov->metodo_pago);
+                $mov->metodo_pago_display = MetodoPago::fromString($mov->metodo_pago)->label();
                 return $mov;
             });
 
@@ -330,9 +331,9 @@ class CajaDiariaController extends Controller
 
         foreach ($movimientos as $mov) {
             $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
-            if ($mov->metodo_pago === 'EFECTIVO') {
+            if ($mov->metodo_pago === MetodoPago::EFECTIVO->value) {
                 $efectivoEsperado += $monto;
-            } elseif (in_array($mov->metodo_pago, ['MERCADO_PAGO', 'MERCADOPAGO'])) {
+            } elseif ($mov->metodo_pago === MetodoPago::MERCADO_PAGO->value) {
                 $mpEsperado += $monto;
             } else {
                 $transfEsperado += $monto;

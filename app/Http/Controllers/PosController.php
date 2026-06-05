@@ -2,13 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MetodoPago;
 use App\Models\Caja;
 use App\Models\TurnoCaja;
+use App\Models\MovimientoCaja;
 use App\Models\Producto;
 use App\Models\Consumidor;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Carbon\Carbon;
+
+
 
 class PosController extends Controller
 {
@@ -106,26 +111,42 @@ class PosController extends Controller
             'saldo_inicial' => 'required|numeric|min:0',
         ]);
 
-        // Verificamos por seguridad que nadie más esté usando esa caja
-        $cajaEnUso = TurnoCaja::where('caja_id', $request->caja_id)
-            ->where('estado', 'Abierto')
-            ->exists();
+        return DB::transaction(function () use ($request) {
+            $user = auth()->user();
 
-        if ($cajaEnUso) {
-            return redirect()->back()->withErrors([
-                'caja_id' => 'Esta caja ya está siendo utilizada por otro cajero.'
+            // Verificamos por seguridad que nadie más esté usando esa caja
+            $cajaEnUso = TurnoCaja::where('caja_id', $request->caja_id)
+                ->where('estado', 'Abierto')
+                ->exists();
+
+            if ($cajaEnUso) {
+                return redirect()->back()->withErrors([
+                    'caja_id' => 'Esta caja ya está siendo utilizada por otro cajero.'
+                ]);
+            }
+
+            $cajaFisica = Caja::findOrFail($request->caja_id);
+
+            $turno = TurnoCaja::create([
+                'caja_id'        => $request->caja_id,
+                'user_id'        => $user->id,
+                'sucursal_id'    => $cajaFisica->sucursal_id,
+                'saldo_inicial'  => $request->saldo_inicial,
+                'monto_apertura' => $request->saldo_inicial,
+                'fecha_apertura' => Carbon::now(),
+                'estado'         => 'Abierto',
             ]);
-        }
 
-        // ¡Abrimos el turno!
-        TurnoCaja::create([
-            'caja_id' => $request->caja_id,
-            'user_id' => auth()->id(),
-            'saldo_inicial' => $request->saldo_inicial,
-            'fecha_apertura' => Carbon::now(),
-            'estado' => 'Abierto',
-        ]);
+            MovimientoCaja::create([
+                'turno_caja_id' => $turno->id,
+                'tipo'          => 'INGRESO',
+                'concepto'      => 'FONDO_INICIAL',
+                'metodo_pago'   => MetodoPago::EFECTIVO->value,
+                'monto'         => $request->saldo_inicial,
+                'descripcion'   => 'Apertura de caja (Fondo Efectivo)',
+            ]);
 
-        return redirect()->route('pos.index')->with('success', 'Turno abierto correctamente. ¡Buenas ventas!');
+            return redirect()->route('pos.index')->with('success', 'Turno abierto correctamente. ¡Buenas ventas!');
+        });
     }
 }

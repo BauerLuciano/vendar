@@ -183,7 +183,7 @@
                         <br><span style="color: #64748b; font-size: 7.5pt; font-style: italic;">{{ $item->descripcion }}</span>
                     @endif
                 </td>
-                <td>{{ strtoupper(str_replace('_', ' ', $item->metodo_pago)) }}</td>
+                <td>{{ \App\Enums\MetodoPago::fromString($item->metodo_pago)->label() }}</td>
                 <td class="text-right" style="font-weight: bold; color: {{ $item->tipo === 'INGRESO' ? '#10b981' : '#e11d48' }}">
                     {{ $item->tipo === 'EGRESO' ? '-' : '+' }} $ {{ number_format($item->monto, 2, ',', '.') }}
                 </td>

@@ -19,8 +19,10 @@ class SucursalController extends Controller
             ->when($search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('nombre', 'LIKE', "%{$search}%")
-                        ->orWhere('direccion', 'LIKE', "%{$search}%")
-                        ->orWhere('id', 'LIKE', "%{$search}%");
+                        ->orWhere('direccion', 'LIKE', "%{$search}%");
+                    if (is_numeric($search)) {
+                        $sub->orWhere('id', $search);
+                    }
                 });
             })
             ->when($estado !== 'all', function ($q) use ($estado) {

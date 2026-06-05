@@ -48,7 +48,7 @@ const abrirCaja = async () => {
             saldo_inicial_mp: 0 // Si agregás un input de MP inicial, lo atás acá
         });
 
-        // 2. Si todo sale bien, lo redirigimos al PANEL DE GESTIÓN DE CAJA
+        // 2. Si todo sale bien, lo redirigimos al POS
         Swal.fire({
             toast: true,
             position: 'top-end',
@@ -58,7 +58,7 @@ const abrirCaja = async () => {
             timer: 1500
         });
 
-        router.visit(route('cajadiaria.index'));
+        router.visit(route('pos.index'));
 
     } catch (error) {
         // 3. Manejo de errores (ej: ya tenés un turno abierto)

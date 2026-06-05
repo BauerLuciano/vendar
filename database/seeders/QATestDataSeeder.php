@@ -550,7 +550,7 @@ class QATestDataSeeder extends Seeder
                 'id' => 1,
                 'turno_caja_id' => 1,
                 'consumidor_id' => $this->consumidorA(),
-                'metodo_pago' => 'efectivo',
+                'metodo_pago' => 'EFECTIVO',
                 'total' => 1500,
                 'estado' => 'Completada',
             ]);
@@ -575,7 +575,7 @@ class QATestDataSeeder extends Seeder
                 'turno_caja_id' => 1,
                 'tipo' => 'INGRESO',
                 'concepto' => 'venta',
-                'metodo_pago' => 'efectivo',
+                'metodo_pago' => 'EFECTIVO',
                 'monto' => 1500,
                 'descripcion' => 'Venta #1 - Efectivo',
             ]);
@@ -586,7 +586,7 @@ class QATestDataSeeder extends Seeder
                 'id' => 2,
                 'turno_caja_id' => 1,
                 'consumidor_id' => $this->consumidorA(), // Juan Pérez
-                'metodo_pago' => 'cuenta_corriente',
+                'metodo_pago' => 'CUENTA_CORRIENTE',
                 'total' => 2300,
                 'estado' => 'Completada',
             ]);
@@ -633,7 +633,7 @@ class QATestDataSeeder extends Seeder
                 'id' => 3,
                 'turno_caja_id' => 3,
                 'consumidor_id' => $this->consumidorB(), // Pedro Sánchez
-                'metodo_pago' => 'efectivo',
+                'metodo_pago' => 'EFECTIVO',
                 'total' => 1500,
                 'estado' => 'Completada',
             ]);
@@ -666,7 +666,7 @@ class QATestDataSeeder extends Seeder
                 'turno_caja_id' => 3,
                 'tipo' => 'INGRESO',
                 'concepto' => 'venta',
-                'metodo_pago' => 'efectivo',
+                'metodo_pago' => 'EFECTIVO',
                 'monto' => 1500,
                 'descripcion' => 'Venta #3 - Efectivo',
             ]);
