@@ -15,9 +15,14 @@ class Venta extends Model
         'turno_caja_id',
         'consumidor_id', 
         'metodo_pago', 
+        'pagos',
         'total', 
         'estado',
         'motivo_anulacion' 
+    ];
+
+    protected $casts = [
+        'pagos' => 'array',
     ];
 
     public function turno() { 
@@ -34,6 +39,23 @@ class Venta extends Model
 
     public function getMetodoPagoDisplayAttribute()
     {
+        if ($this->metodo_pago === 'MULTIPLE' && $this->pagos) {
+            return collect($this->pagos)
+                ->map(fn ($p) => MetodoPago::fromString($p['metodo_pago'])->label() . ': $' . number_format($p['monto'], 2))
+                ->implode(' + ');
+        }
         return MetodoPago::fromString($this->metodo_pago)->label();
+    }
+
+    public function getPagosDisplayAttribute()
+    {
+        if (!$this->pagos) {
+            return [['metodo_pago' => $this->metodo_pago, 'monto' => $this->total, 'label' => $this->metodo_pago_display]];
+        }
+        return collect($this->pagos)->map(fn ($p) => [
+            'metodo_pago' => $p['metodo_pago'],
+            'monto' => $p['monto'],
+            'label' => MetodoPago::fromString($p['metodo_pago'])->label(),
+        ])->toArray();
     }
 }

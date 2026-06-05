@@ -8,10 +8,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('consumidores', function (Blueprint $table) {
-            $table->string('password')->nullable()->after('estado');
-            $table->rememberToken()->after('password');
-        });
+        if (!Schema::hasColumn('consumidores', 'password')) {
+            Schema::table('consumidores', function (Blueprint $table) {
+                $table->string('password')->nullable()->after('estado');
+                $table->rememberToken()->after('password');
+            });
+        }
     }
 
     public function down(): void

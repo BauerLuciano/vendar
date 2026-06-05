@@ -4,6 +4,11 @@ import vue from '@vitejs/plugin-vue';
 import VueDevTools from 'vite-plugin-vue-devtools';
 
 export default defineConfig({
+    resolve: {
+        alias: {
+            '@': '/resources/js',
+        },
+    },
     server: {
         host: '0.0.0.0', // Esto hace que funcione en TODAS las compus
         port: 5174, // CAMBIAMOS ACÁ PARA EVITAR EL CHOQUE CON DOCKER

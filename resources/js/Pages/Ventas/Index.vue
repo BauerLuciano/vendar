@@ -4,6 +4,7 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import { ref, watch, reactive } from 'vue';
 import Swal from 'sweetalert2';
 import ModalDetalleVenta from './Componentes/ModalDetalleVenta.vue'; 
+import { formatearFecha } from '@/Utils/formatters.js';
 
 const props = defineProps({
     ventas: Object,
@@ -22,13 +23,16 @@ const formFiltros = reactive({
 });
 
 let timeout = null;
+const loadingVentas = ref(false);
 
 watch(formFiltros, (value) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => {
+        loadingVentas.value = true;
         router.get(route('ventas.index'), value, {
             preserveState: true,
-            replace: true
+            replace: true,
+            onFinish: () => loadingVentas.value = false,
         });
     }, 300);
 });
@@ -38,13 +42,6 @@ const limpiarFiltros = () => {
     formFiltros.estado = 'all';
     formFiltros.fecha_desde = '';
     formFiltros.fecha_hasta = '';
-};
-
-const formatearFecha = (fecha) => {
-    return new Date(fecha).toLocaleString('es-AR', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: false
-    });
 };
 
 const toggleMenu = (id) => {
@@ -93,7 +90,22 @@ const confirmarAnulacion = (v) => {
         confirmButtonText: 'Sí, anular',
     }).then((result) => {
         if (result.isConfirmed) {
-            realizarAnulacion(v.id, result.value);
+            if (result.value === 'otro') {
+                Swal.fire({
+                    title: 'Describí el motivo',
+                    input: 'text',
+                    inputPlaceholder: 'Ej: Producto en mal estado...',
+                    showCancelButton: true,
+                    confirmButtonColor: '#ef4444',
+                    confirmButtonText: 'Anular',
+                }).then((res) => {
+                    if (res.isConfirmed && res.value?.trim()) {
+                        realizarAnulacion(v.id, res.value.trim());
+                    }
+                });
+            } else {
+                realizarAnulacion(v.id, result.value);
+            }
         }
     });
 };
@@ -155,6 +167,13 @@ const confirmarAnulacion = (v) => {
                             Limpiar Filtros
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <div v-if="loadingVentas" class="bg-white shadow-xl rounded-2xl border border-slate-100 p-4 mb-4">
+                <div class="flex items-center justify-center py-12 text-slate-400">
+                    <svg class="animate-spin h-6 w-6 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    <span class="font-bold">Buscando ventas...</span>
                 </div>
             </div>
 

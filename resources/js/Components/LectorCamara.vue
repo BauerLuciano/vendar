@@ -1,5 +1,4 @@
 <script setup>
-// 🔥 Importamos los formatos específicos para forzar la lectura de códigos de barra
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 
@@ -10,6 +9,14 @@ const camaras = ref([]);
 const camaraSeleccionada = ref('');
 const escaneando = ref(false);
 const errorCamara = ref('');
+
+let audioContext = null;
+const getAudioContext = () => {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioContext;
+};
 
 onMounted(async () => {
     try {
@@ -26,24 +33,33 @@ onMounted(async () => {
         }
     } catch (err) {
         console.error("Error al obtener cámaras: ", err);
+        errorCamara.value = "No se pudo acceder a la cámara. Verificá los permisos del navegador.";
     }
 });
 
-const iniciarEscaneo = () => {
+const iniciarEscaneo = async () => {
     if (!camaraSeleccionada.value) return;
     
-    errorCamara.value = ''; // Limpiamos errores
+    errorCamara.value = '';
     escaneando.value = true;
+    
+    if (html5QrCode.value) {
+        try {
+            await html5QrCode.value.stop();
+            html5QrCode.value.clear();
+        } catch (e) { /* ignore */ }
+    }
+    
     html5QrCode.value = new Html5Qrcode("lector-codigo");
     
     html5QrCode.value.start(
         camaraSeleccionada.value,
         {
-            fps: 15, // 🔥 Más rápido
-            qrbox: { width: 300, height: 120 }, // 🔥 Formato ultra-panorámico
+            fps: 15,
+            qrbox: { width: 300, height: 120 },
             formatsToSupport: [ 
-                Html5QrcodeSupportedFormats.EAN_8, // Mentoplus y chicles
-                Html5QrcodeSupportedFormats.EAN_13, // Galletitas, gaseosas, etc
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.UPC_A,
                 Html5QrcodeSupportedFormats.CODE_128
             ]
@@ -54,10 +70,11 @@ const iniciarEscaneo = () => {
             emit('escaneado', textoDecodificado);
         },
         (mensajeError) => {
-            // Silencio para no llenar la consola
+            // Silencio
         }
     ).catch((err) => {
-        console.log("Cámara iniciada con advertencias menores.");
+        errorCamara.value = "Error al iniciar la cámara: permisos denegados o cámara ocupada.";
+        escaneando.value = false;
     });
 };
 
@@ -74,7 +91,7 @@ const detenerEscaneo = async () => {
 };
 
 const hacerSonidoBeep = () => {
-    const context = new (window.AudioContext || window.webkitAudioContext)();
+    const context = getAudioContext();
     const osc = context.createOscillator();
     const gain = context.createGain();
     osc.connect(gain);

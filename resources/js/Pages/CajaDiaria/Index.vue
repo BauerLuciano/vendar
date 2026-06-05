@@ -4,6 +4,11 @@ import { Head } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import axios from 'axios'; 
 import Swal from 'sweetalert2';
+import { formatearMoneda, formatearFecha, formatearFechaCorta, formatearHora, calcularTotalActual } from '@/Utils/formatters.js';
+import Pagination from '@/Components/Pagination.vue';
+import { useCajaDiaria } from '@/Composables/useCajaDiaria.js';
+
+const { abrirCajaApi } = useCajaDiaria();
 
 const loading = ref(true);
 const cajasDisponibles = ref([]);
@@ -175,13 +180,6 @@ const calcularTotalCaja = (caja) => {
   return calcularTotalRealDeclarado(caja);
 };
 
-const formatearMoneda = (valor) => {
-  const n = parseFloat(valor || 0);
-  const signo = n < 0 ? '-' : '';
-  const formateado = Math.abs(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `$ ${signo}${formateado}`;
-};
-
 const currentPageMovs = ref(1);
 const paginatedMovs = computed(() => {
   const start = (currentPageMovs.value - 1) * itemsPerPage;
@@ -276,7 +274,6 @@ const checkNuevosMovimientos = async () => {
       movimientos.value = resMovs.data;
       const resBalance = await axios.get(`/api/sesiones-caja/${sesionActual.value.id}/balance`);
       balance.value = resBalance.data;
-      Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: `¡Nuevos pagos ingresados!`, showConfirmButton: false, timer: 3000 });
     }
   } catch (error) { console.error(error); }
 };
@@ -304,16 +301,7 @@ const abrirCaja = async () => {
     const efectivo = ['EFECTIVO', 'AMBOS'].includes(tipo) ? Number(formApertura.value.saldo_inicial_efectivo) : 0;
     const mp = ['MERCADO_PAGO', 'AMBOS'].includes(tipo) ? Number(formApertura.value.saldo_inicial_mp) : 0;
 
-    const payload = {
-      caja: formApertura.value.caja,
-      saldo_inicial_efectivo: efectivo,
-      saldo_inicial_mp: mp,
-    };
-
-    await axios.post('/api/sesiones-caja/abrir', payload);
-    
-    Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: '¡Turno iniciado!', showConfirmButton: false, timer: 2000 });
-    
+    await abrirCajaApi({ caja_id: formApertura.value.caja, saldo_inicial_efectivo: efectivo, saldo_inicial_mp: mp });
     inicializar(); 
   } catch (error) { 
     console.error(error.response?.data || error);
@@ -391,7 +379,11 @@ const registrarGastoManual = async () => {
   }
 
   try {
-    await axios.post('/api/sesiones-caja/movimiento-manual', formGasto.value);
+    const payload = { ...formGasto.value };
+    if (!payload.consumidor_id || payload.consumidor_id === '') {
+      payload.consumidor_id = null;
+    }
+    await axios.post('/api/sesiones-caja/movimiento-manual', payload);
     mostrarModalGasto.value = false;
     
     formGasto.value = { 
@@ -421,19 +413,32 @@ const verDetalleCajaCerrada = async (caja) => {
   } catch (error) { console.error(error); } finally { cargandoMovimientosHistorial.value = false; }
 };
 
-const calcularTotalActual = (bal) => {
-  if (!bal) return 0;
-  return parseFloat(bal.esperado_efectivo || 0) + 
-         parseFloat(bal.esperado_mp || 0) + 
-         parseFloat(bal.esperado_transf || 0);
+const cerrarModales = (e) => {
+    if (e.key === 'Escape') {
+        mostrarModalCierre.value = false;
+        mostrarModalGasto.value = false;
+        mostrarModalDetalleHistorial.value = false;
+    }
 };
 
-const formatearFecha = (f) => f ? new Date(f).toLocaleString('es-AR') : '';
-const formatearFechaCorta = (f) => f ? new Date(f).toLocaleDateString('es-AR') : '';
-const formatearHora = (f) => f ? new Date(f).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'}) : '';
+const manejarVisibilidad = () => {
+    if (document.hidden) {
+        detenerRadar();
+    } else if (sesionActual.value) {
+        iniciarRadar();
+    }
+};
 
-onMounted(() => inicializar());
-onUnmounted(() => detenerRadar());
+onMounted(() => {
+    inicializar();
+    document.addEventListener('keydown', cerrarModales);
+    document.addEventListener('visibilitychange', manejarVisibilidad);
+});
+onUnmounted(() => {
+    detenerRadar();
+    document.removeEventListener('keydown', cerrarModales);
+    document.removeEventListener('visibilitychange', manejarVisibilidad);
+});
 </script>
 
 <template>
@@ -537,11 +542,7 @@ onUnmounted(() => detenerRadar());
               </table>
             </div>
 
-            <div v-if="totalPagesCajas > 1" class="flex justify-between items-center mt-4">
-              <button @click="currentPageCajas--" :disabled="currentPageCajas === 1" class="px-4 py-2 bg-gray-200 rounded-lg disabled:opacity-50">Anterior</button>
-              <span class="text-sm text-gray-500 font-medium">Página {{ currentPageCajas }} de {{ totalPagesCajas }}</span>
-              <button @click="currentPageCajas++" :disabled="currentPageCajas === totalPagesCajas" class="px-4 py-2 bg-gray-200 rounded-lg disabled:opacity-50">Siguiente</button>
-            </div>
+            <Pagination :current-page="currentPageCajas" :total-pages="totalPagesCajas" @page-change="currentPageCajas = $event" />
           </div>
 
           <div v-else>
@@ -662,11 +663,7 @@ onUnmounted(() => detenerRadar());
                   </tbody>
                 </table>
 
-                <div v-if="totalPagesMovs > 1" class="flex justify-between items-center p-4 border-t bg-gray-50">
-                  <button @click="currentPageMovs--" :disabled="currentPageMovs === 1" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 transition-colors">Anterior</button>
-                  <span class="text-sm font-medium text-slate-500">Página {{ currentPageMovs }} de {{ totalPagesMovs }}</span>
-                  <button @click="currentPageMovs++" :disabled="currentPageMovs === totalPagesMovs" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 transition-colors">Siguiente</button>
-                </div>
+                <Pagination :current-page="currentPageMovs" :total-pages="totalPagesMovs" @page-change="currentPageMovs = $event" />
               </div>
             </div>
           </div>
@@ -920,11 +917,7 @@ onUnmounted(() => detenerRadar());
             </tbody>
           </table>
 
-          <div v-if="totalPagesModalMovs > 1" class="flex justify-between items-center mt-4 bg-slate-50 p-2 rounded border">
-            <button @click="currentPageModalMovs--" :disabled="currentPageModalMovs === 1" class="px-4 py-1.5 bg-white border rounded shadow-sm disabled:opacity-50 hover:bg-gray-50 font-medium text-sm">Anterior</button>
-            <span class="text-sm font-bold text-slate-500">Pág {{ currentPageModalMovs }} / {{ totalPagesModalMovs }}</span>
-            <button @click="currentPageModalMovs++" :disabled="currentPageModalMovs === totalPagesModalMovs" class="px-4 py-1.5 bg-white border rounded shadow-sm disabled:opacity-50 hover:bg-gray-50 font-medium text-sm">Siguiente</button>
-          </div>
+          <Pagination :current-page="currentPageModalMovs" :total-pages="totalPagesModalMovs" size="sm" @page-change="currentPageModalMovs = $event" />
         </div>
 
         <div class="px-6 py-4 bg-slate-100 border-t shrink-0 flex justify-between items-center">

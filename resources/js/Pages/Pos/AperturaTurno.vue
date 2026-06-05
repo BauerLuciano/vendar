@@ -3,7 +3,9 @@ import { ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
-import axios from 'axios'; // <-- Importamos axios para pegarle a nuestra API
+import { useCajaDiaria } from '@/Composables/useCajaDiaria.js';
+
+const { abrirCajaApi } = useCajaDiaria();
 
 const props = defineProps({
     cajas: Array
@@ -19,60 +21,26 @@ const processing = ref(false);
 
 const abrirCaja = async () => {
     if (!form.value.caja_id) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: 'Debes seleccionar una Caja',
-            confirmButtonColor: '#0284c7'
-        });
+        Swal.fire({ icon: 'error', title: 'Error', text: 'Debes seleccionar una Caja', confirmButtonColor: '#0284c7' });
         return;
     }
 
     if (form.value.saldo_inicial === '' || form.value.saldo_inicial < 0) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Monto Inválido',
-            text: 'Debes ingresar el saldo inicial (puede ser 0)',
-            confirmButtonColor: '#0284c7'
-        });
+        Swal.fire({ icon: 'error', title: 'Monto Inválido', text: 'Debes ingresar el saldo inicial (puede ser 0)', confirmButtonColor: '#0284c7' });
         return;
     }
 
     processing.value = true;
 
     try {
-        // 1. Le pegamos al controlador que creamos nosotros (CajaDiariaController)
-        await axios.post('/api/sesiones-caja/abrir', {
-            caja: form.value.caja_id,
-            saldo_inicial_efectivo: form.value.saldo_inicial,
-            saldo_inicial_mp: 0 // Si agregás un input de MP inicial, lo atás acá
-        });
-
-        // 2. Si todo sale bien, lo redirigimos al POS
-        Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'success',
-            title: 'Turno iniciado correctamente',
-            showConfirmButton: false,
-            timer: 1500
-        });
-
+        await abrirCajaApi({ caja_id: form.value.caja_id, saldo_inicial_efectivo: form.value.saldo_inicial });
         router.visit(route('pos.index'));
-
     } catch (error) {
-        // 3. Manejo de errores (ej: ya tenés un turno abierto)
         let errorMsg = 'Ocurrió un error al intentar abrir la caja.';
-        if (error.response && error.response.data && error.response.data.error) {
+        if (error.response?.data?.error) {
             errorMsg = error.response.data.error;
         }
-        
-        Swal.fire({
-            icon: 'warning',
-            title: 'No se pudo abrir',
-            text: errorMsg,
-            confirmButtonColor: '#0284c7'
-        });
+        Swal.fire({ icon: 'warning', title: 'No se pudo abrir', text: errorMsg, confirmButtonColor: '#0284c7' });
     } finally {
         processing.value = false;
     }

@@ -10,7 +10,7 @@ const props = defineProps({
 });
 
 const tabActiva = ref('general');
-const logoPreview = ref(props.configuraciones.logo_empresa ? '/storage/' + props.configuraciones.logo_empresa : null);
+const logoPreview = ref(props.comercio.url_logo || (props.configuraciones.logo_empresa ? '/storage/' + props.configuraciones.logo_empresa : null));
 
 const form = useForm({
     // --- Configuraciones Globales ---
@@ -20,6 +20,7 @@ const form = useForm({
     direccion: props.configuraciones.direccion || '',
     ticket_mensaje_pie: props.configuraciones.ticket_mensaje_pie || '',
     formato_impresion: props.configuraciones.formato_impresion || '80mm',
+    ticket_digital_auto_email: props.configuraciones.ticket_digital_auto_email === '1' || props.configuraciones.ticket_digital_auto_email === true,
     permitir_stock_negativo: props.configuraciones.permitir_stock_negativo === '1' || props.configuraciones.permitir_stock_negativo === true,
     limite_fiado_defecto: props.configuraciones.limite_fiado_defecto || 0,
     moneda_defecto: props.configuraciones.moneda_defecto || 'ARS',
@@ -27,6 +28,7 @@ const form = useForm({
     mora_dias_gracia: props.configuraciones.mora_dias_gracia || 15,
     mora_tasa_interes: props.configuraciones.mora_tasa_interes || 5,
     logo_empresa: null,
+    logo: null,
 
     // --- 🔥 NUEVO: Configuraciones del Comercio (Para el Catálogo) ---
     envio_precio_base: props.comercio.envio_precio_base || 0,
@@ -44,6 +46,7 @@ const handleLogoUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
         form.logo_empresa = file;
+        form.logo = file;
         logoPreview.value = URL.createObjectURL(file);
     }
 };
@@ -52,6 +55,7 @@ const guardarConfiguracion = () => {
     form.transform((data) => ({
         ...data,
         permitir_stock_negativo: data.permitir_stock_negativo ? '1' : '0',
+        ticket_digital_auto_email: data.ticket_digital_auto_email ? '1' : '0',
         acepta_efectivo: data.acepta_efectivo ? 1 : 0 // Adaptamos el booleano para la BD
     })).post(route('configuracion.update'), {
         preserveScroll: true,
@@ -168,6 +172,15 @@ const guardarConfiguracion = () => {
                                         <div>
                                             <p class="font-bold text-slate-800">Permitir facturar sin stock (Stock Negativo)</p>
                                             <p class="text-xs text-slate-500 font-medium">Si está activo, el sistema te dejará cobrar un producto aunque el stock llegue a menos de cero.</p>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div class="col-span-full">
+                                    <label class="flex items-center gap-3 p-4 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                        <input v-model="form.ticket_digital_auto_email" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                        <div>
+                                            <p class="font-bold text-slate-800">Enviar ticket por email automáticamente</p>
+                                            <p class="text-xs text-slate-500 font-medium">Si el cliente tiene email registrado, se le envía el ticket en PDF al finalizar la venta. Requiere worker de colas activo.</p>
                                         </div>
                                     </label>
                                 </div>

@@ -15,6 +15,11 @@
                 <span>Vend<span class="text-orange-500 font-bold">AR</span></span>
             </h2>
 
+            <a v-if="turnoActivo" :href="route('caja-diaria.index')" class="hidden md:inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 transition-colors">
+                <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                Turno #{{ turnoActivo }} activo
+            </a>
+
             <div v-if="$page.props.auth.impersonating" class="flex items-center">
                 <Link 
                     :href="route('impersonate.leave')" 
@@ -140,6 +145,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { usePage, router, Link } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 
 defineEmits(['abrirMenu']);
 
@@ -149,6 +155,18 @@ const rolesUsuario = computed(() => page.props.auth.user.roles || []);
 const rolesFormateados = computed(() => rolesUsuario.value.length > 0 ? rolesUsuario.value.join(' - ') : 'Sin Rol');
 
 const alertasInfo = computed(() => page.props.auth.alertas || { total: 0, detalle: [] });
+
+const turnoActivo = ref(null);
+let turnoInterval = null;
+
+const checkTurnoActivo = async () => {
+    try {
+        const res = await axios.get('/api/sesiones-caja/actual');
+        turnoActivo.value = res.data.id;
+    } catch {
+        turnoActivo.value = null;
+    }
+};
 
 const menuAbierto = ref(false);
 const campanaAbierta = ref(false);
@@ -177,8 +195,15 @@ const closeMenus = (e) => {
     }
 };
 
-onMounted(() => document.addEventListener('click', closeMenus));
-onUnmounted(() => document.removeEventListener('click', closeMenus));
+onMounted(() => {
+    document.addEventListener('click', closeMenus);
+    checkTurnoActivo();
+    turnoInterval = setInterval(checkTurnoActivo, 30000);
+});
+onUnmounted(() => {
+    document.removeEventListener('click', closeMenus);
+    if (turnoInterval) clearInterval(turnoInterval);
+});
 </script>
 
 <style scoped>

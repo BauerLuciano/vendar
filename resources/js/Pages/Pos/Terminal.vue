@@ -8,7 +8,8 @@ import Swal from 'sweetalert2';
 const props = defineProps({
     turno: Object,
     productos: Array,
-    clientes: Array
+    clientes: Array,
+    frecuentes: Array
 });
 
 const page = usePage();
@@ -20,23 +21,226 @@ const permitirStockNegativo = computed(() => {
 
 const buscar = ref('');
 const carrito = ref([]);
-const metodoPago = ref('EFECTIVO'); 
 
 const clienteSeleccionado = ref(null); 
 const busquedaCliente = ref('');
 const mostrarDropdownClientes = ref(false);
 const inputBusqueda = ref(null);
 
-// 🔥 VARIABLE PARA CONTROLAR EL MODAL DE LA CÁMARA
 const mostrarEscaner = ref(false);
 
-const clientesFiltradosSelect = computed(() => {
-    if (!busquedaCliente.value || busquedaCliente.value.length < 2) return [];
-    return props.clientes.filter(c => 
-        c.nombre.toLowerCase().includes(busquedaCliente.value.toLowerCase()) ||
-        (c.documento && c.documento.includes(busquedaCliente.value))
+const mostrarMovimientos = ref(false);
+const tabCajaPend = ref('caja');
+const mostrarPendientes = ref(false);
+const ventasPendientes = ref([]);
+const guardandoCarrito = ref(false);
+const restaurandoCarrito = ref(false);
+const movimientosTurno = ref([]);
+const cargandoMovimientos = ref(false);
+let intervaloMovimientos = null;
+
+const resumenCaja = computed(() => {
+    const ingresos = movimientosTurno.value
+        .filter(m => m.tipo === 'INGRESO')
+        .reduce((acc, m) => acc + m.monto, 0);
+    const egresos = movimientosTurno.value
+        .filter(m => m.tipo === 'EGRESO')
+        .reduce((acc, m) => acc + m.monto, 0);
+    return { ingresos, egresos, saldo: ingresos - egresos };
+});
+
+async function fetchMovimientosTurno() {
+    cargandoMovimientos.value = true;
+    try {
+        const response = await fetch('/pos/movimientos-turno');
+        if (response.ok) {
+            movimientosTurno.value = await response.json();
+        }
+    } catch (e) {
+        console.error('Error al cargar movimientos:', e);
+    } finally {
+        cargandoMovimientos.value = false;
+    }
+}
+
+function iniciarPollingMovimientos() {
+    fetchMovimientosTurno();
+    intervaloMovimientos = setInterval(fetchMovimientosTurno, 30000);
+}
+
+async function guardarCarrito() {
+    if (carrito.value.length === 0) return;
+    guardandoCarrito.value = true;
+    try {
+        const items = carrito.value.map(i => ({
+            id: i.id,
+            nombre: i.nombre,
+            cantidad: i.cantidad,
+            precio_venta: i.precio_venta,
+        }));
+        const response = await fetch('/pos/guardar-carrito', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': page.props.csrf_token },
+            body: JSON.stringify({
+                items,
+                consumidor_id: clienteActivoObj.value?.id || null,
+            }),
+        });
+        if (response.ok) {
+            carrito.value = [];
+            clienteSeleccionado.value = null;
+            montoRecibido.value = null;
+            pagos.value = [{ metodo_pago: 'EFECTIVO', monto: null }];
+            await fetchPendientes();
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Carrito guardado', showConfirmButton: false, timer: 2000 });
+        }
+    } catch (e) {
+        console.error('Error al guardar carrito:', e);
+    } finally {
+        guardandoCarrito.value = false;
+    }
+}
+
+async function fetchPendientes() {
+    try {
+        const response = await fetch('/pos/listar-pendientes');
+        if (response.ok) {
+            ventasPendientes.value = await response.json();
+        }
+    } catch (e) {}
+}
+
+async function restaurarPendiente(p) {
+    restaurandoCarrito.value = true;
+    try {
+        const response = await fetch(`/pos/recuperar-carrito/${p.id}`, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': page.props.csrf_token },
+        });
+        if (response.ok) {
+            const data = await response.json();
+            carrito.value = data.items.map(i => ({
+                ...i,
+                precio_venta: Number(i.precio_venta),
+                cantidad: Number(i.cantidad),
+            }));
+            if (data.consumidor_id) {
+                const c = props.clientes.find(c => c.id === data.consumidor_id);
+                if (c) clienteSeleccionado.value = c;
+            }
+            ventasPendientes.value = ventasPendientes.value.filter(v => v.id !== p.id);
+            mostrarPendientes.value = false;
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Carrito restaurado', showConfirmButton: false, timer: 2000 });
+        }
+    } catch (e) {
+        console.error('Error al restaurar:', e);
+    } finally {
+        restaurandoCarrito.value = false;
+    }
+}
+
+async function eliminarPendiente(p) {
+    try {
+        const response = await fetch(`/pos/eliminar-pendiente/${p.id}`, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-TOKEN': page.props.csrf_token },
+        });
+        if (response.ok) {
+            ventasPendientes.value = ventasPendientes.value.filter(v => v.id !== p.id);
+        }
+    } catch (e) {}
+}
+
+function detenerPollingMovimientos() {
+    if (intervaloMovimientos) {
+        clearInterval(intervaloMovimientos);
+        intervaloMovimientos = null;
+    }
+}
+
+const METODOS_DISPONIBLES = [
+    { value: 'EFECTIVO', label: 'Efectivo', icon: 'cash' },
+    { value: 'DEBITO', label: 'Débito', icon: 'card' },
+    { value: 'CREDITO', label: 'Crédito', icon: 'card' },
+    { value: 'TRANSFERENCIA', label: 'Transf.', icon: 'transfer' },
+    { value: 'MERCADO_PAGO', label: 'M.Pago', icon: 'mp' },
+    { value: 'CUENTA_CORRIENTE', label: 'Fiado', icon: 'fiado' },
+];
+
+const pagos = ref([{ metodo_pago: 'EFECTIVO', monto: null }]);
+
+const montoRecibido = ref(null);
+
+const productosBusqueda = ref([]);
+const buscandoProductos = ref(false);
+const productosIniciales = computed(() => props.productos || []);
+const totalProductos = computed(() => props.totalProductos || props.productos?.length || 0);
+
+const productosFiltrados = computed(() => {
+    if (buscar.value.length < 2) {
+        return productosIniciales.value;
+    }
+    if (productosBusqueda.value.length > 0) return productosBusqueda.value;
+    return productosIniciales.value.filter(p =>
+        p.nombre.toLowerCase().includes(buscar.value.toLowerCase()) ||
+        (p.codigo_barras && p.codigo_barras.includes(buscar.value))
     );
 });
+
+let timeoutBusqueda = null;
+function onBuscarInput() {
+    if (timeoutBusqueda) clearTimeout(timeoutBusqueda);
+    if (buscar.value.length < 2) {
+        productosBusqueda.value = [];
+        return;
+    }
+    timeoutBusqueda = setTimeout(() => {
+        buscarProductosAjax(buscar.value);
+    }, 300);
+}
+
+async function buscarProductosAjax(q) {
+    buscandoProductos.value = true;
+    try {
+        const response = await fetch(`/pos/buscar-productos?q=${encodeURIComponent(q)}`);
+        if (response.ok) {
+            productosBusqueda.value = await response.json();
+        }
+    } catch (e) {
+        console.error('Error al buscar productos:', e);
+    } finally {
+        buscandoProductos.value = false;
+    }
+}
+
+const clientesFiltradosSelect = ref([]);
+const buscandoClientes = ref(false);
+
+let timeoutCliente = null;
+function onBuscarClienteInput() {
+    if (timeoutCliente) clearTimeout(timeoutCliente);
+    if (busquedaCliente.value.length < 2) {
+        clientesFiltradosSelect.value = [];
+        return;
+    }
+    timeoutCliente = setTimeout(() => {
+        buscarClientesAjax(busquedaCliente.value);
+    }, 300);
+}
+
+async function buscarClientesAjax(q) {
+    buscandoClientes.value = true;
+    try {
+        const response = await fetch(`/pos/buscar-clientes?q=${encodeURIComponent(q)}`);
+        if (response.ok) {
+            clientesFiltradosSelect.value = await response.json();
+        }
+    } catch (e) {
+        console.error('Error al buscar clientes:', e);
+    } finally {
+        buscandoClientes.value = false;
+    }
+}
 
 const seleccionarCliente = (cliente) => {
     clienteSeleccionado.value = cliente ? cliente.id : null;
@@ -56,12 +260,40 @@ const disponibleCliente = computed(() => {
     return limite - deuda;
 });
 
-const montoRecibido = ref(null);
+const totalVenta = computed(() => {
+    return carrito.value.reduce((acc, item) => acc + (item.precio_venta * item.cantidad), 0);
+});
+
+const totalAsignado = computed(() => {
+    return pagos.value.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+});
+
+const restante = computed(() => {
+    return totalVenta.value - totalAsignado.value;
+});
+
+const esPagoCompleto = computed(() => {
+    if (totalVenta.value <= 0) return false;
+    if (esUnicoEfectivo.value) return Number(montoRecibido.value) >= totalVenta.value;
+    return Math.abs(restante.value) < 0.01;
+});
+
+const esUnicoEfectivo = computed(() => {
+    return pagos.value.length === 1 && pagos.value[0].metodo_pago === 'EFECTIVO';
+});
+
+const tieneCuentaCorriente = computed(() => {
+    return pagos.value.some(p => p.metodo_pago === 'CUENTA_CORRIENTE');
+});
+
 const vuelto = computed(() => {
+    if (!esUnicoEfectivo.value) return null;
     if (montoRecibido.value === null || montoRecibido.value === '' || Number(montoRecibido.value) < totalVenta.value) return null;
     return Number(montoRecibido.value) - totalVenta.value;
 });
+
 const sugerencias = computed(() => {
+    if (!esUnicoEfectivo.value) return [];
     const t = totalVenta.value;
     const montos = [];
     const base = [100, 200, 500, 1000, 2000, 5000, 10000, 20000];
@@ -72,26 +304,56 @@ const sugerencias = computed(() => {
     return montos.slice(0, 4);
 });
 
-const totalVenta = computed(() => {
-    return carrito.value.reduce((acc, item) => acc + (item.precio_venta * item.cantidad), 0);
-});
-
 const bloqueoPorSaldo = computed(() => {
-    if (metodoPago.value === 'CUENTA_CORRIENTE' && clienteActivoObj.value) {
-        return totalVenta.value > disponibleCliente.value;
+    if (tieneCuentaCorriente.value && clienteActivoObj.value) {
+        const montoCC = pagos.value
+            .filter(p => p.metodo_pago === 'CUENTA_CORRIENTE')
+            .reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+        return montoCC > disponibleCliente.value;
     }
     return false;
 });
 
-const productosFiltrados = computed(() => {
-    if (buscar.value.length < 2) return [];
-    return props.productos.filter(p => 
-        p.nombre.toLowerCase().includes(buscar.value.toLowerCase()) || 
-        (p.codigo_barras && p.codigo_barras.includes(buscar.value))
-    );
+const puedeCobrar = computed(() => {
+    if (carrito.value.length === 0) return false;
+    if (!esPagoCompleto.value) return false;
+    if (bloqueoPorSaldo.value) return false;
+    if (tieneCuentaCorriente.value && !clienteActivoObj.value) return false;
+    return true;
 });
 
-const procesarBusquedaEnter = () => {
+function togglePago(metodo) {
+    const idx = pagos.value.findIndex(p => p.metodo_pago === metodo);
+    if (idx >= 0) {
+        removerPago(idx);
+    } else {
+        agregarPago(metodo);
+    }
+}
+
+function agregarPago(metodo) {
+    if (pagos.value.length >= 6) return;
+    if (pagos.value.some(p => p.metodo_pago === metodo)) return;
+    const esPrimerEfectivo = pagos.value.length === 0 && metodo === 'EFECTIVO';
+    const montoSugerido = esPrimerEfectivo ? totalVenta.value : (restante.value > 0.01 ? restante.value : null);
+    pagos.value.push({ metodo_pago: metodo, monto: montoSugerido });
+}
+
+function removerPago(idx) {
+    if (pagos.value.length <= 1) return;
+    pagos.value.splice(idx, 1);
+    if (pagos.value.length === 1 && pagos.value[0].monto === null) {
+        pagos.value[0].monto = null;
+    }
+}
+
+function autoCompletarRestante() {
+    if (pagos.value.length === 0) return;
+    const ultimo = pagos.value[pagos.value.length - 1];
+    ultimo.monto = (Number(ultimo.monto) || 0) + Math.max(0, restante.value);
+}
+
+const procesarBusquedaEnter = async () => {
     const query = buscar.value.trim();
     if (!query) return;
 
@@ -100,7 +362,8 @@ const procesarBusquedaEnter = () => {
         const pesoGramos = parseInt(query.substring(7, 12), 10);
         const pesoKilos = pesoGramos / 1000;
 
-        const productoBalanza = props.productos.find(p => p.codigo_barras === pluBalanza);
+        const productoBalanza = productosIniciales.value.find(p => p.codigo_barras === pluBalanza)
+            || (await buscarExacto(pluBalanza));
         
         if (productoBalanza) {
             agregarItemAlCarrito(productoBalanza, pesoKilos);
@@ -109,20 +372,42 @@ const procesarBusquedaEnter = () => {
         }
     }
 
-    const exactMatch = props.productos.find(p => p.codigo_barras === query);
+    const exactMatch = productosIniciales.value.find(p => p.codigo_barras === query)
+        || (await buscarExacto(query));
     if (exactMatch) {
         clickEnProducto(exactMatch);
     } else {
+        mostrarFlash('error', 'Producto no encontrado');
         buscar.value = '';
         nextTick(() => { if (inputBusqueda.value) inputBusqueda.value.focus(); });
     }
 };
 
+async function buscarExacto(q) {
+    try {
+        const response = await fetch(`/pos/buscar-productos?q=${encodeURIComponent(q)}`);
+        if (response.ok) {
+            const results = await response.json();
+            return results.find(p => p.codigo_barras === q) || results[0] || null;
+        }
+    } catch (e) {}
+    return null;
+}
+
 // 🔥 FUNCIÓN QUE RECIBE EL CÓDIGO DE LA CÁMARA
+const flashFeedback = ref(null);
+let flashTimeout = null;
+
+const mostrarFlash = (tipo, mensaje) => {
+    flashFeedback.value = { tipo, mensaje };
+    if (flashTimeout) clearTimeout(flashTimeout);
+    flashTimeout = setTimeout(() => { flashFeedback.value = null; }, 2000);
+};
+
 const manejarCodigoEscaneado = (codigo) => {
-    mostrarEscaner.value = false; // Cerramos la cámara
-    buscar.value = codigo; // Escribimos el código en el buscador
-    procesarBusquedaEnter(); // Simulamos el "Enter"
+    mostrarEscaner.value = false;
+    buscar.value = codigo;
+    procesarBusquedaEnter();
 };
 
 const clickEnProducto = async (producto) => {
@@ -198,6 +483,12 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
             precio_venta: precioCobrar 
         });
     }
+
+    mostrarFlash('success', `${producto.nombre} agregado`);
+};
+
+const prevenirNegativo = (e) => {
+    if (['-', 'e', 'E', '+'].includes(e.key)) e.preventDefault();
 };
 
 const incrementarCantidad = (index) => {
@@ -236,9 +527,9 @@ const validarCantidad = (index) => {
 const eliminarDelCarrito = (index) => carrito.value.splice(index, 1);
 
 const finalizarVenta = () => {
-    if (carrito.value.length === 0) return;
+    if (!puedeCobrar.value) return;
     
-    if (metodoPago.value === 'CUENTA_CORRIENTE' && !clienteSeleccionado.value) {
+    if (tieneCuentaCorriente.value && !clienteSeleccionado.value) {
         Swal.fire('Falta Cliente', 'Tenés que seleccionar a quién le vas a fiar.', 'warning');
         return;
     }
@@ -250,36 +541,52 @@ const finalizarVenta = () => {
         allowOutsideClick: false
     });
 
+    const pagosData = pagos.value.map(p => ({
+        metodo_pago: p.metodo_pago,
+        monto: esUnicoEfectivo.value ? totalVenta.value : (Number(p.monto) || 0),
+    }));
+
     router.post(route('ventas.store'), {
         turno_caja_id: props.turno.id, 
         consumidor_id: clienteSeleccionado.value,
         items: carrito.value,
         total: totalVenta.value,
-        metodo_pago: metodoPago.value
+        pagos: pagosData,
     }, {
         onSuccess: (page) => {
-            const ventaId = page.props.flash.venta_id;
+            Swal.close();
 
-            if (ventaId) {
-                window.open(route('ventas.imprimir', ventaId), '_blank', 'width=450,height=600');
-            }
+            const ventaId = page.props.flash.venta_id;
 
             carrito.value = [];
             clienteSeleccionado.value = null;
             buscar.value = '';
             montoRecibido.value = null;
-            
+            pagos.value = [{ metodo_pago: 'EFECTIVO', monto: null }];
+
+            let html = `Venta #${ventaId} registrada correctamente.`;
+            if (clienteActivoObj.value?.email) {
+                html += `<br><span class="text-xs text-slate-500">Ticket enviado a ${clienteActivoObj.value.email}</span>`;
+            }
+
             Swal.fire({
                 icon: 'success',
                 title: '¡Venta Registrada!',
-                text: 'El cobro se procesó correctamente.',
-                timer: 2000,
-                showConfirmButton: false
+                html,
+                showCancelButton: true,
+                confirmButtonText: 'Imprimir Ticket',
+                cancelButtonText: 'Cerrar',
+                confirmButtonColor: '#0284c7',
+            }).then((result) => {
+                if (result.isConfirmed && ventaId) {
+                    window.open(route('ventas.imprimir', ventaId), '_blank', 'width=450,height=600');
+                }
             });
 
             nextTick(() => { if (inputBusqueda.value) inputBusqueda.value.focus(); });
         },
         onError: (errors) => {
+            Swal.close();
             Swal.fire({
                 icon: 'error',
                 title: 'Error al cobrar',
@@ -290,7 +597,6 @@ const finalizarVenta = () => {
     });
 };
 
-// ─── Atajos de teclado ───────────────────────────────────────────────
 const atajos = {
     F1: 'EFECTIVO',
     F2: 'DEBITO',
@@ -304,12 +610,12 @@ const handleKeydown = (e) => {
     const key = e.key;
     if (key.startsWith('F') && atajos[key]) {
         e.preventDefault();
-        metodoPago.value = atajos[key];
+        togglePago(atajos[key]);
         return;
     }
     if (key === 'F9') {
         e.preventDefault();
-        if (carrito.value.length > 0) finalizarVenta();
+        finalizarVenta();
         return;
     }
     if (key === 'Escape') {
@@ -318,8 +624,15 @@ const handleKeydown = (e) => {
     }
 };
 
-onMounted(() => window.addEventListener('keydown', handleKeydown));
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+onMounted(() => {
+    window.addEventListener('keydown', handleKeydown);
+    iniciarPollingMovimientos();
+    fetchPendientes();
+});
+onUnmounted(() => {
+    window.removeEventListener('keydown', handleKeydown);
+    detenerPollingMovimientos();
+});
 </script>
 
 <template>
@@ -356,12 +669,16 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                             <input 
                                 ref="inputBusqueda"
                                 v-model="buscar"
+                                @input="onBuscarInput"
                                 @keyup.enter="procesarBusquedaEnter"
                                 type="text" 
                                 placeholder="Escaneá código o buscá por nombre..."
-                                class="w-full pl-14 pr-32 py-4 bg-transparent border-none focus:ring-0 text-lg font-bold text-slate-800 placeholder-slate-400"
+                                class="w-full pl-14 pr-40 py-4 bg-transparent border-none focus:ring-0 text-lg font-bold text-slate-800 placeholder-slate-400"
                                 autofocus
                             />
+                            <div v-if="buscandoProductos" class="absolute right-36 top-1/2 -translate-y-1/2">
+                                <svg class="animate-spin h-5 w-5 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            </div>
                             <div class="absolute right-3 flex items-center gap-2">
                                 <div class="hidden sm:block px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
                                     ENTER ↵
@@ -377,7 +694,36 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                         </div>
                     </div>
 
-                    <div v-if="productosFiltrados.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <div v-if="flashFeedback" class="fixed top-20 right-4 z-50 animate-in fade-in slide-in-from-right-2 duration-200">
+                        <div class="px-4 py-2.5 rounded-xl shadow-lg border text-sm font-bold flex items-center gap-2"
+                            :class="flashFeedback.tipo === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'">
+                            <svg v-if="flashFeedback.tipo === 'success'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {{ flashFeedback.mensaje }}
+                        </div>
+                    </div>
+
+                            <div v-if="totalProductos > productosIniciales.length" class="text-[10px] font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Mostrando los primeros {{ productosIniciales.length }} de {{ totalProductos }} productos. Usá la búsqueda para encontrar más.
+                            </div>
+                            <div v-if="frecuentes && frecuentes.length > 0 && buscar.length < 2" class="mb-4">
+                                <div class="flex items-center gap-2 mb-3">
+                                    <span class="text-sm font-black text-amber-700 uppercase tracking-widest">⭐ Más vendidos</span>
+                                </div>
+                                <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-thin">
+                                    <div v-for="p in frecuentes" :key="'freq-' + p.id"
+                                        @click="clickEnProducto(p)"
+                                        class="shrink-0 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 hover:border-amber-400 rounded-xl px-4 py-3 cursor-pointer hover:shadow-md transition-all min-w-[140px]"
+                                    >
+                                        <div class="text-xs font-bold text-amber-800 truncate max-w-[120px]">{{ p.nombre }}</div>
+                                        <div class="text-sm font-black text-amber-900 mt-1">
+                                            ${{ Number(p.precio_rebajado || p.precio_venta).toLocaleString() }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="productosFiltrados.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         <div 
                             v-for="p in productosFiltrados" :key="p.id"
                             @click="clickEnProducto(p)"
@@ -408,6 +754,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                                 </div>
                             </div>
                         </div>
+                        <div v-if="carrito.length > 0" class="flex justify-center">
+                            <button @click="guardarCarrito" :disabled="guardandoCarrito"
+                                class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all disabled:opacity-50"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                {{ guardandoCarrito ? 'Guardando...' : carrito.length + ' ítem' + (carrito.length > 1 ? 's' : '') + ' — Guardar' }}
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -434,11 +788,15 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                                         </span>
                                         <input 
                                             v-model="busquedaCliente" 
+                                            @input="onBuscarClienteInput"
                                             type="text" 
                                             placeholder="Buscá por nombre o documento..." 
                                             class="w-full pl-10 text-sm font-medium border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 py-2.5"
                                             autofocus
                                         >
+                                        <div v-if="buscandoClientes" class="absolute right-4 top-1/2 -translate-y-1/2">
+                                            <svg class="animate-spin h-4 w-4 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        </div>
                                     </div>
                                     <ul class="max-h-64 overflow-y-auto">
                                         <li 
@@ -463,38 +821,171 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                             </div>
                         </div>
 
+                        <div class="border-b border-slate-200">
+                            <button @click="mostrarMovimientos = !mostrarMovimientos; if (mostrarMovimientos) fetchPendientes()"
+                                class="w-full flex items-center justify-between px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <span class="text-emerald-600 font-black text-xs">${{ resumenCaja.saldo.toLocaleString() }}</span>
+                                    <span v-if="ventasPendientes.length > 0" class="bg-amber-100 text-amber-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">{{ ventasPendientes.length }} pend.</span>
+                                    <span v-if="!cargandoMovimientos" class="text-[10px] text-slate-400 font-mono">{{ movimientosTurno.length }} mov.</span>
+                                    <svg v-if="cargandoMovimientos" class="animate-spin h-3 w-3 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform text-slate-400" :class="mostrarMovimientos ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                            </button>
+                            <div v-if="mostrarMovimientos" class="border-t border-slate-100">
+                                <div class="flex border-b border-slate-100">
+                                    <button @click="tabCajaPend = 'caja'" class="flex-1 py-2 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabCajaPend === 'caja' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
+                                        Movimientos
+                                    </button>
+                                    <button @click="tabCajaPend = 'pendientes'" class="flex-1 py-2 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabCajaPend === 'pendientes' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
+                                        Pendientes
+                                    </button>
+                                </div>
+                                <div v-if="tabCajaPend === 'caja'">
+                                    <div v-if="movimientosTurno.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
+                                        No hay movimientos en este turno
+                                    </div>
+                                    <div v-else class="max-h-40 overflow-y-auto">
+                                        <div v-for="m in movimientosTurno" :key="m.id"
+                                            class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                                        >
+                                            <div class="flex items-center gap-2 min-w-0">
+                                                <span class="shrink-0 w-1.5 h-1.5 rounded-full" :class="m.tipo === 'INGRESO' ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                                                <span class="truncate font-medium text-slate-700">{{ m.concepto }}</span>
+                                                <span class="shrink-0 text-[10px] text-slate-400 font-mono">{{ m.created_at }}</span>
+                                            </div>
+                                            <div class="flex items-center gap-2 shrink-0">
+                                                <span class="text-[10px] text-slate-400 hidden sm:inline">{{ m.metodo_pago_display }}</span>
+                                                <span class="font-black font-mono tabular-nums" :class="m.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-red-500'">
+                                                    {{ m.tipo === 'INGRESO' ? '+' : '-' }}${{ m.monto.toLocaleString() }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center justify-between px-4 py-1.5 bg-slate-50 text-[10px] font-bold border-t border-slate-200">
+                                        <span class="text-slate-500">I: <span class="text-emerald-600">${{ resumenCaja.ingresos.toLocaleString() }}</span></span>
+                                        <span class="text-slate-500">E: <span class="text-red-500">${{ resumenCaja.egresos.toLocaleString() }}</span></span>
+                                        <span class="text-slate-500">S: <span class="text-emerald-600">${{ resumenCaja.saldo.toLocaleString() }}</span></span>
+                                    </div>
+                                </div>
+                                <div v-if="tabCajaPend === 'pendientes'">
+                                    <div v-if="ventasPendientes.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
+                                        No hay ventas pendientes
+                                    </div>
+                                    <div v-else class="max-h-40 overflow-y-auto">
+                                        <div v-for="p in ventasPendientes" :key="p.id"
+                                            class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                                        >
+                                            <div>
+                                                <span class="font-bold text-slate-700">{{ p.items_count }} prod.</span>
+                                                <span class="text-slate-400 ml-2">${{ Number(p.total).toLocaleString() }}</span>
+                                                <span class="text-slate-400 ml-2 font-mono">{{ p.created_at }}</span>
+                                            </div>
+                                            <div class="flex gap-1">
+                                                <button @click="restaurarPendiente(p)" :disabled="restaurandoCarrito"
+                                                    class="px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                                >
+                                                    {{ restaurandoCarrito ? '...' : 'Abrir' }}
+                                                </button>
+                                                <button @click="eliminarPendiente(p)"
+                                                    class="px-2 py-0.5 text-slate-400 hover:text-rose-500 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="px-5 pt-4 pb-2 bg-slate-50 flex flex-col gap-3">
-                            <div class="flex gap-2">
-                                <label class="flex-1 cursor-pointer">
-                                    <input type="radio" v-model="metodoPago" value="EFECTIVO" class="peer sr-only">
-                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                        Efectivo
-                                    </div>
-                                </label>
-                                <label class="flex-1 cursor-pointer">
-                                    <input type="radio" v-model="metodoPago" value="DEBITO" class="peer sr-only">
-                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-sky-500 peer-checked:bg-sky-50 peer-checked:text-sky-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
-                                        Digital
-                                    </div>
-                                </label>
-                                <label class="flex-1 cursor-pointer">
-                                    <input type="radio" v-model="metodoPago" value="CUENTA_CORRIENTE" class="peer sr-only">
-                                    <div class="text-center px-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 text-slate-400 bg-white hover:bg-slate-50 transition-all flex flex-col items-center gap-1 shadow-sm">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                                        Fiado
-                                    </div>
-                                </label>
+                            <div class="flex gap-1">
+                                <button
+                                    v-for="m in METODOS_DISPONIBLES" :key="m.value"
+                                    @click="togglePago(m.value)"
+                                    :title="m.label"
+                                    class="flex-1 flex items-center justify-center px-1 py-2 rounded-xl border-2 transition-all shadow-sm"
+                                    :class="pagos.some(p => p.metodo_pago === m.value)
+                                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-indigo-100'
+                                        : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
+                                >
+                                    <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                    <svg v-else-if="m.value === 'DEBITO' || m.value === 'CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                                    <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                    <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                                </button>
                             </div>
 
-                            <div v-if="metodoPago === 'CUENTA_CORRIENTE' && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
+                            <div v-for="(pago, idx) in pagos" :key="idx" class="flex items-center gap-2">
+                                <span class="text-xs font-black uppercase tracking-wider text-slate-500 min-w-[70px]">{{ METODOS_DISPONIBLES.find(m => m.value === pago.metodo_pago)?.label || pago.metodo_pago }}</span>
+                                <template v-if="esUnicoEfectivo">
+                                    <div class="flex-1 text-right text-sm font-bold text-slate-400">${{ totalVenta.toFixed(2) }}</div>
+                                </template>
+                                <template v-else>
+                                    <div class="relative flex-1">
+                                        <span class="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">$</span>
+                                        <input
+                                            v-model.number="pago.monto"
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            class="w-full pl-6 pr-2 py-1.5 border-2 border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-0 transition-colors"
+                                            @focus="$event.target.select()"
+                                        >
+                                    </div>
+                                    <button
+                                        v-if="pagos.length > 1"
+                                        @click="removerPago(idx)"
+                                        class="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </template>
+                            </div>
+
+                            <div v-if="esUnicoEfectivo && totalVenta > 0" class="flex items-center gap-2">
+                                <div class="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full transition-all duration-300"
+                                        :class="esPagoCompleto ? 'bg-emerald-500' : 'bg-indigo-500'"
+                                        :style="{ width: Math.min(100, ((Number(montoRecibido) || 0) / totalVenta * 100)) + '%' }">
+                                    </div>
+                                </div>
+                                <span class="text-xs font-bold" :class="esPagoCompleto ? 'text-emerald-600' : 'text-slate-500'">
+                                    <template v-if="montoRecibido !== null && montoRecibido !== ''">${{ Number(montoRecibido).toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
+                                    <template v-else>Falta monto recibido</template>
+                                </span>
+                            </div>
+
+                            <div v-else-if="totalVenta > 0" class="flex items-center gap-2">
+                                <div class="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                    <div class="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                                        :class="esPagoCompleto ? 'bg-emerald-500' : ''"
+                                        :style="{ width: Math.min(100, (totalAsignado / totalVenta * 100)) + '%' }">
+                                    </div>
+                                </div>
+                                <span class="text-xs font-bold" :class="esPagoCompleto ? 'text-emerald-600' : 'text-slate-500'">
+                                    <template v-if="esPagoCompleto">Completado</template>
+                                    <template v-else>${{ totalAsignado.toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
+                                </span>
+                            </div>
+
+                            <div v-if="restante > 0.01 && pagos.length > 0 && pagos.length < 6" class="flex justify-end">
+                                <button @click="autoCompletarRestante" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider">
+                                    Asignar restante (${{ restante.toFixed(2) }}) al último
+                                </button>
+                            </div>
+
+                            <div v-if="tieneCuentaCorriente && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
                                 <div>
                                     <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Crédito Disponible</p>
                                     <p class="font-bold text-sm">${{ disponibleCliente.toFixed(2) }}</p>
                                 </div>
                             </div>
-                            <div v-else-if="metodoPago === 'CUENTA_CORRIENTE' && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
+                            <div v-else-if="tieneCuentaCorriente && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
                                 <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
                             </div>
                         </div>
@@ -523,10 +1014,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                                         <button @click="decrementarCantidad(index)" type="button" class="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm">−</button>
                                         <div class="flex flex-col items-center justify-center px-1">
                                             <input 
-                                                type="number" step="0.001"
+                                                type="number"
                                                 v-model.number="item.cantidad" 
+                                                min="0"
                                                 @blur="validarCantidad(index)"
-                                                class="w-16 text-center bg-transparent border-none text-sm font-black p-0 focus:ring-0 text-sky-700"
+                                                @keydown="prevenirNegativo($event)"
+                                                class="w-16 text-center bg-transparent border-none text-sm font-black p-0 focus:ring-0 text-sky-700 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&]:[appearance:textfield]"
                                             >
                                         </div>
                                         <button @click="incrementarCantidad(index)" type="button" class="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm">+</button>
@@ -545,7 +1038,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                                 <span class="text-3xl font-black text-slate-900 tracking-tight" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
                             </div>
 
-                            <div v-if="carrito.length > 0 && metodoPago !== 'CUENTA_CORRIENTE'" class="mb-4 space-y-3">
+                            <div v-if="esUnicoEfectivo && totalVenta > 0" class="mb-4 space-y-3">
                                 <div>
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Recibido ($)</label>
                                     <div class="relative">
@@ -579,10 +1072,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 
                             <button 
                                 @click="finalizarVenta"
-                                :disabled="carrito.length === 0 || bloqueoPorSaldo || (metodoPago === 'CUENTA_CORRIENTE' && !clienteActivoObj)"
+                                :disabled="!puedeCobrar"
                                 class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-3.5 rounded-xl shadow-lg uppercase tracking-widest active:scale-95 transition-all text-sm"
                             >
-                                {{ bloqueoPorSaldo ? 'SALDO INSUFICIENTE' : 'Cobrar' }}
+                                <template v-if="bloqueoPorSaldo">SALDO INSUFICIENTE</template>
+                                <template v-else-if="esUnicoEfectivo && (montoRecibido === null || montoRecibido === '')">Ingresá el monto recibido</template>
+                                <template v-else-if="esUnicoEfectivo && Number(montoRecibido) < totalVenta">Faltan ${{ (totalVenta - Number(montoRecibido)).toFixed(2) }}</template>
+                                <template v-else-if="!esPagoCompleto">Asigná el total (${{ restante.toFixed(2) }})</template>
+                                <template v-else>Cobrar ${{ totalVenta.toFixed(2) }}</template>
                             </button>
                         </div>
                     </div>

@@ -53,34 +53,7 @@ Route::get('/pending-approval', function () {
     return Inertia::render('PendingApproval');
 })->name('pending.approval');
 
-Route::get('/api/catalogo/{sucursal_id}', function ($sucursal_id) {
-    $sucursal = Sucursal::find($sucursal_id);
-    if (!$sucursal) return response()->json([]);
-
-    $productos = $sucursal->productos()
-        ->with('categoria')
-        ->where('productos.estado', true)
-        ->get();
-
-    return response()->json($productos->map(function ($prod) use ($sucursal_id) {
-        $pivot = $prod->sucursales()->where('sucursal_id', $sucursal_id)->first()?->pivot;
-        $cantidad_fisica = $pivot?->cantidad_fisica ?? 0;
-        $cantidad_reservada = $pivot?->cantidad_reservada ?? 0;
-        $stock_disponible = max(0, $cantidad_fisica - $cantidad_reservada);
-
-        return [
-            'id'           => $prod->id,
-            'nombre'       => $prod->nombre,
-            'categoria_id' => $prod->categoria_id,
-            'categoria'    => $prod->categoria
-                ? ['id' => $prod->categoria->id, 'nombre' => $prod->categoria->nombreCategoria]
-                : null,
-            'precio'       => $prod->precio_venta,
-            'imagen_url'   => $prod->url_imagen,
-            'stock'        => $stock_disponible,
-        ];
-    })->values()->all());
-});
+Route::get('/api/catalogo/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'catalogo']);
 
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
@@ -112,6 +85,13 @@ Route::get('/auth/google/callback', [GoogleLoginController::class, 'callback']);
 Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
     Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
+    Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
+    Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
+    Route::get('/pos/movimientos-turno', [PosController::class, 'movimientosTurno'])->name('pos.movimientos.turno');
+    Route::post('/pos/guardar-carrito', [PosController::class, 'guardarCarrito'])->name('pos.guardar.carrito');
+    Route::get('/pos/listar-pendientes', [PosController::class, 'listarPendientes'])->name('pos.listar.pendientes');
+    Route::post('/pos/recuperar-carrito/{ventaPendiente}', [PosController::class, 'recuperarCarrito'])->name('pos.recuperar.carrito');
+    Route::delete('/pos/eliminar-pendiente/{ventaPendiente}', [PosController::class, 'eliminarPendiente'])->name('pos.eliminar.pendiente');
     Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index');
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
@@ -369,47 +349,7 @@ Route::get('/api/tienda/pedido/{pedido}/estado', function (PedidoWeb $pedido) {
 })->name('api.pedido.estado');
 
 // Tienda pública (slug catch-all debe ir último)
-Route::get('/tienda/{slug}', function ($slug) {
-    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
-
-    session(['ultima_tienda_slug' => $slug]);
-    session(['comercio_id_actual' => $comercio->id]);
-
-    $consumidor = auth('consumidor')->user();
-
-    $sucursales = \App\Models\Sucursal::where('comercio_id', $comercio->id)
-        ->where('estado', true)
-        ->select('id', 'nombre', 'latitud', 'longitud', 'direccion', 'costo_delivery')
-        ->get()
-        ->map(function ($sucursal) {
-            $sucursal->latitud  = (float) $sucursal->latitud;
-            $sucursal->longitud = (float) $sucursal->longitud;
-            return $sucursal;
-        });
-
-    $categorias = \App\Models\Categoria::where('estado', true)
-        ->orderBy('nombreCategoria')
-        ->get()
-        ->map(fn($c) => [
-            'id'     => $c->id,
-            'nombre' => $c->nombreCategoria,
-        ]);
-
-    return Inertia::render('Welcome', [
-        'comercio'             => $comercio,
-        'sucursalesBackend'    => $sucursales,
-        'categorias'           => $categorias,
-        'tienda_slug'          => $slug,
-        'consumidorLogueado'   => $consumidor ? [
-            'id'       => $consumidor->id,
-            'nombre'   => $consumidor->nombre,
-            'apellido' => $consumidor->apellido,
-            'email'    => $consumidor->email,
-            'telefono' => $consumidor->telefono,
-        ] : null,
-        'geoapifyKey'          => config('services.geoapify.key'),
-    ]);
-})->name('tienda.publica');
+Route::get('/tienda/{slug}', \App\Http\Controllers\TiendaController::class)->name('tienda.publica');
 
 // Webhook MercadoPago (sin CSRF ni auth, MP envía desde sus servidores)
 Route::post('/api/mercadopago/notificacion', [\App\Http\Controllers\MercadoPagoNotificacionController::class, 'notificacion'])

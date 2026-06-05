@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
+import { formatearFecha, formatearDinero } from '@/Utils/formatters.js';
 
 const props = defineProps({
     mostrar: Boolean,
@@ -8,16 +9,14 @@ const props = defineProps({
 
 const emit = defineEmits(['cerrar']);
 
-const formatearFecha = (fecha) => {
-    return new Date(fecha).toLocaleString('es-AR', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: false
-    });
+const cerrarConEscape = (e) => {
+    if (e.key === 'Escape' && props.mostrar) {
+        emit('cerrar');
+    }
 };
 
-const formatearDinero = (monto) => {
-    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
-};
+onMounted(() => document.addEventListener('keydown', cerrarConEscape));
+onUnmounted(() => document.removeEventListener('keydown', cerrarConEscape));
 
 const metodoPagoLabel = (metodo) => {
     const labels = {
@@ -29,6 +28,18 @@ const metodoPagoLabel = (metodo) => {
         'CUENTA_CORRIENTE': 'Cuenta Corriente',
     };
     return labels[metodo] || metodo;
+};
+
+const pagosResumen = (venta) => {
+    if (!venta) return [];
+    if (venta.pagos && venta.pagos.length > 0) {
+        return venta.pagos.map(p => ({
+            ...p,
+            label: metodoPagoLabel(p.metodo_pago),
+            monto: Number(p.monto),
+        }));
+    }
+    return [{ metodo_pago: venta.metodo_pago, monto: Number(venta.total), label: metodoPagoLabel(venta.metodo_pago) }];
 };
 </script>
 
@@ -44,7 +55,7 @@ const metodoPagoLabel = (metodo) => {
             </div>
 
             <div class="p-6 space-y-6">
-                <div v-if="venta?.estado === 'anulada'" class="bg-rose-50 border-2 border-rose-200 p-4 rounded-xl">
+                <div v-if="venta?.estado === 'Cancelada'" class="bg-rose-50 border-2 border-rose-200 p-4 rounded-xl">
                     <h3 class="text-rose-800 font-black text-xs uppercase tracking-widest mb-1">Venta Anulada</h3>
                     <p class="text-rose-600 font-bold text-sm italic">Motivo: {{ venta?.motivo_anulacion || 'No especificado' }}</p>
                 </div>
@@ -60,11 +71,13 @@ const metodoPagoLabel = (metodo) => {
                     </div>
                     <div>
                         <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Método de Pago</label>
-                        <span class="text-xs font-black text-sky-600">{{ metodoPagoLabel(venta?.metodo_pago) }}</span>
+                        <div class="space-y-0.5">
+                            <p v-for="(p, i) in pagosResumen(venta)" :key="i" class="text-xs font-bold text-sky-600">{{ p.label }}: {{ formatearDinero(p.monto) }}</p>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Atendido por</label>
-                        <p class="font-bold text-slate-700">{{ venta?.user?.name || 'Sistema' }}</p>
+                        <p class="font-bold text-slate-700">{{ venta?.turno?.cajero?.name || 'Sistema' }}</p>
                     </div>
                 </div>
 

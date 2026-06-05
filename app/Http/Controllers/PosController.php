@@ -8,10 +8,13 @@ use App\Models\TurnoCaja;
 use App\Models\MovimientoCaja;
 use App\Models\Producto;
 use App\Models\Consumidor;
+use App\Models\DetalleVenta;
+use App\Models\VentaPendiente;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 
 
@@ -32,60 +35,27 @@ class PosController extends Controller
                 return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
             }
 
-            $productos = Producto::where('estado', true)
-                ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
-                ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
-                ->with([
-                    'sucursales' => function($q) use ($sucursalId) {
-                        $q->where('sucursal_id', $sucursalId);
-                    }, 
-                    'reglaLiquidacion',
-                    // 🔥 Eager loading de lotes optimizado para esta sucursal (Mata el N+1)
-                    'lotes' => function($q) use ($sucursalId) {
-                        $q->where('sucursal_id', $sucursalId)
-                          ->where('estado_liquidacion', true)
-                          ->where('stock_actual', '>', 0);
-                    }
-                ])
-                ->get()
-                ->map(function($p) {
-                    $pivot = $p->sucursales->first();
-                    $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
-
-                    // 🔥 LÓGICA DE LIQUIDACIÓN PREVENTIVA OPTIMIZADA
-                    // Ya no consultamos a la BD adentro del bucle, solo leemos la colección en memoria
-                    $loteEnLiquidacion = $p->lotes->isNotEmpty();
-
-                    $p->en_liquidacion = false;
-                    $p->porcentaje_descuento = 0;
-                    $p->precio_rebajado = $p->precio_venta;
-
-                    // Si hay lote en liquidación y el producto tiene una regla activa...
-                    if ($loteEnLiquidacion && $p->reglaLiquidacion && $p->reglaLiquidacion->estado) {
-                        $p->en_liquidacion = true;
-                        $p->porcentaje_descuento = (float) $p->reglaLiquidacion->porcentaje_descuento;
-                        
-                        // Calculamos el nuevo precio: Precio - (Precio * % / 100)
-                        $descuento = $p->precio_venta * ($p->porcentaje_descuento / 100);
-                        $p->precio_rebajado = round($p->precio_venta - $descuento, 2);
-                    }
-
-                    // Limpiamos la relación temporal para no mandar basura pesada al frontend de Inertia
-                    unset($p->lotes);
-
-                    return $p;
-                });
-
             $comercioId = $user->branch?->comercio_id;
+
+            $totalProductos = Producto::where('estado', true)
+                ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
+                ->count();
+
+            $productos = $this->cargarProductosSucursal($sucursalId, 50);
+            $productosFrecuentes = $this->cargarProductosFrecuentes($sucursalId);
+
             $clientesActivos = Consumidor::with('cuentaCorriente')
                 ->where('estado', true)
                 ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+                ->limit(50)
                 ->get();
 
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
-                'clientes' => $clientesActivos
+                'clientes' => $clientesActivos,
+                'totalProductos' => $totalProductos,
+                'frecuentes' => $productosFrecuentes,
             ]);
         }
 
@@ -148,5 +118,278 @@ class PosController extends Controller
 
             return redirect()->route('pos.index')->with('success', 'Turno abierto correctamente. ¡Buenas ventas!');
         });
+    }
+
+    private function cargarProductosFrecuentes(int $sucursalId, int $limit = 12)
+    {
+        $topIds = DetalleVenta::select('producto_id', DB::raw('COUNT(*) as total'))
+            ->whereHas('venta', function ($q) use ($sucursalId) {
+                $q->where('estado', 'Completada')
+                  ->whereHas('turno', fn ($q) => $q->where('sucursal_id', $sucursalId));
+            })
+            ->groupBy('producto_id')
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->pluck('producto_id');
+
+        if ($topIds->isEmpty()) {
+            return collect();
+        }
+
+        return $this->cargarProductosSucursal($sucursalId, $limit, $topIds->toArray());
+    }
+
+    private function cargarProductosSucursal(int $sucursalId, int $limit = 50, ?array $ids = null)
+    {
+        $query = Producto::where('estado', true)
+            ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId));
+
+        if ($ids !== null) {
+            $query->whereIn('id', $ids)->orderByRaw('array_position(ARRAY[' . implode(',', $ids) . ']::bigint[], id)');
+        }
+
+        $query->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
+            ->with([
+                'sucursales' => function($q) use ($sucursalId) {
+                    $q->where('sucursal_id', $sucursalId);
+                },
+                'reglaLiquidacion',
+                'lotes' => function($q) use ($sucursalId) {
+                    $q->where('sucursal_id', $sucursalId)
+                      ->where('estado_liquidacion', true)
+                      ->where('stock_actual', '>', 0);
+                }
+            ]);
+
+        if ($ids === null) {
+            $query->orderBy('nombre');
+        }
+
+        if ($limit) {
+            $query->limit($limit);
+        }
+
+        return $query->get()->map(function($p) {
+            $pivot = $p->sucursales->first();
+            $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
+
+            $loteEnLiquidacion = $p->lotes->isNotEmpty();
+
+            $p->en_liquidacion = false;
+            $p->porcentaje_descuento = 0;
+            $p->precio_rebajado = $p->precio_venta;
+
+            if ($loteEnLiquidacion && $p->reglaLiquidacion && $p->reglaLiquidacion->estado) {
+                $p->en_liquidacion = true;
+                $p->porcentaje_descuento = (float) $p->reglaLiquidacion->porcentaje_descuento;
+                $descuento = $p->precio_venta * ($p->porcentaje_descuento / 100);
+                $p->precio_rebajado = round($p->precio_venta - $descuento, 2);
+            }
+
+            unset($p->lotes);
+            return $p;
+        });
+    }
+
+    public function guardarCarrito(Request $request)
+    {
+        $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.id' => 'required|integer|exists:productos,id',
+            'items.*.nombre' => 'required|string',
+            'items.*.cantidad' => 'required|numeric|min:0.01',
+            'items.*.precio_venta' => 'required|numeric|min:0',
+            'consumidor_id' => 'nullable|exists:consumidores,id',
+        ]);
+
+        $user = auth()->user();
+        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
+        if (!$turno) {
+            return response()->json(['error' => 'No hay turno abierto'], 400);
+        }
+
+        $total = collect($request->items)->sum(fn ($i) => $i['cantidad'] * $i['precio_venta']);
+
+        $pendiente = VentaPendiente::create([
+            'user_id' => $user->id,
+            'turno_caja_id' => $turno->id,
+            'consumidor_id' => $request->consumidor_id,
+            'items' => $request->items,
+            'total' => $total,
+            'estado' => 'activa',
+        ]);
+
+        return response()->json(['id' => $pendiente->id, 'total' => $total]);
+    }
+
+    public function listarPendientes()
+    {
+        $user = auth()->user();
+        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
+        if (!$turno) {
+            return response()->json([]);
+        }
+
+        $pendientes = VentaPendiente::where('turno_caja_id', $turno->id)
+            ->where('estado', 'activa')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn ($p) => [
+                'id' => $p->id,
+                'total' => (float) $p->total,
+                'items_count' => count($p->items ?? []),
+                'items' => $p->items,
+                'consumidor_id' => $p->consumidor_id,
+                'created_at' => $p->created_at->format('H:i'),
+            ]);
+
+        return response()->json($pendientes);
+    }
+
+    public function recuperarCarrito(VentaPendiente $ventaPendiente)
+    {
+        $user = auth()->user();
+        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
+        if (!$turno || $ventaPendiente->turno_caja_id !== $turno->id) {
+            return response()->json(['error' => 'No autorizado'], 403);
+        }
+
+        if ($ventaPendiente->estado !== 'activa') {
+            return response()->json(['error' => 'La venta pendiente ya fue recuperada'], 400);
+        }
+
+        $ventaPendiente->update(['estado' => 'recuperada']);
+
+        return response()->json([
+            'items' => $ventaPendiente->items,
+            'consumidor_id' => $ventaPendiente->consumidor_id,
+            'total' => (float) $ventaPendiente->total,
+        ]);
+    }
+
+    public function eliminarPendiente(VentaPendiente $ventaPendiente)
+    {
+        $user = auth()->user();
+        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
+        if (!$turno || $ventaPendiente->turno_caja_id !== $turno->id) {
+            return response()->json(['error' => 'No autorizado'], 403);
+        }
+
+        $ventaPendiente->update(['estado' => 'cancelada']);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function buscarProductos(Request $request)
+    {
+        $user = auth()->user();
+        $sucursalId = $user->branch_id;
+        if (!$sucursalId) {
+            return response()->json([]);
+        }
+
+        $query = $request->get('q', '');
+        if (strlen($query) < 2) {
+            return response()->json([]);
+        }
+
+        $productos = Producto::where('estado', true)
+            ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
+            ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
+            ->where(function ($q) use ($query) {
+                if (is_numeric($query)) {
+                    $q->where('codigo_barras', 'LIKE', $query . '%')
+                      ->orWhere('id', (int) $query);
+                } else {
+                    $q->where('nombre', 'ILIKE', '%' . $query . '%');
+                }
+            })
+            ->with([
+                'sucursales' => function($q) use ($sucursalId) {
+                    $q->where('sucursal_id', $sucursalId);
+                },
+                'reglaLiquidacion',
+                'lotes' => function($q) use ($sucursalId) {
+                    $q->where('sucursal_id', $sucursalId)
+                      ->where('estado_liquidacion', true)
+                      ->where('stock_actual', '>', 0);
+                }
+            ])
+            ->orderBy('nombre')
+            ->limit(30)
+            ->get()
+            ->map(function($p) {
+                $pivot = $p->sucursales->first();
+                $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
+                $p->en_liquidacion = false;
+                $p->porcentaje_descuento = 0;
+                $p->precio_rebajado = $p->precio_venta;
+
+                if ($p->reglaLiquidacion && $p->reglaLiquidacion->estado && $p->lotes->isNotEmpty()) {
+                    $p->en_liquidacion = true;
+                    $p->porcentaje_descuento = (float) $p->reglaLiquidacion->porcentaje_descuento;
+                    $descuento = $p->precio_venta * ($p->porcentaje_descuento / 100);
+                    $p->precio_rebajado = round($p->precio_venta - $descuento, 2);
+                }
+
+                unset($p->lotes, $p->reglaLiquidacion, $p->sucursales);
+                return $p;
+            });
+
+        return response()->json($productos);
+    }
+
+    public function movimientosTurno(Request $request)
+    {
+        $user = auth()->user();
+        $turno = TurnoCaja::where('user_id', $user->id)
+            ->where('estado', 'Abierto')
+            ->first();
+
+        if (!$turno) {
+            return response()->json([]);
+        }
+
+        $movimientos = $turno->movimientos()
+            ->orderBy('created_at', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(fn($m) => [
+                'id' => $m->id,
+                'tipo' => $m->tipo,
+                'concepto' => $m->concepto,
+                'metodo_pago' => $m->metodo_pago,
+                'metodo_pago_display' => $m->metodo_pago_display,
+                'monto' => (float) $m->monto,
+                'descripcion' => $m->descripcion,
+                'created_at' => $m->created_at->format('H:i'),
+            ]);
+
+        return response()->json($movimientos);
+    }
+
+    public function buscarClientes(Request $request)
+    {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $query = $request->get('q', '');
+
+        if (strlen($query) < 2) {
+            return response()->json([]);
+        }
+
+        $clientes = Consumidor::with('cuentaCorriente')
+            ->where('estado', true)
+            ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+            ->where(function ($q) use ($query) {
+                $q->where('nombre', 'ILIKE', '%' . $query . '%')
+                  ->orWhere('apellido', 'ILIKE', '%' . $query . '%')
+                  ->orWhere('documento', 'LIKE', '%' . $query . '%');
+            })
+            ->orderBy('nombre')
+            ->limit(20)
+            ->get();
+
+        return response()->json($clientes);
     }
 }

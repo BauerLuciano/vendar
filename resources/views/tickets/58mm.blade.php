@@ -47,7 +47,7 @@
 
     <div class="border-top text-right">
         <span class="bold" style="font-size: 14px;">TOTAL: ${{ number_format($venta->total, 2) }}</span><br>
-        <small>Pago: {{ $venta->metodo_pago_display }}</small>
+        <small>Pago: {!! $venta->metodo_pago_display !!}</small>
     </div>
 
     <div class="text-center" style="margin-top: 20px;">

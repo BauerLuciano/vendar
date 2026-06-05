@@ -12,6 +12,7 @@ use App\Models\Consumidor;
 use App\Models\CuentaCorriente;
 use App\Models\MovimientoCuentaCorriente;
 use App\Models\MovimientoCaja;
+use App\Jobs\EnviarTicketDigital;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -76,10 +77,12 @@ class VentaController extends Controller
             'consumidor_id' => 'nullable|exists:consumidores,id', 
             'items'         => 'required|array|min:1',
             'total'         => 'required|numeric|min:0',
-            'metodo_pago'   => 'required|string',
+            'metodo_pago'   => 'required_without:pagos|string',
+            'pagos'         => 'nullable|array|min:1',
+            'pagos.*.metodo_pago' => 'required_with:pagos|string',
+            'pagos.*.monto' => 'required_with:pagos|numeric|min:0',
         ]);
 
-        // 1. Obtener configuración de stock negativo
         $permitirStockNegativo = \App\Models\Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
         $permitirStockNegativo = filter_var($permitirStockNegativo, FILTER_VALIDATE_BOOLEAN);
 
@@ -88,24 +91,45 @@ class VentaController extends Controller
 
             $comercioId = auth()->user()->branch?->comercio_id;
 
-            // Ordenar items por producto_id para reducir deadlocks en locks concurrentes
             $items = collect($request->items)->sortBy('id')->values()->all();
+
+            $totalCalculado = collect($items)->sum(fn ($item) => (float) ($item['precio_venta'] ?? 0) * (float) ($item['cantidad'] ?? 0));
 
             $turno = TurnoCaja::with('caja')
                 ->when($comercioId, fn ($q) => $q->whereHas('caja.sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
                 ->findOrFail($request->turno_caja_id);
             $sucursalId = $turno->caja->sucursal_id;
 
-            // 🛑 VALIDACIÓN DE CUENTA CORRIENTE (FIADO) — dentro de la transacción para evitar race conditions
-            $cuenta = null;
-            $metodoPagoNormalizado = MetodoPago::fromString($request->metodo_pago)->value;
-            if ($metodoPagoNormalizado === MetodoPago::CUENTA_CORRIENTE->value) {
+            $pagos = $request->pagos;
+            if (!$pagos) {
+                $pagos = [['metodo_pago' => $request->metodo_pago, 'monto' => (float) $request->total]];
+            }
+
+            $pagosNormalizados = collect($pagos)->map(fn ($p) => [
+                'metodo_pago' => MetodoPago::fromString($p['metodo_pago'])->value,
+                'monto' => (float) $p['monto'],
+            ]);
+
+            $sumaPagos = $pagosNormalizados->sum('monto');
+            if (abs($sumaPagos - $totalCalculado) > 0.01) {
+                throw new \Exception("La suma de los pagos (\$$sumaPagos) no coincide con el total calculado (\${$totalCalculado}).");
+            }
+
+            $tieneCuentaCorriente = $pagosNormalizados->contains('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value);
+            $montoCC = $pagosNormalizados->where('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value)->sum('monto');
+
+            $metodoPagoNormalizado = $pagosNormalizados->count() === 1
+                ? $pagosNormalizados->first()['metodo_pago']
+                : 'MULTIPLE';
+
+            if ($tieneCuentaCorriente) {
                 if (!$request->consumidor_id) {
                     throw new \Exception('Debe seleccionar un cliente para realizar una venta en cuenta corriente.');
                 }
 
                 $consumidor = Consumidor::with('cuentaCorriente')
                     ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+                    ->where('estado', true)
                     ->findOrFail($request->consumidor_id);
                 $cuenta = CuentaCorriente::lockForUpdate()
                     ->where('consumidor_id', $request->consumidor_id)
@@ -113,7 +137,7 @@ class VentaController extends Controller
                 $deudaActual = $cuenta ? $cuenta->saldo_deudor : 0;
                 $disponible = $consumidor->limite_cuenta_corriente - $deudaActual;
 
-                if ($request->total > $disponible) {
+                if ($montoCC > $disponible) {
                     $montoFormateado = number_format($disponible, 2, ',', '.');
                     throw new \Exception("Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado.");
                 }
@@ -143,38 +167,40 @@ class VentaController extends Controller
                 'turno_caja_id' => $request->turno_caja_id,
                 'consumidor_id' => $request->consumidor_id,
                 'metodo_pago'   => $metodoPagoNormalizado,
-                'total'         => $request->total,
+                'pagos'         => $pagosNormalizados->toArray(),
+                'total'         => $totalCalculado,
                 'estado'        => 'Completada',
             ]);
 
-            // 3. Lógica Financiera (CC o Movimiento de Caja)
-            if ($metodoPagoNormalizado === MetodoPago::CUENTA_CORRIENTE->value) {
-                if (!$cuenta) {
-                    $cuenta = CuentaCorriente::create([
-                        'consumidor_id' => $request->consumidor_id,
-                        'saldo_deudor' => 0,
+            // 3. Lógica Financiera — un registro por cada método de pago
+            foreach ($pagosNormalizados as $pago) {
+                if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value) {
+                    if (!isset($cuenta)) {
+                        $cuenta = CuentaCorriente::firstOrCreate(
+                            ['consumidor_id' => $request->consumidor_id],
+                            ['saldo_deudor' => 0],
+                        );
+                    }
+
+                    $cuenta->increment('saldo_deudor', $pago['monto']);
+
+                    MovimientoCuentaCorriente::create([
+                        'cuenta_corriente_id' => $cuenta->id,
+                        'venta_id'            => $venta->id,
+                        'monto'               => $pago['monto'],
+                        'tipo'                => 'cargo',
+                        'descripcion'         => 'Compra en POS (' . $pago['metodo_pago'] . ')',
+                    ]);
+                } else {
+                    MovimientoCaja::create([
+                        'turno_caja_id' => $request->turno_caja_id,
+                        'tipo'          => 'INGRESO',
+                        'concepto'      => 'VENTA_MOSTRADOR',
+                        'metodo_pago'   => $pago['metodo_pago'],
+                        'monto'         => $pago['monto'],
+                        'descripcion'   => 'Ticket de venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
                     ]);
                 }
-                
-                $cuenta->increment('saldo_deudor', $request->total);
-                
-                MovimientoCuentaCorriente::create([
-                    'cuenta_corriente_id' => $cuenta->id,
-                    'venta_id'            => $venta->id,
-                    'monto'               => $request->total,
-                    'tipo'                => 'cargo',
-                    'descripcion'         => 'Compra en POS',
-                ]);
-            } 
-            else {
-                MovimientoCaja::create([
-                    'turno_caja_id' => $request->turno_caja_id,
-                    'tipo'          => 'INGRESO',
-                    'concepto'      => 'VENTA_MOSTRADOR',
-                    'metodo_pago'   => $metodoPagoNormalizado,
-                    'monto'         => $request->total,
-                    'descripcion'   => 'Ticket de venta #' . $venta->id,
-                ]);
             }
 
             // 4. Procesar Detalle, Descuento de Stock, Auditoría Y LOTES
@@ -258,7 +284,9 @@ class VentaController extends Controller
             }
 
             DB::commit();
-            
+
+            EnviarTicketDigital::dispatch($venta->id);
+
             return redirect()->back()->with([
                 'success' => 'Venta exitosa',
                 'venta_id' => $venta->id
@@ -308,31 +336,34 @@ class VentaController extends Controller
                     ->increment('cantidad_fisica', $detalle->cantidad);
             }
 
-            // 2. Ajustar dinero (Revertir deuda o egreso de caja)
-            $metodoPagoCancelar = MetodoPago::fromString($venta->metodo_pago)->value;
-            if ($metodoPagoCancelar === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
-                $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
-                    ->lockForUpdate()
-                    ->first();
-                if ($cuenta) {
-                    $cuenta->decrement('saldo_deudor', $venta->total);
-                    MovimientoCuentaCorriente::create([
-                        'cuenta_corriente_id' => $cuenta->id,
-                        'venta_id'            => $venta->id,
-                        'monto'               => $venta->total,
-                        'tipo'                => 'abono',
-                        'descripcion'         => 'Anulación Venta #' . $venta->id,
+            // 2. Ajustar dinero (Revertir deuda o egreso de caja) — por cada método de pago
+            $pagosParaRevertir = $venta->pagos_display;
+
+            foreach ($pagosParaRevertir as $pagoRevertir) {
+                if ($pagoRevertir['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
+                    $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($cuenta) {
+                        $cuenta->decrement('saldo_deudor', $pagoRevertir['monto']);
+                        MovimientoCuentaCorriente::create([
+                            'cuenta_corriente_id' => $cuenta->id,
+                            'venta_id'            => $venta->id,
+                            'monto'               => $pagoRevertir['monto'],
+                            'tipo'                => 'abono',
+                            'descripcion'         => 'Anulación Venta #' . $venta->id . ' (' . $pagoRevertir['metodo_pago'] . ')',
+                        ]);
+                    }
+                } else {
+                    MovimientoCaja::create([
+                        'turno_caja_id' => $venta->turno_caja_id,
+                        'tipo'          => 'EGRESO',
+                        'concepto'      => 'ANULACION_VENTA',
+                        'metodo_pago'   => $pagoRevertir['metodo_pago'],
+                        'monto'         => $pagoRevertir['monto'],
+                        'descripcion'   => 'Anulación de venta #' . $venta->id . ' - Motivo: ' . $request->motivo . ' (' . $pagoRevertir['metodo_pago'] . ')',
                     ]);
                 }
-            } else {
-                MovimientoCaja::create([
-                    'turno_caja_id' => $venta->turno_caja_id,
-                    'tipo'          => 'EGRESO',
-                    'concepto'      => 'ANULACION_VENTA',
-                    'metodo_pago'   => $metodoPagoCancelar,
-                    'monto'         => $venta->total,
-                    'descripcion'   => 'Anulación de venta #' . $venta->id . ' - Motivo: ' . $request->motivo,
-                ]);
             }
 
             $venta->update(['estado' => 'Cancelada', 'motivo_anulacion' => $request->motivo]);

@@ -51,9 +51,12 @@ class ConfiguracionController extends Controller
         // ====================================================================
         // 2. GUARDAR CONFIGURACIONES GLOBALES (Textos, números, booleanos)
         // ====================================================================
-        // Agarramos el resto de los datos, excluyendo el logo y lo que ya guardamos en comercio
-        $clavesComercio = array_keys($datosComercio);
-        $dataGlobal = $request->except(array_merge(['logo_empresa', 'logo_url'], $clavesComercio));
+        $clavesComercio = [
+            'envio_precio_base', 'envio_precio_km', 'envio_radio_km',
+            'transferencia_cbu', 'transferencia_alias', 'transferencia_titular',
+            'acepta_efectivo', 'mp_access_token', 'payway_public_key',
+        ];
+        $dataGlobal = $request->except(array_merge(['logo_empresa', 'logo', 'logo_url'], $clavesComercio));
 
         foreach ($dataGlobal as $clave => $valor) {
             Configuracion::updateOrCreate(
@@ -63,21 +66,14 @@ class ConfiguracionController extends Controller
         }
 
         // ====================================================================
-        // 3. GUARDAR EL LOGO DE LA EMPRESA (Tu código original intacto)
+        // 3. GUARDAR EL LOGO DE LA EMPRESA (en tabla comercios)
         // ====================================================================
-        if ($request->hasFile('logo_empresa')) {
-            $logoViejo = Configuracion::where('clave', 'logo_empresa')->value('valor');
-            
-            if ($logoViejo && Storage::disk('public')->exists($logoViejo)) {
-                Storage::disk('public')->delete($logoViejo);
+        if ($request->hasFile('logo')) {
+            if ($comercio->logo && Storage::disk('public')->exists($comercio->logo)) {
+                Storage::disk('public')->delete($comercio->logo);
             }
-
-            $path = $request->file('logo_empresa')->store('logos', 'public');
-            
-            Configuracion::updateOrCreate(
-                ['clave' => 'logo_empresa'],
-                ['valor' => $path]
-            );
+            $comercio->logo = $request->file('logo')->store('logos', 'public');
+            $comercio->save();
         }
 
         return redirect()->back()->with('success', 'Configuraciones actualizadas con éxito.');

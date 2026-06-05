@@ -80,8 +80,15 @@ class HandleInertiaRequests extends Middleware
             ],
 
             'empresa' => fn () => Schema::hasTable('configuraciones') 
-                            ? Configuracion::pluck('valor', 'clave')->toArray() 
-                            : [],
+                            ? (function() {
+                                $config = Configuracion::pluck('valor', 'clave')->toArray();
+                                $config['permitir_stock_negativo'] = $config['permitir_stock_negativo'] ?? '0';
+                                $config['moneda'] = $config['moneda'] ?? 'ARS';
+                                return $config;
+                            })()
+                            : ['permitir_stock_negativo' => '0', 'moneda' => 'ARS'],
+
+            'csrf_token' => fn () => csrf_token(),
 
             'flash' => [
                 'exito' => fn () => $request->session()->get('exito'),
