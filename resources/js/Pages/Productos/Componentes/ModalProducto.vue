@@ -16,6 +16,10 @@ const page = usePage();
 const emit = defineEmits(['cerrar']);
 const imagenPreview = ref(null);
 
+const formatearDinero = (monto) => {
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
+};
+
 const formulario = useForm({
     id: null,
     nombre: '',
@@ -34,6 +38,10 @@ const formulario = useForm({
     unidad_peso_visual: 'Kg',
     descripcion: '',
     imagen: null,
+    promocion_activa: false,
+    precio_promocion: '',
+    etiqueta_promocion: '🔥 Promoción',
+    promocion_fin: '',
 });
 
 watch(() => props.producto, (nuevoValor) => {
@@ -49,6 +57,10 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.es_retornable = Boolean(nuevoValor.es_retornable);
         formulario.precio_costo = nuevoValor.precio_costo;
         formulario.precio_venta = nuevoValor.precio_venta;
+        formulario.promocion_activa = Boolean(nuevoValor.promocion_activa);
+        formulario.precio_promocion = nuevoValor.precio_promocion || '';
+        formulario.etiqueta_promocion = nuevoValor.etiqueta_promocion || '🔥 Promoción';
+        formulario.promocion_fin = nuevoValor.promocion_fin || '';
         formulario.stock_minimo = nuevoValor.stock_minimo;
         formulario.descripcion = nuevoValor.descripcion || '';
         imagenPreview.value = nuevoValor.url_imagen;
@@ -103,6 +115,12 @@ const guardar = () => {
     const esEdicion = !!formulario.id;
     const ruta = esEdicion ? route('productos.update', formulario.id) : route('productos.store');
     
+    if (!formulario.promocion_activa) {
+        formulario.precio_promocion = '';
+        formulario.etiqueta_promocion = '';
+        formulario.promocion_fin = '';
+    }
+
     formulario.post(ruta, {
         forceFormData: true,
         onSuccess: () => {
@@ -212,6 +230,50 @@ const guardar = () => {
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Precio Venta ($)</label>
                         <input v-model="formulario.precio_venta" type="number" step="0.01" class="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-emerald-800 font-bold" required>
                     </div>
+
+                    <div class="col-span-1 md:col-span-12 border-t border-amber-200 my-2"></div>
+
+                    <div class="col-span-1 md:col-span-12">
+                        <label class="flex items-center p-4 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-50 transition-colors" :class="{'bg-amber-50 border-amber-400': formulario.promocion_activa}">
+                            <input type="checkbox" v-model="formulario.promocion_activa" class="w-5 h-5 text-amber-600 rounded border-slate-300">
+                            <div class="ml-4">
+                                <span class="block text-sm font-bold text-amber-700">Activar Promoción</span>
+                                <span class="block text-xs text-amber-600">Mostrará badge y precio rebajado en la tienda pública.</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <template v-if="formulario.promocion_activa">
+                        <div class="col-span-1 md:col-span-4">
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Precio Promocional ($)</label>
+                            <input v-model="formulario.precio_promocion" type="number" step="0.01" :max="formulario.precio_venta" class="w-full bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-amber-800 font-bold" :class="{'border-rose-500': formulario.errors.precio_promocion}">
+                            <p v-if="formulario.errors.precio_promocion" class="text-rose-500 text-xs mt-1 font-medium">{{ formulario.errors.precio_promocion }}</p>
+                        </div>
+
+                        <div class="col-span-1 md:col-span-4">
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Etiqueta</label>
+                            <select v-model="formulario.etiqueta_promocion" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-2.5">
+                                <option value="🔥 Promoción">🔥 Promoción</option>
+                                <option value="⚡ Oferta especial">⚡ Oferta especial</option>
+                                <option value="💰 Ahorrá hoy">💰 Ahorrá hoy</option>
+                                <option value="🏆 Oferta única">🏆 Oferta única</option>
+                            </select>
+                        </div>
+
+                        <div class="col-span-1 md:col-span-4">
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Válido hasta</label>
+                            <input v-model="formulario.promocion_fin" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800">
+                        </div>
+
+                        <div v-if="formulario.precio_promocion && formulario.precio_venta" class="col-span-1 md:col-span-12 -mt-2">
+                            <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+                                <span class="text-xs font-bold text-emerald-700">
+                                    Cliente ahorra: {{ formatearDinero(parseFloat(formulario.precio_venta) - parseFloat(formulario.precio_promocion)) }}
+                                    ({{ ((1 - formulario.precio_promocion / formulario.precio_venta) * 100).toFixed(1) }}% OFF)
+                                </span>
+                            </div>
+                        </div>
+                    </template>
 
                     <div class="col-span-1 md:col-span-4">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Alerta Stock Mín.</label>

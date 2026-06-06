@@ -39,23 +39,28 @@ class ProductoController extends Controller
     public function store(Request $request)
     {
         $validados = $request->validate([
-            'nombre'         => 'required|string|max:255',
-            'codigo_barras'  => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
-            'categoria_id'   => 'required|exists:categorias,id',
-            'marca_id'       => 'required|exists:marcas,id',
-            'proveedor_id'   => 'required|exists:proveedores,id',
-            'unidad_medida'  => 'required|in:Unidad,Kg',
-            'es_retornable'  => 'boolean',
-            'precio_costo'   => 'required|numeric|min:0',
-            'precio_venta'   => 'required|numeric|min:0',
-            'stock_minimo'   => 'required|numeric|min:0',
-            'stock_inicial'  => 'nullable|numeric|min:0',
-            'descripcion'    => 'nullable|string',
-            'imagen'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072', 
+            'nombre'              => 'required|string|max:255',
+            'codigo_barras'       => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
+            'categoria_id'        => 'required|exists:categorias,id',
+            'marca_id'            => 'required|exists:marcas,id',
+            'proveedor_id'        => 'required|exists:proveedores,id',
+            'unidad_medida'       => 'required|in:Unidad,Kg',
+            'es_retornable'       => 'boolean',
+            'precio_costo'        => 'required|numeric|min:0',
+            'precio_venta'        => 'required|numeric|min:0',
+            'stock_minimo'        => 'required|numeric|min:0',
+            'stock_inicial'       => 'nullable|numeric|min:0',
+            'descripcion'         => 'nullable|string',
+            'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'promocion_activa'    => 'boolean',
+            'precio_promocion'    => 'nullable|numeric|min:0|lt:precio_venta',
+            'etiqueta_promocion'  => 'nullable|string|max:50',
+            'promocion_fin'       => 'nullable|date',
         ], [
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'codigo_barras.min' => 'El código debe tener al menos 2 números.',
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
+            'precio_promocion.lt' => 'El precio promocional debe ser menor al precio de venta.',
         ]);
 
         DB::beginTransaction();
@@ -64,7 +69,17 @@ class ProductoController extends Controller
                 $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
             }
 
-            $validados['estado'] = true; 
+            $validados['estado'] = true;
+
+            if ($request->boolean('promocion_activa')) {
+                $validados['promocion_tipo'] = 'manual';
+            } else {
+                $validados['precio_promocion'] = null;
+                $validados['etiqueta_promocion'] = null;
+                $validados['promocion_tipo'] = null;
+                $validados['promocion_fin'] = null;
+            }
+
             $producto = Producto::create($validados);
 
             $sucursalId = auth()->user()->branch_id;
@@ -112,20 +127,25 @@ class ProductoController extends Controller
         }
 
         $validados = $request->validate([
-            'nombre'        => 'required|string|max:255',
-            'codigo_barras' => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
-            'categoria_id'  => 'required|exists:categorias,id',
-            'marca_id'      => 'required|exists:marcas,id',
-            'proveedor_id'  => 'required|exists:proveedores,id',
-            'unidad_medida' => 'required|in:Unidad,Kg',
-            'es_retornable' => 'boolean',
-            'precio_costo'  => 'required|numeric|min:0',
-            'precio_venta'  => 'required|numeric|min:0',
-            'stock_minimo'  => 'required|numeric|min:0',
-            'descripcion'   => 'nullable|string',
-            'imagen'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'nombre'              => 'required|string|max:255',
+            'codigo_barras'       => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
+            'categoria_id'        => 'required|exists:categorias,id',
+            'marca_id'            => 'required|exists:marcas,id',
+            'proveedor_id'        => 'required|exists:proveedores,id',
+            'unidad_medida'       => 'required|in:Unidad,Kg',
+            'es_retornable'       => 'boolean',
+            'precio_costo'        => 'required|numeric|min:0',
+            'precio_venta'        => 'required|numeric|min:0',
+            'stock_minimo'        => 'required|numeric|min:0',
+            'descripcion'         => 'nullable|string',
+            'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'promocion_activa'    => 'boolean',
+            'precio_promocion'    => 'nullable|numeric|min:0|lt:precio_venta',
+            'etiqueta_promocion'  => 'nullable|string|max:50',
+            'promocion_fin'       => 'nullable|date',
         ], [
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
+            'precio_promocion.lt' => 'El precio promocional debe ser menor al precio de venta.',
         ]);
 
         if ($request->hasFile('imagen')) {
@@ -135,6 +155,17 @@ class ProductoController extends Controller
             $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
         } else {
             unset($validados['imagen']);
+        }
+
+        if ($request->has('promocion_activa')) {
+            if ($request->boolean('promocion_activa')) {
+                $validados['promocion_tipo'] = 'manual';
+            } else {
+                $validados['precio_promocion'] = null;
+                $validados['etiqueta_promocion'] = null;
+                $validados['promocion_tipo'] = null;
+                $validados['promocion_fin'] = null;
+            }
         }
 
         $producto->update($validados);

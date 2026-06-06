@@ -54,6 +54,7 @@ Route::get('/pending-approval', function () {
 })->name('pending.approval');
 
 Route::get('/api/catalogo/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'catalogo']);
+Route::get('/api/promociones/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'promociones']);
 
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---

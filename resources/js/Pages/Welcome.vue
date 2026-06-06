@@ -1,16 +1,17 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { usePage, useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 
 import StoreLayout from '@/Layouts/StoreLayout.vue';
 import StoreNavbar from '@/Components/Tienda/StoreNavbar.vue';
-import StoreCategories from '@/Components/Tienda/StoreCategories.vue';
+import CategoryCarousel from '@/Components/Tienda/CategoryCarousel.vue';
 import StoreHero from '@/Components/Tienda/StoreHero.vue';
 import StoreMap from '@/Components/Tienda/StoreMap.vue';
 import ProductGrid from '@/Components/Tienda/ProductGrid.vue';
 import ProductDetailModal from '@/Components/Tienda/ProductDetailModal.vue';
+import PromoSection from '@/Components/Tienda/PromoSection.vue';
 
 const props = defineProps({
     comercio: Object,
@@ -30,6 +31,7 @@ const consumidorActual = computed(() => props.consumidorLogueado);
 const sucursalElegida = ref('');
 const categoriaSeleccionada = ref('todas');
 const busqueda = ref('');
+const filtroPromosOnly = ref(false);
 
 const productos = ref([]);
 const cargando = ref(false);
@@ -118,12 +120,30 @@ const totalItems = computed(() => carrito.value.reduce((acc, i) => acc + i.canti
 const totalProductos = computed(() => carrito.value.reduce((acc, i) => acc + (i.precio * i.cantidad), 0));
 const totalFinalCheckout = computed(() => totalProductos.value + costoDeliveryExtra.value);
 
+const categoryCounts = ref({});
+
+const productCounts = computed(() => ({
+    ...categoryCounts.value,
+    todas: Object.values(categoryCounts.value).reduce((acc, c) => acc + c, 0),
+}));
+
+const productosFiltrados = computed(() => {
+    if (filtroPromosOnly.value) {
+        return productos.value.filter(p => p.promocion_activa);
+    }
+    return productos.value;
+});
+
 const agregarAlCarrito = (producto) => {
     if (!estaLogueado.value) {
         window.location.href = '/tienda/' + props.tienda_slug + '/login';
         return;
     }
-    const precioLimpio = parsearPrecio(producto.precio);
+    const precioLimpio = parsearPrecio(
+        producto.promocion_activa && producto.precio_promocion
+            ? producto.precio_promocion
+            : producto.precio
+    );
     const existe = carrito.value.find(item => item.id === producto.id);
     if (existe) {
         existe.cantidad++;
@@ -268,6 +288,7 @@ const cargarProductos = async (pagina = 1) => {
         const result = response.data;
         productos.value = Array.isArray(result.data) ? result.data : [];
         totalPaginas.value = result.meta?.last_page || 1;
+        categoryCounts.value = result.counts_por_categoria || {};
     } catch (error) { console.error(error); productos.value = []; } finally { cargando.value = false; }
 };
 
@@ -299,7 +320,29 @@ const handleMapCoords = (coords) => { ultimasCoordenadasDelivery.value = coords;
 const handleMapAddress = (addr) => { formPedido.direccion_entrega = addr; };
 const handleMapSucursal = (id) => { sucursalElegida.value = id; cargarProductos(); };
 
-watch(categoriaSeleccionada, () => { cargarProductos(1); });
+watch(categoriaSeleccionada, () => {
+    filtroPromosOnly.value = false;
+    cargarProductos(1);
+    nextTick(() => {
+        const el = document.getElementById('productos-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+});
+
+const handleScrollToPromos = () => {
+    const el = document.getElementById('promo-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+const handleVerTodas = () => {
+    filtroPromosOnly.value = true;
+    categoriaSeleccionada.value = 'todas';
+    cargarProductos(1);
+    nextTick(() => {
+        const el = document.getElementById('productos-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+};
 watch(busqueda, () => {
     if (timeoutBusquedaProductos) clearTimeout(timeoutBusquedaProductos);
     timeoutBusquedaProductos = setTimeout(() => { cargarProductos(1); }, 350);
@@ -334,9 +377,10 @@ onMounted(() => {
             @toggle-carrito="mostrarCarrito = !mostrarCarrito"
         />
 
-        <StoreCategories
+        <CategoryCarousel
             :categorias="categorias"
             :categoria-seleccionada="categoriaSeleccionada"
+            :product-counts="productCounts"
             @update:categoria-seleccionada="categoriaSeleccionada = $event"
         />
 
@@ -365,20 +409,45 @@ onMounted(() => {
             @sucursal-seleccionada="handleMapSucursal"
         />
 
-        <ProductGrid
-            :productos="productos"
-            :cargando="cargando"
-            :sucursal-elegida="sucursalElegida"
-            :busqueda="busqueda"
-            :categoria-seleccionada="categoriaSeleccionada"
-            :categorias="categorias"
-            :total-paginas="totalPaginas"
-            :pagina-actual="paginaActual"
+        <div v-if="sucursalElegida" class="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6">
+            <div class="border rounded-3xl p-6 sm:p-8 text-center transition-colors" :style="{ backgroundColor: 'color-mix(in srgb, var(--color-accent) 6%, transparent)', borderColor: 'color-mix(in srgb, var(--color-accent) 15%, transparent)' }">
+                <p class="text-2xl sm:text-3xl mb-3">🛒</p>
+                <h3 class="text-lg sm:text-xl font-black mb-1.5 transition-colors" :style="{ color: 'var(--text-primary)' }">Comprá online &mdash; Retirá en sucursal</h3>
+                <p class="text-sm mb-4 transition-colors" :style="{ color: 'var(--text-muted)' }">Miles de productos disponibles para vos</p>
+                <button
+                    @click="handleScrollToPromos"
+                    class="font-black text-xs uppercase tracking-widest py-3 px-8 rounded-xl border transition-all duration-200 active:scale-95"
+                    style="background: linear-gradient(135deg, #f7941e, #ff6b35); color: #fff; border-color: transparent; box-shadow: 0 4px 16px rgba(247, 148, 30, 0.3);"
+                >
+                    🏷️ Ver promociones
+                </button>
+            </div>
+        </div>
+
+        <PromoSection
+            :sucursal-id="sucursalElegida"
             @agregar="agregarAlCarrito"
             @detail="verDetalle"
-            @sort-change="cambiarOrden"
-            @page-change="cargarProductos($event)"
+            @ver-todas="handleVerTodas"
         />
+
+        <div id="productos-section">
+            <ProductGrid
+                :productos="filtroPromosOnly ? productosFiltrados : productos"
+                :cargando="cargando"
+                :sucursal-elegida="sucursalElegida"
+                :busqueda="busqueda"
+                :categoria-seleccionada="categoriaSeleccionada"
+                :categorias="categorias"
+                :total-paginas="totalPaginas"
+                :pagina-actual="paginaActual"
+                :filtro-promos-only="filtroPromosOnly"
+                @agregar="agregarAlCarrito"
+                @detail="verDetalle"
+                @sort-change="cambiarOrden"
+                @page-change="cargarProductos($event)"
+            />
+        </div>
 
         <ProductDetailModal
             :producto="productoSeleccionado"

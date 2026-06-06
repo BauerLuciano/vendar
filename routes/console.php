@@ -21,3 +21,6 @@ Schedule::command('cuentas:aplicar-mora')->dailyAt('01:00')->withoutOverlapping(
 
 // El robot de vencimientos revisa los lotes todos los días a las 00:30 AM
 Schedule::command('inventario:liquidar-lotes')->dailyAt('00:30')->withoutOverlapping();
+
+// Limpia promociones vencidas todos los días a las 01:30 AM
+Schedule::command('promociones:desactivar-vencidas')->dailyAt('01:30')->withoutOverlapping();

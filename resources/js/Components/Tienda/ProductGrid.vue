@@ -10,6 +10,7 @@ const props = defineProps({
     categorias: Array,
     totalPaginas: Number,
     paginaActual: Number,
+    filtroPromosOnly: Boolean,
 });
 
 const emit = defineEmits(['agregar', 'detail', 'sort-change', 'page-change']);
@@ -20,11 +21,11 @@ const emit = defineEmits(['agregar', 'detail', 'sort-change', 'page-change']);
         <div class="flex items-center justify-between mb-5" v-if="sucursalElegida">
             <div>
                 <h2 class="text-base font-black uppercase tracking-tight transition-colors" :style="{ color: 'var(--text-primary)' }">
-                    {{ categoriaSeleccionada === 'todas' ? 'Todos los productos' : categorias?.find(c => c.id == categoriaSeleccionada)?.nombre }}
+                    {{ filtroPromosOnly ? '🔥 Ofertas destacadas' : categoriaSeleccionada === 'todas' ? 'Todos los productos' : categorias?.find(c => c.id == categoriaSeleccionada)?.nombre }}
                 </h2>
-                <p class="text-[11px] mt-0.5 transition-colors" :style="{ color: 'var(--text-muted)' }">{{ productos.length }} productos disponibles</p>
+                <p class="text-[11px] mt-0.5 transition-colors" :style="{ color: 'var(--text-muted)' }">{{ productos.length }} {{ filtroPromosOnly ? 'en oferta' : 'disponibles' }}</p>
             </div>
-            <select
+            <select v-if="!filtroPromosOnly"
                 @change="$emit('sort-change', $event.target.value)"
                 class="border rounded-xl px-3 py-2 text-[10px] font-bold transition-all cursor-pointer appearance-none outline-none focus:border-[#00adef]/30"
                 :style="{
@@ -65,7 +66,7 @@ const emit = defineEmits(['agregar', 'detail', 'sort-change', 'page-change']);
                 <svg class="w-10 h-10 text-[#f7941e]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m-4.5-7.5l1.5 9m9-9l-1.5 9M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
             </div>
             <h3 class="text-xl font-black mb-2 transition-colors" :style="{ color: 'var(--text-primary)' }">Sin productos</h3>
-            <p class="text-sm max-w-sm transition-colors" :style="{ color: 'var(--text-muted)' }">{{ busqueda ? `No encontramos resultados para "${busqueda}"` : 'Este local todavía no cargó productos visibles.' }}</p>
+            <p class="text-sm max-w-sm transition-colors" :style="{ color: 'var(--text-muted)' }">{{ filtroPromosOnly ? 'No hay ofertas disponibles en este momento.' : busqueda ? `No encontramos resultados para "${busqueda}"` : 'Este local todavía no cargó productos visibles.' }}</p>
         </div>
 
         <TransitionGroup v-else name="card" tag="div" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">
@@ -79,7 +80,7 @@ const emit = defineEmits(['agregar', 'detail', 'sort-change', 'page-change']);
         </TransitionGroup>
 
         <Transition name="fade">
-            <div v-if="totalPaginas > 1 && !cargando" class="flex justify-center items-center gap-4 mt-8">
+            <div v-if="totalPaginas > 1 && !cargando && !filtroPromosOnly" class="flex justify-center items-center gap-4 mt-8">
                 <button
                     @click="emit('page-change', paginaActual - 1)"
                     :disabled="paginaActual === 1"

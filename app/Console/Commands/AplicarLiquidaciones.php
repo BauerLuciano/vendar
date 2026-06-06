@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Lote;
+use App\Models\Producto;
 use App\Models\ReglaLiquidacion;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -11,13 +12,12 @@ use Illuminate\Support\Facades\DB;
 class AplicarLiquidaciones extends Command
 {
     protected $signature = 'inventario:liquidar-lotes';
-    protected $description = 'Revisa lotes por vencer y les activa el estado de liquidación preventiva';
+    protected $description = 'Revisa lotes por vencer y les activa el estado de liquidación preventiva + promociones automáticas';
 
     public function handle()
     {
         $this->info("Iniciando el escaneo de Lotes para Liquidación Preventiva...");
 
-        // 1. Buscamos todas las reglas que estén encendidas (estado = true)
         $reglasActivas = ReglaLiquidacion::where('estado', true)->get();
 
         if ($reglasActivas->isEmpty()) {
@@ -26,8 +26,9 @@ class AplicarLiquidaciones extends Command
         }
 
         $lotesAfectados = 0;
+        $promosAfectadas = 0;
 
-        DB::transaction(function () use ($reglasActivas, &$lotesAfectados) {
+        DB::transaction(function () use ($reglasActivas, &$lotesAfectados, &$promosAfectadas) {
             foreach ($reglasActivas as $regla) {
                 $fechaGatillo = Carbon::now()->addDays($regla->dias_anticipacion);
 
@@ -38,15 +39,32 @@ class AplicarLiquidaciones extends Command
                     ->lockForUpdate()
                     ->get();
 
+                $lotesRegla = 0;
                 foreach ($lotesPorVencer as $lote) {
                     $lote->estado_liquidacion = true;
                     $lote->save();
+                    $lotesRegla++;
+                }
 
-                    $lotesAfectados++;
+                $lotesAfectados += $lotesRegla;
+
+                if ($lotesRegla > 0) {
+                    $producto = Producto::find($regla->producto_id);
+                    if ($producto && $producto->promocion_tipo !== 'manual') {
+                        $precioPromo = round($producto->precio_venta * (1 - $regla->porcentaje_descuento / 100), 2);
+                        $producto->update([
+                            'precio_promocion' => $precioPromo,
+                            'promocion_activa' => true,
+                            'etiqueta_promocion' => '🔥 Promoción',
+                            'promocion_tipo' => 'vencimiento',
+                            'promocion_fin' => $fechaGatillo,
+                        ]);
+                        $promosAfectadas++;
+                    }
                 }
             }
         });
 
-        $this->info("Proceso terminado. Se pusieron {$lotesAfectados} lote(s) en liquidación.");
+        $this->info("Proceso terminado. Lotes en liquidación: {$lotesAfectados}. Promociones activadas: {$promosAfectadas}.");
     }
 }

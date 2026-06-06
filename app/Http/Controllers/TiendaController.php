@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Categoria;
 use App\Models\Comercio;
+use App\Models\Producto;
 use App\Models\Sucursal;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -95,20 +96,36 @@ class TiendaController extends Controller
             $cantidad_reservada = $pivot?->cantidad_reservada ?? 0;
             $stock_disponible = max(0, $cantidad_fisica - $cantidad_reservada);
 
+            $enPromocion = $prod->promocion_activa && $prod->precio_promocion !== null;
+
             return [
-                'id'           => $prod->id,
-                'nombre'       => $prod->nombre,
-                'descripcion'  => $prod->descripcion,
-                'categoria_id' => $prod->categoria_id,
-                'categoria'    => $prod->categoria
+                'id'                => $prod->id,
+                'nombre'            => $prod->nombre,
+                'descripcion'       => $prod->descripcion,
+                'categoria_id'      => $prod->categoria_id,
+                'categoria'         => $prod->categoria
                     ? ['id' => $prod->categoria->id, 'nombre' => $prod->categoria->nombreCategoria]
                     : null,
-                'marca'        => $prod->marca ? ['id' => $prod->marca->id, 'nombre' => $prod->marca->nombre] : null,
-                'precio'       => $prod->precio_venta,
-                'imagen_url'   => $prod->url_imagen,
-                'stock'        => $stock_disponible,
+                'marca'             => $prod->marca ? ['id' => $prod->marca->id, 'nombre' => $prod->marca->nombre] : null,
+                'precio'            => $prod->precio_venta,
+                'precio_promocion'  => $prod->precio_promocion,
+                'promocion_activa'  => $prod->promocion_activa,
+                'etiqueta_promocion' => $prod->etiqueta_promocion,
+                'ahorro'            => $enPromocion ? round($prod->precio_venta - $prod->precio_promocion, 2) : null,
+                'porcentaje_ahorro' => $enPromocion && $prod->precio_venta > 0
+                    ? round((1 - $prod->precio_promocion / $prod->precio_venta) * 100, 1)
+                    : null,
+                'imagen_url'        => $prod->url_imagen,
+                'stock'             => $stock_disponible,
             ];
         });
+
+        $countsPorCategoria = Producto::whereHas('sucursales', fn($q) => $q->where('sucursal_id', $sucursal_id))
+            ->where('productos.estado', true)
+            ->selectRaw('categoria_id, count(*) as total')
+            ->groupBy('categoria_id')
+            ->pluck('total', 'categoria_id')
+            ->toArray();
 
         return response()->json([
             'data' => $mapped->values()->all(),
@@ -118,6 +135,41 @@ class TiendaController extends Controller
                 'per_page'     => $productos->perPage(),
                 'total'        => $productos->total(),
             ],
+            'counts_por_categoria' => $countsPorCategoria,
         ]);
+    }
+
+    public function promociones($sucursal_id)
+    {
+        $sucursal = Sucursal::find($sucursal_id);
+        if (!$sucursal) {
+            return response()->json(['data' => []]);
+        }
+
+        $productos = $sucursal->productos()
+            ->where('productos.estado', true)
+            ->where('productos.promocion_activa', true)
+            ->whereNotNull('productos.precio_promocion')
+            ->whereColumn('productos.precio_promocion', '<', 'productos.precio_venta')
+            ->limit(10)
+            ->get()
+            ->map(function ($prod) {
+                $enPromocion = $prod->promocion_activa && $prod->precio_promocion !== null;
+                return [
+                    'id'                => $prod->id,
+                    'nombre'            => $prod->nombre,
+                    'precio'            => $prod->precio_venta,
+                    'precio_promocion'  => $prod->precio_promocion,
+                    'etiqueta_promocion'=> $prod->etiqueta_promocion,
+                    'ahorro'            => $enPromocion ? round($prod->precio_venta - $prod->precio_promocion, 2) : null,
+                    'porcentaje_ahorro' => $enPromocion && $prod->precio_venta > 0
+                        ? round((1 - $prod->precio_promocion / $prod->precio_venta) * 100, 1)
+                        : null,
+                    'imagen_url'        => $prod->url_imagen,
+                    'categoria'         => $prod->categoria?->nombreCategoria,
+                ];
+            });
+
+        return response()->json(['data' => $productos]);
     }
 }

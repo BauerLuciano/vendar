@@ -21,6 +21,13 @@ const formatearDinero = (monto) => {
 };
 
 const tieneStock = computed(() => props.producto && props.producto.stock > 0);
+
+const promoHasta = computed(() => {
+    if (!props.producto?.promocion_fin) return null;
+    const d = new Date(props.producto.promocion_fin);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+});
 </script>
 
 <template>
@@ -31,11 +38,16 @@ const tieneStock = computed(() => props.producto && props.producto.stock > 0);
                     <div class="relative">
                         <div class="h-64 flex items-center justify-center p-6 relative" :style="{ backgroundColor: 'var(--bg-image)' }">
                             <img v-if="producto.imagen_url" :src="producto.imagen_url" :alt="producto.nombre" class="max-h-full max-w-full object-contain">
-                            <div v-else class="flex items-center justify-center w-full h-full" :style="{ backgroundColor: 'var(--bg-elevated)' }">
-                                <svg class="w-20 h-20" :style="{ color: 'var(--text-muted)' }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            <div v-else class="flex items-center justify-center w-full h-full" :style="{ backgroundColor: 'color-mix(in srgb, var(--bg-image) 50%, transparent)' }">
+                                <svg class="w-14 h-14 opacity-40" :style="{ color: 'var(--text-muted)' }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                             </div>
                             <button @click="emit('close')" class="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-lg transition-all" :style="{ color: 'var(--text-on-accent)' }">&times;</button>
-                            <div class="absolute top-3 left-3 bg-[#8cc63f] text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm">{{ producto.categoria?.nombre || 'General' }}</div>
+                            <div v-if="producto.promocion_activa && producto.precio_promocion"
+                                class="absolute top-3 left-3 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm"
+                                style="background: linear-gradient(135deg, #f7941e, #ff6b35); color: #fff;">
+                                {{ producto.etiqueta_promocion || '🔥 Promoción' }}
+                            </div>
+                            <div v-else class="absolute top-3 left-3 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm" :style="{ backgroundColor: 'color-mix(in srgb, var(--color-accent) 80%, transparent)', color: '#fff' }">{{ producto.categoria?.nombre || 'General' }}</div>
                         </div>
                     </div>
 
@@ -45,7 +57,26 @@ const tieneStock = computed(() => props.producto && props.producto.stock > 0);
                             <p v-if="producto.marca" class="text-[11px] font-bold mt-1 transition-colors" :style="{ color: 'var(--text-secondary)' }">{{ producto.marca.nombre }}</p>
                         </div>
 
-                        <p class="text-[15px] font-black text-[#00adef]">{{ formatearDinero(parsearPrecio(producto.precio)) }}</p>
+                        <div v-if="producto.promocion_activa && producto.precio_promocion" class="flex items-baseline gap-2 flex-wrap">
+                            <span class="text-[20px] font-black" style="color: #f7941e;">{{ formatearDinero(parsearPrecio(producto.precio_promocion)) }}</span>
+                            <span class="text-[11px] line-through" :style="{ color: 'var(--text-muted)' }">{{ formatearDinero(parsearPrecio(producto.precio)) }}</span>
+                            <span v-if="producto.porcentaje_ahorro" class="text-[10px] font-bold px-2 py-0.5 rounded" style="background: #f7941e20; color: #f7941e;">-{{ producto.porcentaje_ahorro }}% OFF</span>
+                        </div>
+                        <div v-else>
+                            <p class="text-[15px] font-black" style="color: #00adef;">{{ formatearDinero(parsearPrecio(producto.precio)) }}</p>
+                        </div>
+
+                        <div v-if="producto.promocion_activa && producto.ahorro && producto.ahorro > 0" class="border-2 rounded-xl p-4 text-center transition-colors"
+                            style="border-color: #22c55e40; background: linear-gradient(135deg, #22c55e10, #16a34a08);"
+                        >
+                            <p class="text-[9px] font-black tracking-widest uppercase mb-1" style="color: #22c55e; opacity: 0.7;">━━━ AHORRÁS ━━━</p>
+                            <p class="text-2xl font-black" style="color: #22c55e;">{{ formatearDinero(parsearPrecio(producto.ahorro)) }}</p>
+                        </div>
+
+                        <div v-if="promoHasta" class="flex items-center gap-2 px-3 py-2 rounded-xl" style="background: #f7941e10; border: 1px solid #f7941e20;">
+                            <span class="text-xs">⏱️</span>
+                            <span class="text-[10px] font-bold" style="color: #f7941e;">Oferta válida hasta {{ promoHasta }}</span>
+                        </div>
 
                         <div class="border rounded-xl p-4 transition-colors" :style="{ backgroundColor: 'var(--bg-page)', borderColor: 'var(--border-subtle)' }">
                             <p class="text-[10px] font-black tracking-widest uppercase mb-1.5 transition-colors" :style="{ color: 'var(--text-muted)' }">Descripción</p>
@@ -70,7 +101,7 @@ const tieneStock = computed(() => props.producto && props.producto.stock > 0);
                                 : 'cursor-not-allowed'"
                             :style="!tieneStock ? { backgroundColor: 'var(--bg-disabled)', color: 'var(--text-disabled)', borderColor: 'var(--border-color)' } : {}"
                         >
-                            <span v-if="tieneStock">+ Agregar al pedido — {{ formatearDinero(parsearPrecio(producto.precio)) }}</span>
+                            <span v-if="tieneStock">+ Agregar al pedido — {{ formatearDinero(parsearPrecio(producto.promocion_activa ? producto.precio_promocion : producto.precio)) }}</span>
                             <span v-else>Sin stock disponible</span>
                         </button>
                     </div>
