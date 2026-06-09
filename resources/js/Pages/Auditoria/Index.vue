@@ -7,6 +7,7 @@ import Swal from 'sweetalert2';
 const props = defineProps({
     actividades: Object,
     usuarios: Array,
+    consumidores: Array,
     filtros: Object,
 });
 
@@ -14,6 +15,7 @@ const formFiltros = reactive({
     fecha_desde: props.filtros?.fecha_desde || '',
     fecha_hasta: props.filtros?.fecha_hasta || '',
     usuario_id: props.filtros?.usuario_id || '',
+    consumidor_id: props.filtros?.consumidor_id || '',
     evento: props.filtros?.evento || '',
     modelo: props.filtros?.modelo || '',
 });
@@ -31,18 +33,26 @@ watch(formFiltros, (value) => {
 });
 
 const hayFiltrosActivos = computed(() =>
-    formFiltros.fecha_desde || formFiltros.fecha_hasta || formFiltros.usuario_id || formFiltros.evento || formFiltros.modelo
+    formFiltros.fecha_desde || formFiltros.fecha_hasta || formFiltros.usuario_id || formFiltros.consumidor_id || formFiltros.evento || formFiltros.modelo
 );
 
 const limpiarFiltros = () => {
     formFiltros.fecha_desde = '';
     formFiltros.fecha_hasta = '';
     formFiltros.usuario_id = '';
+    formFiltros.consumidor_id = '';
     formFiltros.evento = '';
     formFiltros.modelo = '';
 };
 
 const esBrave = ref(false);
+const paginaActual = computed(() => props.actividades.current_page || 1);
+const ultimaPagina = computed(() => props.actividades.last_page || 1);
+
+const paginasVisibles = computed(() => {
+    const links = props.actividades.links || [];
+    return links.length ? [links[0], links[links.length - 1]] : [];
+});
 
 onMounted(async () => {
     if (navigator.brave && typeof navigator.brave.isBrave === 'function') {
@@ -72,40 +82,70 @@ const formatearValor = (v) => {
     if (v === null || v === undefined) return '<span class="text-slate-400 italic">—</span>';
     if (v === true || v === false) return v ? '<span class="text-emerald-600 font-semibold">Sí</span>' : '<span class="text-rose-500 font-semibold">No</span>';
 
+    if (typeof v === 'object') {
+        try {
+            const arr = Array.isArray(v) ? v : [v];
+            return arr.map(item => {
+                if (item.metodo_pago && item.monto !== undefined) {
+                    return `<div class="flex items-center gap-2 text-xs"><span class="bg-slate-100 px-2 py-0.5 rounded font-medium">${item.metodo_pago}</span><span class="font-bold text-emerald-600">${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(item.monto)}</span></div>`;
+                }
+                return `<span class="text-slate-400 italic">${JSON.stringify(item)}</span>`;
+            }).join('');
+        } catch {
+            return '<span class="text-slate-400 italic">—</span>';
+        }
+    }
+
     const str = String(v);
 
     // ISO datetime: 2026-05-20T00:00:30.000000Z → 20/05/2026 00:00
-    const dt = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
-    if (dt.test(str)) {
-        return str.replace(dt, (_, y, m, d, h, mi) => `${d}/${m}/${y} ${h}:${mi}`);
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) {
+        return str.replace(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}).*/, '$3/$2/$1 $4:$5');
     }
 
     // ISO date: 2026-05-20 → 20/05/2026
-    const dd = /^(\d{4})-(\d{2})-(\d{2})$/;
-    if (dd.test(str)) {
-        return str.replace(dd, (_, y, m, d) => `${d}/${m}/${y}`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        return str.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3/$2/$1');
+    }
+
+    // Money: numbers with 2 decimals → $ 1.234,56
+    if (/^-?\d+\.\d{2}$/.test(str)) {
+        return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(parseFloat(str));
     }
 
     return str;
 };
 
+const badgeAccionModal = (accion) => {
+    const map = {
+        created: { label: 'Nuevo', dot: 'bg-emerald-500', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+        updated: { label: 'Modificado', dot: 'bg-sky-500', bg: 'bg-sky-50 text-sky-700 border-sky-200' },
+        deleted: { label: 'Eliminado', dot: 'bg-rose-500', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+        login:   { label: 'Sesión', dot: 'bg-violet-500', bg: 'bg-violet-50 text-violet-700 border-violet-200' },
+        logout:  { label: 'Sesión', dot: 'bg-amber-500', bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+    };
+    return map[accion] || { label: accion, dot: 'bg-slate-400', bg: 'bg-slate-100 text-slate-600 border-slate-200' };
+};
+
 const verCambios = (actividad) => {
     let contenido;
+    const badge = badgeAccionModal(actividad.accion);
 
     if (actividad.diff && actividad.diff.length > 0) {
-        let filas = actividad.diff.map(d => {
+        let filas = actividad.diff.map((d, idx) => {
             const esNuevo = d.antes === null && d.despues !== null;
             const esEliminado = d.despues === null && d.antes !== null;
             const esModificado = d.antes !== null && d.despues !== null;
+            const bgFila = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50';
 
-            return `<tr>
-                <td class="px-5 py-3 text-sm font-semibold text-slate-700 border-b border-slate-100 whitespace-nowrap">${d.campo}</td>
+            return `<tr class="${bgFila} hover:bg-blue-50/30 transition-colors">
+                <td class="px-5 py-3 text-sm font-bold text-slate-700 border-b border-slate-100 whitespace-nowrap">${d.campo}</td>
                 <td class="px-5 py-3 text-sm border-b border-slate-100">${
                     esNuevo
-                        ? '<span class="text-slate-400 italic">—</span>'
-                        : `<span class="line-through text-rose-500">${formatearValor(d.antes)}</span>`
+                        ? '<span class="text-slate-300 italic text-xs">—</span>'
+                        : `<span class="line-through text-rose-500 font-medium">${formatearValor(d.antes)}</span>`
                 }</td>
-                <td class="px-5 py-3 text-sm font-semibold border-b border-slate-100 ${
+                <td class="px-5 py-3 text-sm font-bold border-b border-slate-100 ${
                     esNuevo ? 'text-emerald-600' : esEliminado ? 'text-rose-500' : 'text-emerald-700'
                 }">${formatearValor(d.despues)}</td>
             </tr>`;
@@ -114,28 +154,63 @@ const verCambios = (actividad) => {
         contenido = `<div class="max-h-[420px] overflow-y-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="border-b-2 border-slate-200">
-                        <th class="pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Campo</th>
-                        <th class="pb-2 text-[10px] font-bold uppercase tracking-widest text-rose-400">Valor anterior</th>
-                        <th class="pb-2 text-[10px] font-bold uppercase tracking-widest text-emerald-500">Valor nuevo</th>
+                    <tr class="border-b-2 border-slate-200 bg-slate-50/80">
+                        <th class="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Campo</th>
+                        <th class="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-rose-400">Valor anterior</th>
+                        <th class="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-emerald-500">Valor nuevo</th>
                     </tr>
                 </thead>
                 <tbody>${filas}</tbody>
             </table>
         </div>`;
     } else {
-        contenido = `<div class="py-6 text-center text-sm text-slate-400">
-            <p class="font-medium">${actividad.descripcion}</p>
-            <p class="mt-2 text-xs">IP: ${actividad.ip} · ${nombrarNavegador(actividad.navegador)?.nombre || '—'}</p>
+        const colores = {
+            created: 'text-emerald-600',
+            updated: 'text-sky-600',
+            deleted: 'text-rose-600',
+            login: 'text-violet-600',
+            logout: 'text-amber-600',
+        };
+        contenido = `<div class="py-8 text-center">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Sin cambios detallados</div>
+            <p class="${colores[actividad.accion] || 'text-slate-600'} font-bold text-sm">${actividad.descripcion}</p>
+            <div class="mt-3 flex items-center justify-center gap-3 text-xs text-slate-400">
+                <span class="bg-slate-100 px-2 py-1 rounded font-mono">IP: ${actividad.ip}</span>
+                <span>·</span>
+                <span>${nombrarNavegador(actividad.navegador)?.nombre || '—'}</span>
+            </div>
         </div>`;
     }
 
     Swal.fire({
         html: `
             <div class="text-left">
-                <div class="px-6 pt-5 pb-3 border-b border-slate-100">
-                    <p class="text-sm font-bold text-slate-800">${actividad.descripcion}</p>
-                    <p class="text-xs text-slate-400 mt-1">${actividad.usuario} · ${actividad.fecha}${actividad.modelo !== '—' ? ' · ' + actividad.modelo + ' #' + actividad.modelo_id : ''}</p>
+                <div class="px-6 pt-5 pb-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="${badge.bg} inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border">
+                                    <span class="${badge.dot} w-1.5 h-1.5 rounded-full"></span>
+                                    ${badge.label}
+                                </span>
+                                ${actividad.modelo_id ? `<span class="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">#${actividad.modelo_id}</span>` : ''}
+                            </div>
+                            <p class="text-sm font-black text-slate-800 truncate">${actividad.descripcion}</p>
+                            <p class="text-xs text-slate-400 mt-1">
+                                <span class="font-medium text-slate-500">${actividad.usuario}</span>
+                                <span class="mx-1">·</span>
+                                ${actividad.fecha}
+                                ${actividad.modelo !== '—' ? '<span class="mx-1">·</span> ' + actividad.modelo : ''}
+                            </p>
+                        </div>
+                        <div class="shrink-0 ml-4 hidden sm:block">
+                            ${actividad.modelo !== '—'
+                                ? `<span class="inline-flex items-center justify-center min-w-[4rem] h-10 px-3 rounded-xl bg-slate-100 text-slate-500 font-bold text-[9px] uppercase tracking-wider border border-slate-200 text-center leading-tight">${actividad.modelo}</span>`
+                                : `<span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 text-slate-400 border border-slate-200">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                </span>`}
+                        </div>
+                    </div>
                 </div>
                 ${contenido}
             </div>
@@ -143,29 +218,27 @@ const verCambios = (actividad) => {
         showConfirmButton: true,
         confirmButtonText: 'Cerrar',
         confirmButtonColor: '#475569',
-        width: 700,
+        width: 720,
         padding: '0',
         customClass: {
-            popup: 'rounded-2xl overflow-hidden',
-            confirmButton: '!rounded-xl !text-xs !font-bold !px-5 !py-2.5 !mb-5',
+            popup: 'rounded-2xl overflow-hidden shadow-2xl',
+            confirmButton: '!rounded-xl !text-xs !font-bold !px-6 !py-2.5 !mb-5 !shadow-sm hover:!shadow-md !transition-all',
         },
     });
 };
 
 const iconoNavegador = (navegador) => {
-    const size = 24;
     const cls = 'w-4 h-4 shrink-0';
-    const base = `https://cdn.simpleicons.org`;
-
+    const base = 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons';
     const map = {
-        chrome:  `<img src="${base}/googlechrome/${size}" class="${cls}" alt="Chrome" />`,
-        firefox: `<img src="${base}/firefoxbrowser/${size}" class="${cls}" alt="Firefox" />`,
-        safari:  `<img src="${base}/safari/${size}" class="${cls}" alt="Safari" />`,
-        edge:    `<img src="${base}/microsoftedge/${size}" class="${cls}" alt="Edge" />`,
-        opera:   `<img src="${base}/opera/${size}" class="${cls}" alt="Opera" />`,
-        vivaldi: `<img src="${base}/vivaldi/${size}" class="${cls}" alt="Vivaldi" />`,
-        brave:   `<img src="${base}/brave/${size}" class="${cls}" alt="Brave" />`,
-        samsung: `<img src="${base}/samsung/${size}" class="${cls}" alt="Samsung" />`,
+        chrome:  `<img src="${base}/googlechrome.svg" class="${cls}" alt="Chrome" />`,
+        firefox: `<img src="${base}/firefoxbrowser.svg" class="${cls}" alt="Firefox" />`,
+        safari:  `<img src="${base}/safari.svg" class="${cls}" alt="Safari" />`,
+        edge:    `<img src="${base}/microsoftedge.svg" class="${cls}" alt="Edge" />`,
+        opera:   `<img src="${base}/opera.svg" class="${cls}" alt="Opera" />`,
+        vivaldi: `<img src="${base}/vivaldi.svg" class="${cls}" alt="Vivaldi" />`,
+        brave:   `<img src="${base}/brave.svg" class="${cls}" alt="Brave" />`,
+        samsung: `<img src="${base}/samsung.svg" class="${cls}" alt="Samsung" />`,
     };
     return map[navegador?.icono] || `<svg viewBox="0 0 24 24" fill="none" class="${cls}"><circle cx="12" cy="12" r="10" stroke="#94a3b8" stroke-width="1.5"/><path d="M4 4l16 16M20 4L4 20" stroke="#94a3b8" stroke-width="1.5"/></svg>`;
 };
@@ -191,15 +264,15 @@ const iconoNavegador = (navegador) => {
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-5">
 
                 <div class="bg-white border border-slate-200 rounded-xl px-5 py-4 shadow-sm">
-                    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+                    <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
                         <div>
                             <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1.5">Fecha desde</label>
-                            <input type="date" v-model="formFiltros.fecha_desde"
+                            <input type="date" v-model="formFiltros.fecha_desde" :max="formFiltros.fecha_hasta"
                                 class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                         </div>
                         <div>
                             <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1.5">Fecha hasta</label>
-                            <input type="date" v-model="formFiltros.fecha_hasta"
+                            <input type="date" v-model="formFiltros.fecha_hasta" :min="formFiltros.fecha_desde"
                                 class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                         </div>
                         <div>
@@ -208,6 +281,14 @@ const iconoNavegador = (navegador) => {
                                 class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none">
                                 <option value="">Todos</option>
                                 <option v-for="u in usuarios" :key="u.id" :value="u.id">{{ u.name }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1.5">Cliente</label>
+                            <select v-model="formFiltros.consumidor_id"
+                                class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none">
+                                <option value="">Todos</option>
+                                <option v-for="c in consumidores" :key="c.id" :value="c.id">{{ c.nombre }}</option>
                             </select>
                         </div>
                         <div>
@@ -350,16 +431,22 @@ const iconoNavegador = (navegador) => {
                             Mostrando {{ actividades.from }} a {{ actividades.to }} de {{ actividades.total }} registros
                         </span>
                         <div class="flex flex-wrap justify-center gap-1">
-                            <Link v-for="link in actividades.links" :key="link.label"
+                            <Link v-for="(link, i) in paginasVisibles" :key="i"
                                 :href="link.url || '#'"
-                                v-html="link.label"
-                                class="px-3 py-1.5 text-sm rounded-lg transition-colors border"
-                                :class="link.active
-                                    ? 'bg-blue-600 text-white border-blue-600'
-                                    : link.url
-                                        ? 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                                        : 'opacity-50 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200'"
-                            />
+                                class="px-4 py-1.5 text-sm font-bold rounded-lg transition-colors border"
+                                :class="link.url
+                                    ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                    : 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200'"
+                            >
+                                <span v-if="i === 0" class="flex items-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
+                                    Anterior
+                                </span>
+                                <span v-else class="flex items-center gap-1">
+                                    Siguiente
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                                </span>
+                            </Link>
                         </div>
                     </div>
                 </div>

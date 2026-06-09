@@ -90,8 +90,8 @@ class TiendaController extends Controller
 
         $productos = $query->paginate(min($perPage, 200), ['*'], 'page', (int) $request->input('page', 1));
 
-        $mapped = collect($productos->items())->map(function ($prod) use ($sucursal_id) {
-            $pivot = $prod->sucursales()->where('sucursal_id', $sucursal_id)->first()?->pivot;
+        $mapped = collect($productos->items())->map(function ($prod) {
+            $pivot = $prod->pivot;
             $cantidad_fisica = $pivot?->cantidad_fisica ?? 0;
             $cantidad_reservada = $pivot?->cantidad_reservada ?? 0;
             $stock_disponible = max(0, $cantidad_fisica - $cantidad_reservada);
@@ -120,7 +120,8 @@ class TiendaController extends Controller
             ];
         });
 
-        $countsPorCategoria = Producto::whereHas('sucursales', fn($q) => $q->where('sucursal_id', $sucursal_id))
+        $countsPorCategoria = Producto::join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
+            ->where('producto_sucursal.sucursal_id', $sucursal_id)
             ->where('productos.estado', true)
             ->selectRaw('categoria_id, count(*) as total')
             ->groupBy('categoria_id')

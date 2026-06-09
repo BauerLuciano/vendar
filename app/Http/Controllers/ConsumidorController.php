@@ -9,6 +9,7 @@ use App\Models\MovimientoCuentaCorriente;
 use App\Models\MovimientoCaja;
 use App\Models\TurnoCaja;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;

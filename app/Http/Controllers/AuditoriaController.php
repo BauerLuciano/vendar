@@ -6,12 +6,13 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Spatie\Activitylog\Models\Activity;
 use App\Models\User;
+use App\Models\Consumidor;
 
 class AuditoriaController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Activity::query()->with('causer:id,name,email');
+        $query = Activity::query()->with('causer');
 
         if ($request->filled('fecha_desde')) {
             $query->whereDate('created_at', '>=', $request->fecha_desde);
@@ -20,7 +21,10 @@ class AuditoriaController extends Controller
             $query->whereDate('created_at', '<=', $request->fecha_hasta);
         }
         if ($request->filled('usuario_id')) {
-            $query->where('causer_id', $request->usuario_id);
+            $query->where('causer_type', User::class)->where('causer_id', $request->usuario_id);
+        }
+        if ($request->filled('consumidor_id')) {
+            $query->where('causer_type', Consumidor::class)->where('causer_id', $request->consumidor_id);
         }
         if ($request->filled('evento')) {
             $query->where('event', $request->evento);
@@ -43,23 +47,65 @@ class AuditoriaController extends Controller
             };
 
             $excluir = ['created_at', 'updated_at', 'deleted_at'];
+            $etiquetas = [
+                'id'               => 'ID',
+                'turno_caja_id'    => 'Turno Caja',
+                'consumidor_id'    => 'Cliente',
+                'metodo_pago'      => 'Método de Pago',
+                'total'            => 'Total',
+                'estado'           => 'Estado',
+                'motivo_anulacion' => 'Motivo Anulación',
+                'pagos'            => 'Pagos',
+                'nombre'           => 'Nombre',
+                'apellido'         => 'Apellido',
+                'email'            => 'Email',
+                'telefono'         => 'Teléfono',
+                'direccion'        => 'Dirección',
+                'precio_compra'    => 'Precio Compra',
+                'precio_venta'     => 'Precio Venta',
+                'stock_minimo'     => 'Stock Mínimo',
+                'codigo_barras'    => 'Código de Barras',
+                'sucursal_id'      => 'Sucursal',
+                'categoria_id'     => 'Categoría',
+                'marca_id'         => 'Marca',
+                'proveedor_id'     => 'Proveedor',
+                'user_id'          => 'Usuario',
+                'caja_id'          => 'Caja',
+                'descripcion'      => 'Descripción',
+                'fecha'            => 'Fecha',
+                'hora_apertura'    => 'Hora Apertura',
+                'hora_cierre'      => 'Hora Cierre',
+                'monto_apertura'   => 'Monto Apertura',
+                'monto_cierre'     => 'Monto Cierre',
+                'observaciones'    => 'Observaciones',
+                'password'         => 'Contraseña',
+            ];
             $diff = [];
             $cambios = $props->get('attributes', []);
             $viejos  = $props->get('old', []);
             $todas = array_unique(array_merge(array_keys($cambios), array_keys($viejos)));
             foreach ($todas as $campo) {
                 if (in_array($campo, $excluir)) continue;
+                $antes = array_key_exists($campo, $viejos) ? $viejos[$campo] : null;
+                $despues = array_key_exists($campo, $cambios) ? $cambios[$campo] : null;
                 $diff[] = [
-                    'campo'   => $campo,
-                    'antes'   => array_key_exists($campo, $viejos) ? $viejos[$campo] : null,
-                    'despues' => array_key_exists($campo, $cambios) ? $cambios[$campo] : null,
+                    'campo'   => $etiquetas[$campo] ?? $campo,
+                    'antes'   => $antes,
+                    'despues' => $despues,
                 ];
             }
 
+            $causer = $item->causer;
+            $nombreUsuario = match (true) {
+                $causer === null => 'Sistema',
+                property_exists($causer, 'nombre') => trim(($causer->nombre ?? '') . ' ' . ($causer->apellido ?? '')),
+                default => $causer->name ?? 'Sistema',
+            };
+
             return [
                 'id'          => $item->id,
-                'usuario'     => $item->causer?->name ?? 'Sistema',
-                'email'       => $item->causer?->email,
+                'usuario'     => $nombreUsuario,
+                'email'       => $causer?->email,
                 'accion'      => $item->event ?? 'created',
                 'descripcion' => $descripcion,
                 'modelo'      => $item->subject_type ? class_basename($item->subject_type) : '—',
@@ -75,10 +121,19 @@ class AuditoriaController extends Controller
 
         $usuarios = User::select('id', 'name')->orderBy('name')->get();
 
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $consumidores = Consumidor::select('id', 'nombre', 'apellido')
+            ->when($comercioId, fn($q) => $q->where('comercio_id', $comercioId))
+            ->orderBy('nombre')->get()->map(fn($c) => [
+            'id' => $c->id,
+            'nombre' => trim(($c->nombre ?? '') . ' ' . ($c->apellido ?? '')),
+        ]);
+
         return Inertia::render('Auditoria/Index', [
-            'actividades' => $actividades,
-            'usuarios'    => $usuarios,
-            'filtros'     => $request->only(['fecha_desde', 'fecha_hasta', 'usuario_id', 'evento', 'modelo']),
+            'actividades'  => $actividades,
+            'usuarios'     => $usuarios,
+            'consumidores' => $consumidores,
+            'filtros'      => $request->only(['fecha_desde', 'fecha_hasta', 'usuario_id', 'consumidor_id', 'evento', 'modelo']),
         ]);
     }
 

@@ -38,6 +38,11 @@ class TurnoCaja extends Model
         return $this->belongsTo(Caja::class); 
     }
 
+    public function sucursal()
+    {
+        return $this->belongsTo(Sucursal::class);
+    }
+
     public function cajero() 
     { 
         return $this->belongsTo(User::class, 'user_id'); 

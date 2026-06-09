@@ -68,7 +68,7 @@ const menu = [
         titulo: 'Contactos',
         roles: ['Cajero', 'Encargado', 'SuperAdmin'],
         enlaces: [
-            { nombre: 'Clientes', ruta: 'consumidores.index', icono: 'clientes', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'fiados' },
+            { nombre: 'Clientes', ruta: 'consumidores.index', icono: 'clientes', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },
             { nombre: 'Proveedores', ruta: 'proveedores.index', icono: 'proveedores', roles: ['Encargado', 'SuperAdmin'], modulo: 'proveedores' },
         ]
     },
