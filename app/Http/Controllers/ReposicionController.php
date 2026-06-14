@@ -43,9 +43,11 @@ class ReposicionController extends Controller
                 'producto_sucursal.cantidad_fisica'
             )->get();
 
+        $comercioId = $user->branch?->comercio_id;
+
         return Inertia::render('Reposicion/Index', [
             'faltantes' => $faltantes,
-            'proveedores' => Proveedor::where('estado', true)->get(),
+            'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
             'sucursalActual' => Sucursal::find($sucursalId)
         ]);
     }

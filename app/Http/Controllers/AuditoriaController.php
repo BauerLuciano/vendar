@@ -14,6 +14,16 @@ class AuditoriaController extends Controller
     {
         $query = Activity::query()->with('causer');
 
+        $user = $request->user();
+
+        if ($user && !$user->hasRole('SuperAdmin')) {
+            $comercioId = $user->comercio_id ?? $user->branch?->comercio_id;
+            if ($comercioId) {
+                $userIds = User::where('comercio_id', $comercioId)->pluck('id');
+                $query->whereIn('causer_id', $userIds);
+            }
+        }
+
         if ($request->filled('fecha_desde')) {
             $query->whereDate('created_at', '>=', $request->fecha_desde);
         }
@@ -119,7 +129,12 @@ class AuditoriaController extends Controller
             ];
         });
 
-        $usuarios = User::select('id', 'name')->orderBy('name')->get();
+        $usuarios = $user && !$user->hasRole('SuperAdmin')
+            ? User::select('id', 'name')
+                ->where('comercio_id', $user->comercio_id ?? $user->branch?->comercio_id)
+                ->orderBy('name')
+                ->get()
+            : User::select('id', 'name')->orderBy('name')->get();
 
         $comercioId = auth()->user()->branch?->comercio_id;
         $consumidores = Consumidor::select('id', 'nombre', 'apellido')

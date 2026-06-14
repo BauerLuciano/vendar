@@ -26,6 +26,7 @@ use App\Http\Controllers\{
     SuscripcionController,
     PedidoWebController, 
     GestionPedidosWebController,
+    ReporteController,
 };
 
 use App\Models\CuentaCorriente;
@@ -101,6 +102,9 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
     Route::patch('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar');
+
+    Route::get('/reportes', [ReporteController::class, 'index'])->name('reportes.index');
+    Route::get('/reportes/pdf', [ReporteController::class, 'pdf'])->name('reportes.pdf');
 
     Route::get('/cajas', [CajaController::class, 'index'])->name('cajas.index');
     Route::post('/cajas', [CajaController::class, 'store'])->name('cajas.store');

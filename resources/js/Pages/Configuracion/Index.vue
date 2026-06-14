@@ -37,9 +37,8 @@ const form = useForm({
     transferencia_cbu: props.comercio.transferencia_cbu || '',
     transferencia_alias: props.comercio.transferencia_alias || '',
     transferencia_titular: props.comercio.transferencia_titular || '',
-    mp_access_token: props.comercio.mp_access_token || '',
-    payway_public_key: props.comercio.payway_public_key || '',
     acepta_efectivo: props.comercio.acepta_efectivo === 1 || props.comercio.acepta_efectivo === true,
+    mp_access_token: '',
 });
 
 const handleLogoUpload = (event) => {

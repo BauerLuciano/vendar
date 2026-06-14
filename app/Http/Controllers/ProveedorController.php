@@ -9,12 +9,34 @@ use Illuminate\Validation\Rule;
 
 class ProveedorController extends Controller
 {
+    private function getComercioId(): ?int
+    {
+        $user = auth()->user();
+        if (!$user || !$user->branch_id) return null;
+        return $user->branch?->comercio_id;
+    }
+
+    private function authorizeComercio(Proveedor $proveedor): void
+    {
+        $comercioId = $this->getComercioId();
+        if ($comercioId === null) return;
+        if ($proveedor->comercio_id === null) {
+            abort(403, 'No puedes modificar un proveedor global.');
+        }
+        if ($proveedor->comercio_id !== $comercioId) {
+            abort(403, 'Este proveedor no pertenece a tu comercio.');
+        }
+    }
+
     public function index(Request $request)
     {
+        $comercioId = $this->getComercioId();
+
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');
 
-        $proveedores = Proveedor::when($search, function ($q, $search) {
+        $proveedores = Proveedor::deComercio($comercioId)
+            ->when($search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('razon_social', 'LIKE', "%{$search}%")
                         ->orWhere('cuit', 'LIKE', "%{$search}%");
@@ -38,14 +60,21 @@ class ProveedorController extends Controller
 
     public function store(Request $request)
     {
+        $comercioId = $this->getComercioId();
+
         $validados = $request->validate([
             'razon_social' => 'required|string|max:255',
-            'cuit'         => 'required|string|max:15|unique:proveedores,cuit',
+            'cuit'         => [
+                'required', 'string', 'max:15',
+                Rule::unique('proveedores', 'cuit')
+                    ->where(fn ($q) => $q->where('comercio_id', $comercioId)),
+            ],
             'telefono'     => 'nullable|string|max:20',
             'email'        => 'nullable|email|max:255',
             'direccion'    => 'nullable|string|max:255',
         ]);
 
+        $validados['comercio_id'] = $comercioId;
         $validados['estado'] = true;
         Proveedor::create($validados);
 
@@ -54,9 +83,16 @@ class ProveedorController extends Controller
 
     public function update(Request $request, Proveedor $proveedore)
     {
+        $this->authorizeComercio($proveedore);
+
         $validados = $request->validate([
             'razon_social' => 'required|string|max:255',
-            'cuit'         => ['required', 'string', 'max:15', Rule::unique('proveedores')->ignore($proveedore->id)],
+            'cuit'         => [
+                'required', 'string', 'max:15',
+                Rule::unique('proveedores', 'cuit')
+                    ->ignore($proveedore->id)
+                    ->where(fn ($q) => $q->where('comercio_id', $proveedore->comercio_id)),
+            ],
             'telefono'     => 'nullable|string|max:20',
             'email'        => 'nullable|email|max:255',
             'direccion'    => 'nullable|string|max:255',
@@ -69,6 +105,7 @@ class ProveedorController extends Controller
 
     public function status(Proveedor $proveedore)
     {
+        $this->authorizeComercio($proveedore);
         $proveedore->update(['estado' => !$proveedore->estado]);
         return redirect()->back();
     }

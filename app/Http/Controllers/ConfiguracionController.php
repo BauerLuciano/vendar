@@ -40,10 +40,10 @@ class ConfiguracionController extends Controller
             'acepta_efectivo',
         ]));
         // Campos sensibles: asignación explícita fuera de mass-assignment
-        if ($request->has('mp_access_token')) {
+        if ($request->filled('mp_access_token')) {
             $comercio->mp_access_token = $request->mp_access_token;
         }
-        if ($request->has('payway_public_key')) {
+        if ($request->filled('payway_public_key')) {
             $comercio->payway_public_key = $request->payway_public_key;
         }
         $comercio->save();

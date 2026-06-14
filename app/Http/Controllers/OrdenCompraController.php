@@ -56,7 +56,8 @@ class OrdenCompraController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        $proveedores = Proveedor::where('estado', true)->get();
+        $comercioId = $user->branch?->comercio_id;
+        $proveedores = Proveedor::deComercio($comercioId)->where('estado', true)->get();
         $sucursales = $esJefe ? Sucursal::all() : Sucursal::where('id', $user->branch_id)->get();
 
         return Inertia::render('OrdenesCompra/Index', [

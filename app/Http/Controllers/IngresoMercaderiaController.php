@@ -55,7 +55,7 @@ class IngresoMercaderiaController extends Controller
             'productos' => Producto::where('estado', true)
                 ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
                 ->get(),
-            'proveedores' => Proveedor::where('estado', true)->get(),
+            'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
             'sucursales' => $sucursalIds->isNotEmpty()
                 ? Sucursal::whereIn('id', $sucursalIds)->where('estado', true)->get()
                 : Sucursal::where('estado', true)->get(),

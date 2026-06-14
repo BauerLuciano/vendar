@@ -31,7 +31,12 @@ class Comercio extends Model
         'acepta_efectivo',
     ];
 
-    protected $appends = ['url_logo'];
+    protected $hidden = [
+        'mp_access_token',
+        'payway_public_key',
+    ];
+
+    protected $appends = ['url_logo', 'tiene_mp'];
 
     protected $casts = [
         'modulos_habilitados' => 'array',
@@ -41,6 +46,11 @@ class Comercio extends Model
     public function getUrlLogoAttribute(): ?string
     {
         return $this->logo ? Storage::url($this->logo) : null;
+    }
+
+    public function getTieneMpAttribute(): bool
+    {
+        return !empty($this->mp_access_token);
     }
 
     public function sucursales()

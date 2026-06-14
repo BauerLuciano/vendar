@@ -27,9 +27,9 @@ class ProductoController extends Controller
                 ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
                 ->orderBy('id', 'desc')
                 ->get(),
-            'categorias' => Categoria::all(),
-            'marcas' => Marca::all(),
-            'proveedores' => Proveedor::where('estado', true)->get(),
+            'categorias' => Categoria::deComercio($comercioId)->get(),
+            'marcas' => Marca::deComercio($comercioId)->get(),
+            'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
             'sucursales' => $sucursalIds->isNotEmpty()
                 ? Sucursal::whereIn('id', $sucursalIds)->get()
                 : Sucursal::all(),

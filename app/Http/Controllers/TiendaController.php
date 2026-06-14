@@ -31,6 +31,10 @@ class TiendaController extends Controller
             });
 
         $categorias = Categoria::where('estado', true)
+            ->where(function ($q) use ($comercio) {
+                $q->where('comercio_id', $comercio->id)
+                  ->orWhereNull('comercio_id');
+            })
             ->orderBy('nombreCategoria')
             ->get()
             ->map(fn($c) => [
