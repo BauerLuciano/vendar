@@ -53,13 +53,7 @@ class GestionPedidosWebController extends Controller
 
             if ($estadoActual === $nuevoEstado) return redirect()->back();
 
-            $forwardMap = [
-                'nuevo'      => 'preparando',
-                'preparando' => 'en_camino',
-                'en_camino'  => 'entregado',
-            ];
-
-            $esForward = ($forwardMap[$estadoActual] ?? null) === $nuevoEstado;
+            $esForward = in_array($nuevoEstado, $pedido->nextStates());
             $esCancel = $nuevoEstado === 'cancelado';
 
             if (!$esForward && !$esCancel && !$esJefe) {

@@ -103,12 +103,14 @@ class DashboardController extends Controller
         }
 
         $pedidosRecientes = $pedidosQuery->latest()->take(10)->get()->map(fn($p) => [
-            'id'       => $p->id,
-            'cliente'  => $p->cliente_nombre,
-            'total'    => (float) $p->total,
-            'estado'   => $p->estado_pedido,
-            'sucursal' => $p->sucursal?->nombre,
-            'desde'    => $p->created_at->diffForHumans(),
+            'id'             => $p->id,
+            'cliente'        => $p->cliente_nombre,
+            'total'          => (float) $p->total,
+            'estado'         => $p->estado_pedido,
+            'estado_display' => $p->estado_display,
+            'tipo_entrega'   => $p->tipo_entrega,
+            'sucursal'       => $p->sucursal?->nombre,
+            'desde'          => $p->created_at->diffForHumans(),
         ]);
 
         $pedidosWebPendientes = $pedidosQuery->count();
@@ -223,10 +225,12 @@ class DashboardController extends Controller
         $pedidosPendientes = $pedidosQuery->count();
 
         $pedidosLista = $pedidosQuery->latest()->take(10)->get()->map(fn($p) => [
-            'cliente' => $p->cliente_nombre,
-            'total'   => (float) $p->total,
-            'estado'  => $p->estado_pedido,
-            'fecha'   => $p->created_at->format('d/m/Y H:i'),
+            'cliente'        => $p->cliente_nombre,
+            'total'          => (float) $p->total,
+            'estado'         => $p->estado_pedido,
+            'estado_display' => $p->estado_display,
+            'tipo_entrega'   => $p->tipo_entrega,
+            'fecha'          => $p->created_at->format('d/m/Y H:i'),
         ]);
 
         $topProductosQuery = DetalleVenta::select('productos.nombre', DB::raw('SUM(detalle_ventas.cantidad) as cantidad'), DB::raw('SUM(detalle_ventas.subtotal) as total'))

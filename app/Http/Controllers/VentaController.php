@@ -3,16 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MetodoPago;
+use App\Enums\PaymentChannel;
+use App\Enums\VentaStatus;
 use App\Models\Venta;
 use App\Models\DetalleVenta;
 use App\Models\Producto;
-use App\Models\Lote; // 🔥 NUEVO: Importamos el modelo Lote
+use App\Models\Lote;
 use App\Models\TurnoCaja;
 use App\Models\Consumidor;
 use App\Models\CuentaCorriente;
 use App\Models\MovimientoCuentaCorriente;
 use App\Models\MovimientoCaja;
+use App\Models\PaymentMethodConfiguration;
 use App\Jobs\EnviarTicketDigital;
+use App\Services\Payment\PaymentRecorder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -20,6 +24,10 @@ use Carbon\Carbon;
 
 class VentaController extends Controller
 {
+    public function __construct(
+        private readonly PaymentRecorder $paymentRecorder,
+    ) {}
+
     public function index(Request $request)
     {
         $user = auth()->user();
@@ -143,7 +151,9 @@ class VentaController extends Controller
                 }
             }
 
-            // 🛑 VALIDACIÓN DE STOCK ANTES DE CREAR LA VENTA
+            $manualConfigs = $this->loadManualConfigs($comercioId);
+            $esFlujoManual = $pagosNormalizados->contains(fn ($p) => isset($manualConfigs[$p['metodo_pago']]));
+
             foreach ($items as $item) {
                 $stockActual = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
@@ -153,7 +163,6 @@ class VentaController extends Controller
 
                 $cantDisponible = $stockActual ? $stockActual->cantidad_fisica : 0;
 
-                // Si NO se permite stock negativo, validamos estrictamente
                 if (!$permitirStockNegativo) {
                     if (!$stockActual || $cantDisponible < $item['cantidad']) {
                         $nombre = $item['nombre'] ?? "Producto ID: {$item['id']}";
@@ -162,48 +171,47 @@ class VentaController extends Controller
                 }
             }
 
-            // 2. Crear la Venta
             $venta = Venta::create([
                 'turno_caja_id' => $request->turno_caja_id,
                 'consumidor_id' => $request->consumidor_id,
                 'metodo_pago'   => $metodoPagoNormalizado,
                 'pagos'         => $pagosNormalizados->toArray(),
                 'total'         => $totalCalculado,
-                'estado'        => 'Completada',
+                'estado'        => $esFlujoManual ? VentaStatus::PENDING : VentaStatus::COMPLETED,
             ]);
 
-            // 3. Lógica Financiera — un registro por cada método de pago
-            foreach ($pagosNormalizados as $pago) {
-                if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value) {
-                    if (!isset($cuenta)) {
-                        $cuenta = CuentaCorriente::firstOrCreate(
-                            ['consumidor_id' => $request->consumidor_id],
-                            ['saldo_deudor' => 0],
-                        );
+            if (!$esFlujoManual) {
+                foreach ($pagosNormalizados as $pago) {
+                    if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value) {
+                        if (!isset($cuenta)) {
+                            $cuenta = CuentaCorriente::firstOrCreate(
+                                ['consumidor_id' => $request->consumidor_id],
+                                ['saldo_deudor' => 0],
+                            );
+                        }
+
+                        $cuenta->increment('saldo_deudor', $pago['monto']);
+
+                        MovimientoCuentaCorriente::create([
+                            'cuenta_corriente_id' => $cuenta->id,
+                            'venta_id'            => $venta->id,
+                            'monto'               => $pago['monto'],
+                            'tipo'                => 'cargo',
+                            'descripcion'         => 'Compra en POS (' . $pago['metodo_pago'] . ')',
+                        ]);
+                    } else {
+                        MovimientoCaja::create([
+                            'turno_caja_id' => $request->turno_caja_id,
+                            'tipo'          => 'INGRESO',
+                            'concepto'      => 'VENTA_MOSTRADOR',
+                            'metodo_pago'   => $pago['metodo_pago'],
+                            'monto'         => $pago['monto'],
+                            'descripcion'   => 'Ticket de venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
+                        ]);
                     }
-
-                    $cuenta->increment('saldo_deudor', $pago['monto']);
-
-                    MovimientoCuentaCorriente::create([
-                        'cuenta_corriente_id' => $cuenta->id,
-                        'venta_id'            => $venta->id,
-                        'monto'               => $pago['monto'],
-                        'tipo'                => 'cargo',
-                        'descripcion'         => 'Compra en POS (' . $pago['metodo_pago'] . ')',
-                    ]);
-                } else {
-                    MovimientoCaja::create([
-                        'turno_caja_id' => $request->turno_caja_id,
-                        'tipo'          => 'INGRESO',
-                        'concepto'      => 'VENTA_MOSTRADOR',
-                        'metodo_pago'   => $pago['metodo_pago'],
-                        'monto'         => $pago['monto'],
-                        'descripcion'   => 'Ticket de venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
-                    ]);
                 }
             }
 
-            // 4. Procesar Detalle, Descuento de Stock, Auditoría Y LOTES
             foreach ($items as $item) {
                 
                 $cantidadAVender = $item['cantidad'];
@@ -216,7 +224,6 @@ class VentaController extends Controller
                     'subtotal'        => $cantidadAVender * $item['precio_venta'],
                 ]);
 
-                // 🔥 LÓGICA DE LOTES (FIFO: First In, First Out)
                 $lotes = Lote::where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId)
                     ->where('stock_actual', '>', 0)
@@ -253,7 +260,6 @@ class VentaController extends Controller
                     DB::table('detalle_venta_lote')->insert($lotesConsumidos);
                 }
 
-                // Obtenemos el registro actual para saber la cantidad anterior
                 $registroStock = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId)
@@ -262,13 +268,11 @@ class VentaController extends Controller
                 $cantidadAnterior = $registroStock ? $registroStock->cantidad_fisica : 0;
                 $nuevaCantidad = $cantidadAnterior - $cantidadAVender;
 
-                // Descuento físico de stock general (usamos updateOrInsert por si el registro no existe)
                 DB::table('producto_sucursal')->updateOrInsert(
                     ['producto_id' => $item['id'], 'sucursal_id' => $sucursalId],
                     ['cantidad_fisica' => $nuevaCantidad]
                 );
                 
-                // Registro en historial de movimientos (Auditoría mejorada)
                 DB::table('movimientos_stock')->insert([
                     'producto_id'         => $item['id'],
                     'sucursal_id'         => $sucursalId,
@@ -283,20 +287,128 @@ class VentaController extends Controller
                 ]);
             }
 
+            if ($esFlujoManual) {
+                foreach ($pagosNormalizados as $pago) {
+                    $config = $manualConfigs[$pago['metodo_pago']] ?? null;
+                    if (!$config) {
+                        continue;
+                    }
+
+                    $provider = $config['provider'] ?? $pago['metodo_pago'];
+
+                    $this->paymentRecorder->createPending(
+                        payable: $venta,
+                        provider: $provider,
+                        amount: $pago['monto'],
+                        channel: PaymentChannel::MANUAL,
+                        reference: (string) $venta->id,
+                    );
+                }
+            }
+
             DB::commit();
 
-            EnviarTicketDigital::dispatch($venta->id);
+            if (!$esFlujoManual) {
+                EnviarTicketDigital::dispatch($venta->id);
+            }
 
-            return redirect()->back()->with([
-                'success' => 'Venta exitosa',
-                'venta_id' => $venta->id
-            ]);
+            $displayInfo = [];
+            if ($esFlujoManual) {
+                foreach ($pagosNormalizados as $pago) {
+                    $config = $manualConfigs[$pago['metodo_pago']] ?? null;
+                    $label = MetodoPago::fromString($pago['metodo_pago'])->label();
+                    $displayInfo[] = [
+                        'metodo_pago' => $pago['metodo_pago'],
+                        'label' => $label,
+                        'monto' => $pago['monto'],
+                        'provider' => $config['provider'] ?? null,
+                        'display_data' => $config['display_data'] ?? null,
+                        'config_id' => $config['id'] ?? null,
+                    ];
+                }
+            }
+
+            $flash = $esFlujoManual
+                ? [
+                    'success' => 'Venta pendiente de pago',
+                    'venta_id' => $venta->id,
+                    'es_pendiente' => true,
+                    'display_info' => $displayInfo,
+                ]
+                : ['success' => 'Venta exitosa', 'venta_id' => $venta->id];
+
+            return redirect()->back()->with($flash);
 
         } catch (\Exception $e) {
             DB::rollBack();
             \Log::error($e->getMessage());
             return redirect()->back()->withErrors(['error' => $e->getMessage()]);
         }
+    }
+
+    public function confirmarPago(Request $request, Venta $venta)
+    {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId) {
+            $existe = Venta::where('id', $venta->id)
+                ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
+                ->exists();
+            if (!$existe) {
+                abort(403, 'Esta venta no pertenece a tu comercio.');
+            }
+        }
+
+        return DB::transaction(function () use ($venta) {
+            $venta = Venta::lockForUpdate()->with('turno.caja')->findOrFail($venta->id);
+
+            if ($venta->estado !== VentaStatus::PENDING) {
+                return redirect()->back()->withErrors(['error' => 'La venta no está pendiente de pago.']);
+            }
+
+            $pagos = $venta->pagos ?? [['metodo_pago' => $venta->metodo_pago, 'monto' => $venta->total]];
+
+            $manualConfigs = $this->loadManualConfigs(auth()->user()->branch?->comercio_id);
+
+            foreach ($pagos as $pago) {
+                $metodo = MetodoPago::fromString($pago['metodo_pago']);
+                $config = $manualConfigs[$pago['metodo_pago']] ?? null;
+                $provider = $config['provider'] ?? $pago['metodo_pago'];
+
+                if ($metodo === MetodoPago::CUENTA_CORRIENTE) {
+                    $cuenta = CuentaCorriente::firstOrCreate(
+                        ['consumidor_id' => $venta->consumidor_id],
+                        ['saldo_deudor' => 0],
+                    );
+                    $cuenta->increment('saldo_deudor', $pago['monto']);
+                    MovimientoCuentaCorriente::create([
+                        'cuenta_corriente_id' => $cuenta->id,
+                        'venta_id'            => $venta->id,
+                        'monto'               => $pago['monto'],
+                        'tipo'                => 'cargo',
+                        'descripcion'         => 'Compra en POS (' . $pago['metodo_pago'] . ')',
+                    ]);
+                } else {
+                    MovimientoCaja::create([
+                        'turno_caja_id' => $venta->turno_caja_id,
+                        'tipo'          => 'INGRESO',
+                        'concepto'      => 'VENTA_MOSTRADOR',
+                        'metodo_pago'   => $pago['metodo_pago'],
+                        'monto'         => $pago['monto'],
+                        'descripcion'   => 'Confirmación pago venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
+                    ]);
+                }
+
+                if ($config) {
+                    $this->paymentRecorder->approve($venta, $provider);
+                }
+            }
+
+            $venta->update(['estado' => VentaStatus::COMPLETED]);
+
+            EnviarTicketDigital::dispatch($venta->id);
+
+            return redirect()->back()->with(['success' => 'Pago confirmado', 'venta_id' => $venta->id]);
+        });
     }
 
     public function cancelar(Request $request, Venta $venta)
@@ -316,11 +428,10 @@ class VentaController extends Controller
         return DB::transaction(function () use ($venta, $request) {
             $venta = Venta::lockForUpdate()->with('turno.caja', 'detalles.lotes')->findOrFail($venta->id);
 
-            if ($venta->estado === 'Cancelada') return redirect()->back();
+            if ($venta->estado === VentaStatus::CANCELLED) return redirect()->back();
 
             $sucursalId = $venta->turno->caja->sucursal_id;
 
-            // 1. Devolver Stock de LOTES (restauración FIFO)
             foreach ($venta->detalles as $detalle) {
                 foreach ($detalle->lotes as $lote) {
                     $cantidad = (float) $lote->pivot->cantidad;
@@ -328,7 +439,6 @@ class VentaController extends Controller
                 }
             }
 
-            // 1b. Devolver Stock General
             foreach ($venta->detalles as $detalle) {
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
@@ -336,38 +446,104 @@ class VentaController extends Controller
                     ->increment('cantidad_fisica', $detalle->cantidad);
             }
 
-            // 2. Ajustar dinero (Revertir deuda o egreso de caja) — por cada método de pago
-            $pagosParaRevertir = $venta->pagos_display;
+            $pagos = $venta->pagos_display;
 
-            foreach ($pagosParaRevertir as $pagoRevertir) {
-                if ($pagoRevertir['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
-                    $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
-                        ->lockForUpdate()
-                        ->first();
-                    if ($cuenta) {
-                        $cuenta->decrement('saldo_deudor', $pagoRevertir['monto']);
-                        MovimientoCuentaCorriente::create([
-                            'cuenta_corriente_id' => $cuenta->id,
-                            'venta_id'            => $venta->id,
-                            'monto'               => $pagoRevertir['monto'],
-                            'tipo'                => 'abono',
-                            'descripcion'         => 'Anulación Venta #' . $venta->id . ' (' . $pagoRevertir['metodo_pago'] . ')',
+            if ($venta->estado === VentaStatus::COMPLETED) {
+                foreach ($pagos as $pagoRevertir) {
+                    if ($pagoRevertir['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
+                        $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
+                            ->lockForUpdate()
+                            ->first();
+                        if ($cuenta) {
+                            $cuenta->decrement('saldo_deudor', $pagoRevertir['monto']);
+                            MovimientoCuentaCorriente::create([
+                                'cuenta_corriente_id' => $cuenta->id,
+                                'venta_id'            => $venta->id,
+                                'monto'               => $pagoRevertir['monto'],
+                                'tipo'                => 'abono',
+                                'descripcion'         => 'Anulación Venta #' . $venta->id . ' (' . $pagoRevertir['metodo_pago'] . ')',
+                            ]);
+                        }
+                    } else {
+                        MovimientoCaja::create([
+                            'turno_caja_id' => $venta->turno_caja_id,
+                            'tipo'          => 'EGRESO',
+                            'concepto'      => 'ANULACION_VENTA',
+                            'metodo_pago'   => $pagoRevertir['metodo_pago'],
+                            'monto'         => $pagoRevertir['monto'],
+                            'descripcion'   => 'Anulación de venta #' . $venta->id . ' - Motivo: ' . $request->motivo . ' (' . $pagoRevertir['metodo_pago'] . ')',
                         ]);
                     }
-                } else {
-                    MovimientoCaja::create([
-                        'turno_caja_id' => $venta->turno_caja_id,
-                        'tipo'          => 'EGRESO',
-                        'concepto'      => 'ANULACION_VENTA',
-                        'metodo_pago'   => $pagoRevertir['metodo_pago'],
-                        'monto'         => $pagoRevertir['monto'],
-                        'descripcion'   => 'Anulación de venta #' . $venta->id . ' - Motivo: ' . $request->motivo . ' (' . $pagoRevertir['metodo_pago'] . ')',
-                    ]);
                 }
             }
 
-            $venta->update(['estado' => 'Cancelada', 'motivo_anulacion' => $request->motivo]);
+            $manualConfigsCancel = $this->loadManualConfigs(auth()->user()->branch?->comercio_id);
+
+            foreach ($pagos as $pagoRevertir) {
+                $config = $manualConfigsCancel[$pagoRevertir['metodo_pago']] ?? null;
+                if ($config) {
+                    $provider = $config['provider'] ?? $pagoRevertir['metodo_pago'];
+                    $this->paymentRecorder->cancel($venta, $provider);
+                }
+            }
+
+            $venta->update(['estado' => VentaStatus::CANCELLED, 'motivo_anulacion' => $request->motivo]);
             return redirect()->back();
         });
+    }
+
+    public function pendientes(Request $request)
+    {
+        $user = auth()->user();
+        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
+        if (!$turno) {
+            return response()->json([]);
+        }
+
+        $comercioId = $user->branch?->comercio_id;
+
+        $ventas = Venta::with(['payments', 'consumidor'])
+            ->withCount('detalles')
+            ->where('turno_caja_id', $turno->id)
+            ->where('estado', VentaStatus::PENDING)
+            ->when($comercioId, fn ($q) => $q->whereHas('turno.caja.sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(function ($v) {
+                return [
+                    'id' => $v->id,
+                    'total' => (float) $v->total,
+                    'metodo_pago' => $v->metodo_pago,
+                    'pagos' => $v->pagos,
+                    'consumidor' => $v->consumidor ? $v->consumidor->nombre . ' ' . $v->consumidor->apellido : null,
+                    'created_at' => $v->created_at->format('H:i'),
+                    'items_count' => $v->detalles_count,
+                ];
+            });
+
+        return response()->json($ventas);
+    }
+
+    private function loadManualConfigs(?int $comercioId): array
+    {
+        if (!$comercioId) {
+            return [];
+        }
+
+        $configs = PaymentMethodConfiguration::where('comercio_id', $comercioId)
+            ->where('enabled', true)
+            ->where('channel', PaymentChannel::MANUAL)
+            ->get();
+
+        $indexed = [];
+        foreach ($configs as $cfg) {
+            $indexed[$cfg->metodo_pago] = [
+                'provider' => $cfg->provider,
+                'display_data' => $cfg->display_data,
+                'id' => $cfg->id,
+            ];
+        }
+
+        return $indexed;
     }
 }

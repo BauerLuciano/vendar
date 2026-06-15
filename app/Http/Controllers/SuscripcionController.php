@@ -7,11 +7,16 @@ use Inertia\Inertia;
 use App\Models\Comercio;
 use App\Models\Plan;
 use Illuminate\Support\Facades\DB;
-use MercadoPago\Client\Preference\PreferenceClient;
-use MercadoPago\MercadoPagoConfig;
+use App\Services\Payment\PaymentService;
+use App\Enums\PaymentStatus;
+use App\Services\Payment\Contracts\CheckoutRequest;
 
 class SuscripcionController extends Controller
 {
+    public function __construct(
+        private readonly PaymentService $paymentService,
+    ) {}
+
     public function miPlan()
     {
         $user = auth()->user();
@@ -46,58 +51,45 @@ class SuscripcionController extends Controller
                 return response()->json(['error' => 'Plan no disponible'], 400);
             }
 
-            // TODO: Evaluar si se permite downgrade de plan.
-            // Actualmente no hay restricción de precio: el comercio puede pasar
-            // a un plan más barato sin validación. Un downgrade podría dejar
-            // límites (sucursales/usuarios) por debajo del uso actual del comercio.
-            // Si se decide bloquear, comparar $plan->precio_mensual con
-            // $comercio->plan->precio_mensual y abort(400) si es menor.
             $comercio->update(['pending_plan_id' => $plan->id]);
 
-            $token = trim(config('services.mercadopago.access_token'));
-            MercadoPagoConfig::setAccessToken($token);
-
-            if (app()->environment('local')) {
-                MercadoPagoConfig::setRuntimeEnviroment(MercadoPagoConfig::LOCAL);
-            }
-
-            $client = new PreferenceClient();
             $baseUrl = config('app.url');
 
-            $preference = $client->create([
-                "items" => [
-                    [
-                        "id" => "plan-" . $plan->id,
-                        "title" => "VendAR: " . $plan->nombre,
-                        "quantity" => 1,
-                        "unit_price" => (float) $plan->precio_mensual,
-                        "currency_id" => "ARS"
-                    ]
-                ],
-                "back_urls" => [
-                    "success" => "{$baseUrl}/mi-plan?pago=exito&plan_id={$plan->id}",
-                    "failure" => "{$baseUrl}/mi-plan?pago=error",
-                    "pending" => "{$baseUrl}/mi-plan?pago=pendiente",
-                ],
-                "auto_return" => "approved",
-                "external_reference" => (string) $comercio->id,
-                "notification_url" => url('/api/mercadopago/notificacion?tipo=plan'),
-                "binary_mode" => true,
-            ]);
+            $checkoutRequest = new CheckoutRequest(
+                referenceId: (string) $comercio->id,
+                amount: (float) $plan->precio_mensual,
+                title: 'VendAR: ' . $plan->nombre,
+                description: 'Plan ' . $plan->nombre . ' - VendAR',
+                items: [[
+                    'id' => 'plan-' . $plan->id,
+                    'title' => 'VendAR: ' . $plan->nombre,
+                    'quantity' => 1,
+                    'unit_price' => (float) $plan->precio_mensual,
+                    'currency_id' => 'ARS',
+                ]],
+                successUrl: "{$baseUrl}/mi-plan?pago=exito&plan_id={$plan->id}",
+                failureUrl: "{$baseUrl}/mi-plan?pago=error",
+                pendingUrl: "{$baseUrl}/mi-plan?pago=pendiente",
+                notificationUrl: url('/api/mercadopago/notificacion?tipo=plan'),
+            );
+
+            $response = $this->paymentService
+                ->forPlatform()
+                ->createCheckout('mercadopago', $checkoutRequest);
 
             return response()->json([
-                'init_point' => $preference->init_point
+                'init_point' => $response->checkoutUrl,
             ]);
 
-        } catch (\MercadoPago\Exceptions\MPApiException $e) {
+        } catch (\App\Services\Payment\Exceptions\PaymentException $e) {
             return response()->json([
-                'error' => 'Error de API MP',
-                'detalle_real_mp' => $e->getApiResponse()->getContent()
+                'error' => 'Error de pasarela de pago',
+                'detalle' => $e->getMessage(),
             ], 500);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Error general',
-                'detalle' => $e->getMessage()
+                'detalle' => $e->getMessage(),
             ], 500);
         }
     }
@@ -116,7 +108,6 @@ class SuscripcionController extends Controller
             return response()->json(['status' => 'already_upgraded', 'plan_id' => $comercio->plan_id]);
         }
 
-        // Validar que el plan solicitado coincida con la intención de compra activa
         if ((int) $comercio->pending_plan_id !== (int) $request->plan_id) {
             \Log::warning('Intento de upgrade con plan_id no coincidente', [
                 'user_id' => $user->id,
@@ -129,23 +120,19 @@ class SuscripcionController extends Controller
             ], 400);
         }
 
-        // Validar pago contra MP API
-        $token = trim(config('services.mercadopago.access_token'));
-        $response = \Illuminate\Support\Facades\Http::withToken($token)
-            ->get("https://api.mercadopago.com/v1/payments/{$request->payment_id}");
-
-        if (!$response->successful()) {
+        try {
+            $status = $this->paymentService
+                ->forPlatform()
+                ->getPaymentStatus('mercadopago', $request->payment_id);
+        } catch (\Throwable $e) {
             return response()->json(['error' => 'No se pudo verificar el pago'], 502);
         }
 
-        $payment = $response->json();
-
-        if ($payment['status'] !== 'approved') {
+        if ($status->status !== PaymentStatus::APPROVED) {
             return response()->json(['error' => 'El pago no está aprobado'], 400);
         }
 
-        // Verificar que el pago corresponda a este comercio
-        if ((string) $payment['external_reference'] !== (string) $comercio->id) {
+        if ($status->referenceId !== (string) $comercio->id) {
             return response()->json(['error' => 'El pago no corresponde a este comercio'], 403);
         }
 

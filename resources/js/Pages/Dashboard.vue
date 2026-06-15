@@ -303,7 +303,7 @@ const generarOCS = () => {
                                 </div>
                                 <div class="flex items-center justify-between">
                                     <span class="text-[10px] text-slate-400 font-medium">{{ pedido.sucursal }} · {{ pedido.desde }}</span>
-                                    <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full shrink-0" :class="badgeEstado(pedido.estado)">{{ pedido.estado }}</span>
+                                    <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full shrink-0" :class="badgeEstado(pedido.estado)">{{ pedido.estado_display || pedido.estado }}</span>
                                 </div>
                             </div>
                         </div>

@@ -16,12 +16,13 @@ const isSuperAdmin = computed(() => {
 });
 
 // ─── Lógica de Máquina de Estados (Bloqueos) ──────────────────────────────────
-const canChangeTo = (currentState, targetState) => {
+const canChangeTo = (currentState, targetState, tipoEntrega = 'delivery') => {
     if (isSuperAdmin.value) return true;
     if (currentState === 'cancelado') return false;
 
-    // 🔥 ACÁ ESTÁN LAS PALABRAS CORRECTAS
-    const flujo = ['nuevo', 'preparando', 'en_camino', 'entregado'];
+    const flujo = tipoEntrega === 'local'
+        ? ['nuevo', 'preparando', 'entregado']
+        : ['nuevo', 'preparando', 'en_camino', 'entregado'];
     const actualIdx = flujo.indexOf(currentState);
     const targetIdx = flujo.indexOf(targetState);
 
@@ -244,11 +245,11 @@ const prepSelectClass = (estado) => ({
 
                                     <div class="w-full md:w-1/4 flex flex-col gap-1.5 md:px-5 md:border-l border-slate-100">
                                         <span class="inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-md border w-fit"
-                                            :class="pedido.cliente_direccion === 'Retiro en local' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'">
-                                            <span>{{ pedido.cliente_direccion === 'Retiro en local' ? '🏬' : '🛵' }}</span>
-                                            {{ pedido.cliente_direccion === 'Retiro en local' ? 'Retira en local' : 'Envío' }}
+                                            :class="pedido.tipo_entrega === 'local' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'">
+                                            <span>{{ pedido.tipo_entrega === 'local' ? '🏬' : '🛵' }}</span>
+                                            {{ pedido.tipo_entrega === 'local' ? 'Retira en local' : 'Envío' }}
                                         </span>
-                                        <p v-if="pedido.cliente_direccion !== 'Retiro en local'" class="text-[11px] font-medium text-slate-500 truncate w-full" :title="pedido.cliente_direccion">
+                                        <p v-if="pedido.tipo_entrega !== 'local'" class="text-[11px] font-medium text-slate-500 truncate w-full" :title="pedido.cliente_direccion">
                                             {{ pedido.cliente_direccion }}
                                         </p>
                                     </div>
@@ -269,11 +270,11 @@ const prepSelectClass = (estado) => ({
                                     <div class="w-[125px]">
                                         <label class="block text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 pl-1">ORDEN</label>
                                         <select v-model="pedido.estado_pedido" @change="cambiarEstado(pedido.id, $event.target.value)" :disabled="pedido.estado_pedido === 'cancelado' && !isSuperAdmin" class="w-full text-[11px] font-sans font-bold leading-relaxed border border-slate-200 rounded-lg shadow-sm cursor-pointer focus:ring-2 focus:ring-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed" :class="prepSelectClass(pedido.estado_pedido)" style="padding: 6px 24px 6px 10px;">
-                                            <option value="nuevo" :disabled="!canChangeTo(pedido.estado_pedido, 'nuevo')">🔴 Nueva</option>
+                                            <option value="nuevo" :disabled="!canChangeTo(pedido.estado_pedido, 'nuevo', pedido.tipo_entrega)">🔴 Nueva</option>
                                             
-                                            <option value="preparando" :disabled="!canChangeTo(pedido.estado_pedido, 'preparando')">🍳 En prep.</option>
-                                            <option value="en_camino" :disabled="!canChangeTo(pedido.estado_pedido, 'en_camino')">🛵 En camino</option>
-                                            <option value="entregado" :disabled="!canChangeTo(pedido.estado_pedido, 'entregado')">✅ Entregado</option>
+                                            <option value="preparando" :disabled="!canChangeTo(pedido.estado_pedido, 'preparando', pedido.tipo_entrega)">🍳 En prep.</option>
+                                            <option v-if="pedido.tipo_entrega !== 'local'" value="en_camino" :disabled="!canChangeTo(pedido.estado_pedido, 'en_camino', pedido.tipo_entrega)">🛵 En camino</option>
+                                            <option value="entregado" :disabled="!canChangeTo(pedido.estado_pedido, 'entregado', pedido.tipo_entrega)">✅ Entregado</option>
                                             <option v-if="pedido.estado_pedido === 'cancelado' || isSuperAdmin" value="cancelado" :disabled="!isSuperAdmin">🚫 Cancelado</option>
                                         </select>
                                     </div>
@@ -286,7 +287,7 @@ const prepSelectClass = (estado) => ({
                                         </select>
                                     </div>
 
-                                     <a v-if="pedido.cliente_direccion !== 'Retiro en local'" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pedido.cliente_direccion)}`" target="_blank" class="inline-flex justify-center items-center gap-1.5 text-[11px] font-sans font-bold rounded-lg border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900 transition-all active:scale-95" style="padding: 6px 12px;">
+                                     <a v-if="pedido.tipo_entrega !== 'local'" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pedido.cliente_direccion)}`" target="_blank" class="inline-flex justify-center items-center gap-1.5 text-[11px] font-sans font-bold rounded-lg border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900 transition-all active:scale-95" style="padding: 6px 12px;">
                                          Ver Envío
                                          <svg class="w-3.5 h-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                                      </a>

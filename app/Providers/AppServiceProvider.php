@@ -9,12 +9,13 @@ use Illuminate\Auth\Events\Logout;
 use App\Listeners\LogAuthenticationActivity;
 use Illuminate\Support\Facades\Event;
 use Spatie\Activitylog\Models\Activity;
+use App\Services\Payment\PaymentService;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->app->singleton(PaymentService::class);
     }
 
     public function boot(): void

@@ -6,7 +6,9 @@ import Swal from 'sweetalert2';
 
 const props = defineProps({
     configuraciones: Object,
-    comercio: Object // 🔥 Recibimos los datos del local
+    comercio: Object,
+    paymentMethodConfigs: Array,
+    metodoPagoOptions: Array,
 });
 
 const tabActiva = ref('general');
@@ -38,7 +40,14 @@ const form = useForm({
     transferencia_alias: props.comercio.transferencia_alias || '',
     transferencia_titular: props.comercio.transferencia_titular || '',
     acepta_efectivo: props.comercio.acepta_efectivo === 1 || props.comercio.acepta_efectivo === true,
+    mp_enabled: props.comercio.payment_gateways?.find(g => g.provider === 'mercadopago')?.enabled ?? !!props.comercio.tiene_mp,
     mp_access_token: '',
+
+    // --- viüMi ---
+    viumi_enabled: props.comercio.payment_gateways?.find(g => g.provider === 'viumi')?.enabled ?? false,
+    viumi_client_id: props.comercio.payment_gateways?.find(g => g.provider === 'viumi')?.configuration?.client_id ?? '',
+    viumi_client_secret: '',
+    viumi_environment: props.comercio.payment_gateways?.find(g => g.provider === 'viumi')?.configuration?.environment ?? 'sandbox',
 });
 
 const handleLogoUpload = (event) => {
@@ -49,6 +58,64 @@ const handleLogoUpload = (event) => {
         logoPreview.value = URL.createObjectURL(file);
     }
 };
+
+const pmcForm = useForm({
+    metodo_pago: 'TRANSFERENCIA',
+    provider: '',
+    display_data: {
+        alias: '',
+        cvu: '',
+        cbu: '',
+        banco: '',
+        titular: '',
+    },
+    enabled: true,
+});
+
+const editingPmcId = ref(null);
+
+function editPmc(pmc) {
+    editingPmcId.value = pmc.id;
+    pmcForm.metodo_pago = pmc.metodo_pago;
+    pmcForm.provider = pmc.provider || '';
+    pmcForm.display_data = { ...(pmc.display_data || {}) };
+    pmcForm.enabled = pmc.enabled;
+}
+
+function resetPmcForm() {
+    editingPmcId.value = null;
+    pmcForm.reset();
+    pmcForm.display_data = { alias: '', cvu: '', cbu: '', banco: '', titular: '' };
+}
+
+function guardarPmc() {
+    pmcForm.post(route('configuracion.metodo-pago.store'), {
+        preserveScroll: true,
+        onSuccess: () => {
+            resetPmcForm();
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Medio de pago guardado', showConfirmButton: false, timer: 2000 });
+        },
+    });
+}
+
+function eliminarPmc(pmc) {
+    Swal.fire({
+        title: '¿Eliminar?',
+        text: `Se eliminará la configuración de ${pmc.metodo_pago_label}`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Eliminar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#ef4444',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.delete(route('configuracion.metodo-pago.destroy', pmc.id), {
+                preserveScroll: true,
+                onSuccess: () => Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Eliminado', showConfirmButton: false, timer: 2000 }),
+            });
+        }
+    });
+}
 
 const guardarConfiguracion = () => {
     form.transform((data) => ({
@@ -105,22 +172,99 @@ const guardarConfiguracion = () => {
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                                 Tienda Online y Pagos
                             </button>
+                            <button @click="tabActiva = 'metodos_pago_pos'" :class="tabActiva === 'metodos_pago_pos' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                POS - Medios de Pago
+                            </button>
                         </nav>
-                    </div>
-                </div>
+                        <div v-show="tabActiva === 'metodos_pago_pos'" class="p-8">
+                            <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Medios de Pago para POS</h2>
+                            <p class="text-sm text-slate-500 mb-6">Configurá los métodos de pago que requieren confirmación manual en el POS (transferencias, Mercado Pago, etc.).</p>
 
-                <div class="lg:w-3/4">
-                    <form @submit.prevent="guardarConfiguracion" class="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                        
-                        <div v-show="tabActiva === 'general'" class="p-8">
-                            <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Datos de Identidad</h2>
-                            <div class="flex flex-col md:flex-row gap-8 mb-6">
-                                <div class="shrink-0 flex flex-col items-center gap-3">
-                                    <div class="w-32 h-32 bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl overflow-hidden flex items-center justify-center relative group">
-                                        <img v-if="logoPreview" :src="logoPreview" class="w-full h-full object-contain p-2" />
-                                        <div v-else class="text-center p-4">
-                                            <svg class="mx-auto h-8 w-8 text-slate-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4-4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            <div v-if="paymentMethodConfigs && paymentMethodConfigs.length" class="mb-8 space-y-3">
+                                <div v-for="pmc in paymentMethodConfigs" :key="pmc.id"
+                                    class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-sky-200 transition-colors"
+                                >
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-bold text-slate-800">{{ pmc.metodo_pago_label }}</span>
+                                            <span v-if="pmc.provider" class="text-xs font-mono text-slate-400">({{ pmc.provider }})</span>
+                                            <span v-if="!pmc.enabled" class="text-xs font-bold text-rose-500 bg-rose-50 px-2 py-0.5 rounded">DESACTIVADO</span>
                                         </div>
+                                        <div v-if="pmc.display_data" class="mt-1 text-xs text-slate-500 flex flex-wrap gap-x-4">
+                                            <span v-if="pmc.display_data.alias">Alias: {{ pmc.display_data.alias }}</span>
+                                            <span v-if="pmc.display_data.cvu">CVU: {{ pmc.display_data.cvu }}</span>
+                                            <span v-if="pmc.display_data.cbu">CBU: {{ pmc.display_data.cbu }}</span>
+                                            <span v-if="pmc.display_data.banco">Banco: {{ pmc.display_data.banco }}</span>
+                                            <span v-if="pmc.display_data.titular">Titular: {{ pmc.display_data.titular }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <button @click="editPmc(pmc)" class="px-3 py-1.5 text-xs font-bold text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors">Editar</button>
+                                        <button @click="eliminarPmc(pmc)" class="px-3 py-1.5 text-xs font-bold text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors">✕</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-50 border border-slate-200 rounded-2xl p-6">
+                                <h3 class="text-sm font-black text-slate-700 uppercase tracking-widest mb-4">{{ editingPmcId ? 'Editar' : 'Nuevo' }} método de pago</h3>
+                                <form @submit.prevent="guardarPmc" class="space-y-4">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Método de Pago</label>
+                                            <select v-model="pmcForm.metodo_pago" :disabled="!!editingPmcId"
+                                                class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800"
+                                            >
+                                                <option v-for="opt in metodoPagoOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Provider (opcional)</label>
+                                            <input v-model="pmcForm.provider" type="text" placeholder="mercadopago, viumi..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
+                                            <input v-model="pmcForm.display_data.alias" type="text" placeholder="ej: mercopago.pago.facil" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">CVU / CBU</label>
+                                            <input v-model="pmcForm.display_data.cvu" type="text" placeholder="0000003100000000000000" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Banco</label>
+                                            <input v-model="pmcForm.display_data.banco" type="text" placeholder="Banco Ejemplo" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular</label>
+                                            <input v-model="pmcForm.display_data.titular" type="text" placeholder="Nombre del titular" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                        </div>
+                                    </div>
+
+                                    <label class="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                                        <input v-model="pmcForm.enabled" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                        <span class="font-bold text-slate-700 text-sm">Habilitado</span>
+                                    </label>
+
+                                    <div class="flex gap-3 pt-2">
+                                        <button type="submit" :disabled="pmcForm.processing"
+                                            class="bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white font-black py-2.5 px-6 rounded-xl shadow-lg uppercase tracking-widest transition-all text-sm"
+                                        >
+                                            {{ pmcForm.processing ? 'Guardando...' : 'Guardar' }}
+                                        </button>
+                                        <button v-if="editingPmcId" type="button" @click="resetPmcForm"
+                                            class="px-4 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </form>
+                </div>
                                         <label class="absolute inset-0 w-full h-full bg-slate-900/50 flex items-center justify-center text-white font-bold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                             Cambiar
                                             <input type="file" class="hidden" accept="image/*" @change="handleLogoUpload">
@@ -295,10 +439,46 @@ const guardarConfiguracion = () => {
 
                                 <div class="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl">
                                     <h3 class="text-sm font-black text-blue-800 uppercase mb-4">Mercado Pago</h3>
+                                    <label class="flex items-center gap-3 mb-4 p-3 bg-white rounded-xl border border-blue-100 cursor-pointer hover:bg-blue-50 transition-colors">
+                                        <input v-model="form.mp_enabled" type="checkbox" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-slate-300">
+                                        <div>
+                                            <p class="font-bold text-slate-800 text-sm">Habilitar Mercado Pago</p>
+                                            <p class="text-xs text-slate-500">Mostrar MP como opción de pago en la tienda online</p>
+                                        </div>
+                                    </label>
                                     <div>
                                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Access Token (Producción)</label>
                                         <input v-model="form.mp_access_token" type="password" placeholder="APP_USR-..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
                                         <p class="text-[10px] text-slate-500 mt-2 font-bold">Requerido para cobrar online desde el catálogo web.</p>
+                                    </div>
+                                </div>
+
+                                <div class="p-4 bg-violet-50/50 border border-violet-100 rounded-2xl">
+                                    <h3 class="text-sm font-black text-violet-800 uppercase mb-4">viüMi</h3>
+                                    <label class="flex items-center gap-3 mb-4 p-3 bg-white rounded-xl border border-violet-100 cursor-pointer hover:bg-violet-50 transition-colors">
+                                        <input v-model="form.viumi_enabled" type="checkbox" class="w-5 h-5 text-violet-600 rounded focus:ring-violet-500 border-slate-300">
+                                        <div>
+                                            <p class="font-bold text-slate-800 text-sm">Habilitar viüMi</p>
+                                            <p class="text-xs text-slate-500">Mostrar viüMi como opción de pago en la tienda online</p>
+                                        </div>
+                                    </label>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Client ID</label>
+                                            <input v-model="form.viumi_client_id" type="text" placeholder="XXXXXXXX-XXX-XXXX-XXX-XXXXXXXXXXXX" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Client Secret</label>
+                                            <input v-model="form.viumi_client_secret" type="password" placeholder="Completar solo si se desea cambiar" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
+                                            <p class="text-[10px] text-slate-500 mt-1 font-bold">No se muestra por seguridad. Dejá vacío para mantener el actual.</p>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Entorno</label>
+                                            <select v-model="form.viumi_environment" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                                <option value="sandbox">Sandbox (Pruebas)</option>
+                                                <option value="production">Producción</option>
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

@@ -1,6 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import LectorCamara from '@/Components/LectorCamara.vue'; // 🔥 IMPORTAMOS LA CÁMARA
+import LectorCamara from '@/Components/LectorCamara.vue';
+import ConfirmarPagoModal from '@/Components/ConfirmarPagoModal.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import Swal from 'sweetalert2';
@@ -9,7 +10,9 @@ const props = defineProps({
     turno: Object,
     productos: Array,
     clientes: Array,
-    frecuentes: Array
+    frecuentes: Array,
+    paymentMethods: Array,
+    metodosBase: Array,
 });
 
 const page = usePage();
@@ -31,10 +34,16 @@ const mostrarEscaner = ref(false);
 
 const mostrarMovimientos = ref(false);
 const tabCajaPend = ref('caja');
+const tabPendientes = ref('carritos');
 const mostrarPendientes = ref(false);
 const ventasPendientes = ref([]);
+const ventasPendientesPago = ref([]);
 const guardandoCarrito = ref(false);
 const restaurandoCarrito = ref(false);
+
+const confirmarPagoModal = ref(false);
+const confirmarVentaId = ref(null);
+const confirmarDisplayInfo = ref([]);
 const movimientosTurno = ref([]);
 const cargandoMovimientos = ref(false);
 let intervaloMovimientos = null;
@@ -158,14 +167,30 @@ function detenerPollingMovimientos() {
     }
 }
 
-const METODOS_DISPONIBLES = [
-    { value: 'EFECTIVO', label: 'Efectivo', icon: 'cash' },
-    { value: 'DEBITO', label: 'Débito', icon: 'card' },
-    { value: 'CREDITO', label: 'Crédito', icon: 'card' },
-    { value: 'TRANSFERENCIA', label: 'Transf.', icon: 'transfer' },
-    { value: 'MERCADO_PAGO', label: 'M.Pago', icon: 'mp' },
-    { value: 'CUENTA_CORRIENTE', label: 'Fiado', icon: 'fiado' },
-];
+const METODOS_DISPONIBLES = computed(() => {
+    const base = (props.metodosBase || []).map(m => ({
+        value: m.value,
+        label: m.label,
+    }));
+
+    const manual = (props.paymentMethods || []).map(pm => ({
+        value: pm.metodo_pago,
+        label: pm.label,
+        paymentMethodConfigId: pm.id,
+        provider: pm.provider,
+        display_data: pm.display_data,
+    }));
+
+    const seen = new Set(base.map(m => m.value));
+    for (const m of manual) {
+        if (!seen.has(m.value)) {
+            base.push(m);
+            seen.add(m.value);
+        }
+    }
+
+    return base;
+});
 
 const pagos = ref([{ metodo_pago: 'EFECTIVO', monto: null }]);
 
@@ -557,12 +582,22 @@ const finalizarVenta = () => {
             Swal.close();
 
             const ventaId = page.props.flash.venta_id;
+            const esPendiente = page.props.flash.es_pendiente;
 
             carrito.value = [];
             clienteSeleccionado.value = null;
             buscar.value = '';
             montoRecibido.value = null;
             pagos.value = [{ metodo_pago: 'EFECTIVO', monto: null }];
+
+            if (esPendiente) {
+                confirmarDisplayInfo.value = page.props.flash.display_info || [];
+                confirmarVentaId.value = ventaId;
+                confirmarPagoModal.value = true;
+                fetchVentasPendientesPago();
+                nextTick(() => { if (inputBusqueda.value) inputBusqueda.value.focus(); });
+                return;
+            }
 
             let html = `Venta #${ventaId} registrada correctamente.`;
             if (clienteActivoObj.value?.email) {
@@ -597,6 +632,30 @@ const finalizarVenta = () => {
     });
 };
 
+function onPagoConfirmado() {
+    confirmarPagoModal.value = false;
+    confirmarVentaId.value = null;
+    confirmarDisplayInfo.value = [];
+    fetchVentasPendientesPago();
+    fetchMovimientosTurno();
+}
+
+function onPagoCancelado() {
+    confirmarPagoModal.value = false;
+    confirmarVentaId.value = null;
+    confirmarDisplayInfo.value = [];
+    fetchVentasPendientesPago();
+}
+
+async function fetchVentasPendientesPago() {
+    try {
+        const response = await fetch('/ventas/pendientes');
+        if (response.ok) {
+            ventasPendientesPago.value = await response.json();
+        }
+    } catch (e) {}
+}
+
 const atajos = {
     F1: 'EFECTIVO',
     F2: 'DEBITO',
@@ -628,6 +687,7 @@ onMounted(() => {
     window.addEventListener('keydown', handleKeydown);
     iniciarPollingMovimientos();
     fetchPendientes();
+    fetchVentasPendientesPago();
 });
 onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown);
@@ -870,28 +930,62 @@ onUnmounted(() => {
                                     </div>
                                 </div>
                                 <div v-if="tabCajaPend === 'pendientes'">
-                                    <div v-if="ventasPendientes.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
-                                        No hay ventas pendientes
+                                    <div class="flex border-b border-slate-100">
+                                        <button @click="tabPendientes = 'carritos'" class="flex-1 py-1.5 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabPendientes === 'carritos' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
+                                            Carritos ({{ ventasPendientes.length }})
+                                        </button>
+                                        <button @click="tabPendientes = 'pagos'; fetchVentasPendientesPago()" class="flex-1 py-1.5 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabPendientes === 'pagos' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
+                                            Pagos ({{ ventasPendientesPago.length }})
+                                        </button>
                                     </div>
-                                    <div v-else class="max-h-40 overflow-y-auto">
-                                        <div v-for="p in ventasPendientes" :key="p.id"
-                                            class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
-                                        >
-                                            <div>
-                                                <span class="font-bold text-slate-700">{{ p.items_count }} prod.</span>
-                                                <span class="text-slate-400 ml-2">${{ Number(p.total).toLocaleString() }}</span>
-                                                <span class="text-slate-400 ml-2 font-mono">{{ p.created_at }}</span>
+
+                                    <div v-if="tabPendientes === 'carritos'">
+                                        <div v-if="ventasPendientes.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
+                                            No hay carritos guardados
+                                        </div>
+                                        <div v-else class="max-h-40 overflow-y-auto">
+                                            <div v-for="p in ventasPendientes" :key="p.id"
+                                                class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                                            >
+                                                <div>
+                                                    <span class="font-bold text-slate-700">{{ p.items_count }} prod.</span>
+                                                    <span class="text-slate-400 ml-2">${{ Number(p.total).toLocaleString() }}</span>
+                                                    <span class="text-slate-400 ml-2 font-mono">{{ p.created_at }}</span>
+                                                </div>
+                                                <div class="flex gap-1">
+                                                    <button @click="restaurarPendiente(p)" :disabled="restaurandoCarrito"
+                                                        class="px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                                    >
+                                                        {{ restaurandoCarrito ? '...' : 'Abrir' }}
+                                                    </button>
+                                                    <button @click="eliminarPendiente(p)"
+                                                        class="px-2 py-0.5 text-slate-400 hover:text-rose-500 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div class="flex gap-1">
-                                                <button @click="restaurarPendiente(p)" :disabled="restaurandoCarrito"
-                                                    class="px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                        </div>
+                                    </div>
+
+                                    <div v-if="tabPendientes === 'pagos'">
+                                        <div v-if="ventasPendientesPago.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
+                                            No hay pagos pendientes
+                                        </div>
+                                        <div v-else class="max-h-40 overflow-y-auto">
+                                            <div v-for="p in ventasPendientesPago" :key="p.id"
+                                                class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                                            >
+                                                <div>
+                                                    <span class="font-bold text-slate-700">{{ p.items_count }} prod.</span>
+                                                    <span class="text-slate-400 ml-2">${{ Number(p.total).toLocaleString() }}</span>
+                                                    <span class="text-slate-400 ml-2 font-mono">{{ p.created_at }}</span>
+                                                    <span v-if="p.consumidor" class="text-slate-400 ml-2">· {{ p.consumidor }}</span>
+                                                </div>
+                                                <button @click="confirmarVentaId = p.id; confirmarDisplayInfo = p.pagos?.map(pg => ({ metodo_pago: pg.metodo_pago, monto: pg.monto, label: pg.metodo_pago })) || []; confirmarPagoModal = true"
+                                                    class="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
                                                 >
-                                                    {{ restaurandoCarrito ? '...' : 'Abrir' }}
-                                                </button>
-                                                <button @click="eliminarPendiente(p)"
-                                                    class="px-2 py-0.5 text-slate-400 hover:text-rose-500 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                                >
-                                                    ✕
+                                                    Cobrar
                                                 </button>
                                             </div>
                                         </div>
@@ -1091,6 +1185,14 @@ onUnmounted(() => {
             v-if="mostrarEscaner" 
             @escaneado="manejarCodigoEscaneado" 
             @cerrar="mostrarEscaner = false" 
+        />
+
+        <ConfirmarPagoModal
+            :show="confirmarPagoModal"
+            :venta-id="confirmarVentaId"
+            :display-info="confirmarDisplayInfo"
+            @close="onPagoCancelado"
+            @confirmed="onPagoConfirmado"
         />
         
     </AuthenticatedLayout>

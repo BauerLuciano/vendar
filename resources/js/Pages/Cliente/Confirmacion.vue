@@ -141,9 +141,9 @@ onUnmounted(() => {
                     <div class="grid grid-cols-2 gap-3 mt-4">
                         <div class="bg-[#080f1e] border border-white/5 rounded-xl px-4 py-2.5">
                             <p class="text-[8px] font-black tracking-widest text-slate-500 uppercase">Entrega</p>
-                            <p class="text-xs font-bold text-white mt-0.5">{{ pedido.cliente_direccion === 'Retiro en local' ? '🏬 Retiro en local' : '🛵 Delivery' }}</p>
+                            <p class="text-xs font-bold text-white mt-0.5">{{ pedido.tipo_entrega === 'local' ? '🏬 Retiro en local' : '🛵 Delivery' }}</p>
                         </div>
-                        <div v-if="pedido.cliente_direccion !== 'Retiro en local'" class="bg-[#080f1e] border border-white/5 rounded-xl px-4 py-2.5">
+                        <div v-if="pedido.tipo_entrega !== 'local'" class="bg-[#080f1e] border border-white/5 rounded-xl px-4 py-2.5">
                             <p class="text-[8px] font-black tracking-widest text-slate-500 uppercase">Dirección</p>
                             <p class="text-xs font-bold text-white mt-0.5">{{ pedido.cliente_direccion }}</p>
                         </div>

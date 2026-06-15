@@ -53,6 +53,16 @@ class Comercio extends Model
         return !empty($this->mp_access_token);
     }
 
+    public function paymentGateways()
+    {
+        return $this->hasMany(PaymentGateway::class, 'comercio_id');
+    }
+
+    public function paymentMethodConfigurations()
+    {
+        return $this->hasMany(PaymentMethodConfiguration::class, 'comercio_id');
+    }
+
     public function sucursales()
     {
         return $this->hasMany(Sucursal::class, 'comercio_id');

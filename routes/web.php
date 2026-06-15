@@ -102,6 +102,8 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
     Route::patch('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar');
+    Route::post('/ventas/{venta}/confirmar-pago', [VentaController::class, 'confirmarPago'])->name('ventas.confirmar-pago');
+    Route::get('/ventas/pendientes', [VentaController::class, 'pendientes'])->name('ventas.pendientes');
 
     Route::get('/reportes', [ReporteController::class, 'index'])->name('reportes.index');
     Route::get('/reportes/pdf', [ReporteController::class, 'pdf'])->name('reportes.pdf');
@@ -250,6 +252,8 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
 
     Route::get('/configuracion', [ConfiguracionController::class, 'index'])->name('configuracion.index');
     Route::post('/configuracion', [ConfiguracionController::class, 'update'])->name('configuracion.update');
+    Route::post('/configuracion/metodo-pago', [ConfiguracionController::class, 'storePaymentMethodConfig'])->name('configuracion.metodo-pago.store');
+    Route::delete('/configuracion/metodo-pago/{paymentMethodConfiguration}', [ConfiguracionController::class, 'destroyPaymentMethodConfig'])->name('configuracion.metodo-pago.destroy');
 });
 
 // ==================================================================
@@ -306,10 +310,9 @@ Route::get('/tienda/{slug}/panel', function ($slug) {
     }
 
     $pedidos = \App\Models\PedidoWeb::where('comercio_id', $comercio->id)
-        ->where('cliente_telefono', $consumidor->telefono)
-        ->orWhere(function ($q) use ($consumidor, $comercio) {
-            $q->where('comercio_id', $comercio->id)
-              ->where('cliente_nombre', $consumidor->nombre . ' ' . $consumidor->apellido);
+        ->where(function ($q) use ($consumidor) {
+            $q->where('cliente_telefono', $consumidor->telefono)
+              ->orWhere('cliente_nombre', $consumidor->nombre . ' ' . $consumidor->apellido);
         })
         ->orderBy('created_at', 'desc')
         ->with('items')
@@ -364,6 +367,11 @@ Route::get('/tienda/{slug}', \App\Http\Controllers\TiendaController::class)->nam
 Route::post('/api/mercadopago/notificacion', [\App\Http\Controllers\MercadoPagoNotificacionController::class, 'notificacion'])
     ->middleware('throttle:30,1')
     ->name('mercadopago.notificacion');
+
+// Webhook viüMi (sin CSRF ni auth, viüMi envía desde sus servidores)
+Route::post('/api/webhook/viumi', \App\Http\Controllers\ViumiWebhookController::class)
+    ->middleware('throttle:30,1')
+    ->name('viumi.webhook');
 
 // Login y registro como páginas dedicadas
 Route::get('/tienda/{slug}/login', function ($slug) {

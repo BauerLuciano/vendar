@@ -103,15 +103,25 @@ const formatearFecha = (fecha) => {
     });
 };
 
-const badgeEstado = (estado) => {
+const badgeEstado = (pedido) => {
     const map = {
+        nuevo:      'Nuevo',
+        preparando: pedido.tipo_entrega === 'local' ? 'Listo para retirar' : 'Preparando',
+        en_camino:  'En Camino',
+        entregado:  'Entregado',
+        cancelado:  'Cancelado',
+    };
+    const clases = {
         nuevo:      ['bg-blue-500/15 text-blue-400 border-blue-500/30', 'Nuevo'],
         preparando: ['bg-amber-500/15 text-amber-400 border-amber-500/30', 'Preparando'],
         en_camino:  ['bg-indigo-500/15 text-indigo-400 border-indigo-500/30', 'En Camino'],
         entregado:  ['bg-emerald-500/15 text-emerald-400 border-emerald-500/30', 'Entregado'],
         cancelado:  ['bg-rose-500/15 text-rose-400 border-rose-500/30', 'Cancelado'],
     };
-    return map[estado] || ['bg-slate-500/15 text-slate-400 border-slate-500/30', estado];
+    const est = pedido.estado_pedido || pedido;
+    const label = typeof pedido === 'object' ? (pedido.estado_display || map[est]) : map[pedido];
+    const cls = clases[est] || ['bg-slate-500/15 text-slate-400 border-slate-500/30', est];
+    return [cls[0], label];
 };
 
 const badgePago = (estado) => {
@@ -242,8 +252,8 @@ const iconoEstado = (estado) => {
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <span class="text-[10px] font-black text-slate-400 uppercase tracking-wider">#{{ pedido.id }}</span>
-                                        <span :class="badgeEstado(pedido.estado_pedido)[0]" class="text-[9px] font-black px-2 py-0.5 rounded-full border">
-                                            {{ badgeEstado(pedido.estado_pedido)[1] }}
+                                        <span :class="badgeEstado(pedido)[0]" class="text-[9px] font-black px-2 py-0.5 rounded-full border">
+                                            {{ badgeEstado(pedido)[1] }}
                                         </span>
                                         <span :class="badgePago(pedido.estado_pago)[0]" class="text-[9px] font-black px-2 py-0.5 rounded-full border">
                                             {{ badgePago(pedido.estado_pago)[1] }}
@@ -276,14 +286,14 @@ const iconoEstado = (estado) => {
                                     </div>
                                 </div>
 
-                                <div v-if="pedido.direccion_entrega || pedido.tipo_entrega" class="grid grid-cols-2 gap-3 pt-2">
+                                <div v-if="pedido.cliente_direccion || pedido.tipo_entrega" class="grid grid-cols-2 gap-3 pt-2">
                                     <div v-if="pedido.tipo_entrega" class="bg-white/3 border border-white/5 rounded-xl px-4 py-2.5">
                                         <p class="text-[8px] font-black tracking-widest text-slate-500 uppercase">Entrega</p>
                                         <p class="text-xs font-bold text-white mt-0.5 capitalize">{{ pedido.tipo_entrega === 'delivery' ? '🛵 Delivery' : '🏬 Retiro en local' }}</p>
                                     </div>
-                                    <div v-if="pedido.direccion_entrega" class="bg-white/3 border border-white/5 rounded-xl px-4 py-2.5">
+                                    <div v-if="pedido.cliente_direccion && pedido.cliente_direccion !== 'Retiro en local'" class="bg-white/3 border border-white/5 rounded-xl px-4 py-2.5">
                                         <p class="text-[8px] font-black tracking-widest text-slate-500 uppercase">Dirección</p>
-                                        <p class="text-xs font-bold text-white mt-0.5">{{ pedido.direccion_entrega }}</p>
+                                        <p class="text-xs font-bold text-white mt-0.5">{{ pedido.cliente_direccion }}</p>
                                     </div>
                                 </div>
 

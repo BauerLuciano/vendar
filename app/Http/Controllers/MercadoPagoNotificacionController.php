@@ -2,51 +2,55 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PaymentStatus;
 use Illuminate\Http\Request;
 use App\Models\Comercio;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
+use App\Services\Payment\PaymentService;
+use App\Services\Payment\PaymentRecorder;
 
 class MercadoPagoNotificacionController extends Controller
 {
+    public function __construct(
+        private readonly PaymentService $paymentService,
+        private readonly PaymentRecorder $paymentRecorder,
+    ) {}
+
     public function notificacion(Request $request)
     {
         $paymentId = $request->input('data.id') ?? $request->input('id');
 
-        if (!$this->verificarFirma($request, $paymentId)) {
+        if ($request->input('tipo') === 'plan') {
+            return $this->procesarUpgradePlan($paymentId, $request);
+        }
+
+        $comercio = Comercio::with('paymentGateways')->find($request->input('comercio_id'));
+
+        if (!$comercio) {
+            return response()->json(['error' => 'Comercio not found'], 404);
+        }
+
+        $gateway = $this->paymentService
+            ->forCommerce($comercio)
+            ->gateway('mercadopago');
+
+        if (!$gateway->verifyWebhookSignature($request)) {
             return response()->json(['error' => 'Invalid signature'], 401);
         }
 
-        $topic = $request->input('topic');
-
-        if ($topic !== 'payment' || !$paymentId) {
+        if (!$paymentId) {
             return response()->json(['error' => 'Invalid notification'], 400);
         }
 
-        // --- Plan upgrade flow ---
-        if ($request->input('tipo') === 'plan') {
-            return $this->procesarUpgradePlan($paymentId);
-        }
-
-        // --- Pedido web flow (existing) ---
-        $comercio = Comercio::find($request->input('comercio_id'));
-        if (!$comercio || !$comercio->mp_access_token) {
-            return response()->json(['error' => 'Comercio or MP token not found'], 404);
-        }
-
-        $response = Http::withToken($comercio->mp_access_token)
-            ->get("https://api.mercadopago.com/v1/payments/{$paymentId}");
-
-        if (!$response->successful()) {
+        try {
+            $status = $gateway->getPaymentStatus($paymentId);
+        } catch (\Throwable $e) {
             return response()->json(['error' => 'Failed to fetch payment from MP'], 502);
         }
 
-        $payment = $response->json();
-        $externalRef = $payment['external_reference'] ?? null;
-        $status = $payment['status'] ?? null;
-
+        $externalRef = $status->referenceId;
         if (!$externalRef) {
             return response()->json(['error' => 'No external reference in payment'], 400);
         }
@@ -59,87 +63,46 @@ class MercadoPagoNotificacionController extends Controller
 
         $pedido->pasarela_payment_id = $paymentId;
 
-        if ($status === 'approved') {
+        if ($status->status === PaymentStatus::APPROVED) {
             $pedido->estado_pago = 'pagado';
-        } elseif (in_array($status, ['rejected', 'cancelled', 'refunded'])) {
+        } elseif (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::REFUNDED])) {
             $pedido->estado_pago = 'rechazado';
         }
 
         $pedido->save();
 
+        $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
+            gatewayTransactionId: $status->gatewayTransactionId,
+            status: $status->status,
+            referenceId: $status->referenceId,
+            amount: $status->amount,
+            raw: $status->raw,
+        ));
+
         return response()->json(['status' => 'ok']);
     }
 
-    private function verificarFirma(Request $request, ?string $paymentId): bool
+    private function procesarUpgradePlan(string $paymentId, Request $request): \Illuminate\Http\JsonResponse
     {
-        $secret = config('services.mercadopago.webhook_secret');
+        $gateway = $this->paymentService
+            ->forPlatform()
+            ->gateway('mercadopago');
 
-        if (!$secret) {
-            if (app()->environment('production')) {
-                \Log::critical('MercadoPago webhook secret is missing in production — rejecting webhook');
-                return false;
-            }
-            \Log::warning('MercadoPago webhook secret not configured — skipping signature verification');
-            return true;
+        if (!$gateway->verifyWebhookSignature($request)) {
+            return response()->json(['error' => 'Invalid signature'], 401);
         }
 
-        $signature = $request->header('X-Signature');
-        if (!$signature) {
-            \Log::warning('MercadoPago webhook rejected: missing X-Signature header');
-            return false;
-        }
-
-        $parts = [];
-        foreach (explode(',', $signature) as $part) {
-            $segments = explode('=', $part, 2);
-            if (count($segments) === 2) {
-                $parts[trim($segments[0])] = trim($segments[1]);
-            }
-        }
-
-        $ts = $parts['ts'] ?? null;
-        $v1 = $parts['v1'] ?? null;
-
-        if (!$ts || !$v1 || !$paymentId) {
-            \Log::warning('MercadoPago webhook rejected: missing ts, v1, or paymentId');
-            return false;
-        }
-
-        // Anti-replay: reject timestamps older than 5 minutes
-        $age = abs(time() - (int) $ts);
-        if ($age > 300) {
-            \Log::warning('MercadoPago webhook rejected: timestamp too old', ['ts' => $ts, 'age' => $age]);
-            return false;
-        }
-
-        $payload = "{$paymentId}|{$ts}|{$secret}";
-        $expected = hash_hmac('sha256', $payload, $secret);
-
-        $valid = hash_equals($expected, $v1);
-        if (!$valid) {
-            \Log::warning('MercadoPago webhook rejected: invalid signature');
-        }
-        return $valid;
-    }
-
-    private function procesarUpgradePlan(string $paymentId)
-    {
-        $token = trim(config('services.mercadopago.access_token'));
-
-        $response = Http::withToken($token)
-            ->get("https://api.mercadopago.com/v1/payments/{$paymentId}");
-
-        if (!$response->successful()) {
+        try {
+            $status = $gateway->getPaymentStatus($paymentId);
+        } catch (\Throwable $e) {
             return response()->json(['error' => 'Failed to fetch payment from MP'], 502);
         }
 
-        $payment = $response->json();
-
-        if (($payment['status'] ?? null) !== 'approved') {
+        if ($status->status !== PaymentStatus::APPROVED) {
             return response()->json(['status' => 'not_approved']);
         }
 
-        $externalRef = $payment['external_reference'] ?? null;
+        $externalRef = $status->referenceId;
         if (!$externalRef) {
             return response()->json(['error' => 'No external reference'], 400);
         }
@@ -154,14 +117,13 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['error' => 'No pending plan upgrade found'], 400);
         }
 
-        // Idempotent: already upgraded
         if ($comercio->plan_id === $plan->id) {
             $comercio->pending_plan_id = null;
             $comercio->save();
             return response()->json(['status' => 'already_upgraded']);
         }
 
-        DB::transaction(function () use ($comercio, $plan) {
+        DB::transaction(function () use ($comercio, $plan, $paymentId) {
             $comercio = Comercio::lockForUpdate()->find($comercio->id);
 
             $comercio->plan_id = $plan->id;

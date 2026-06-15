@@ -17,6 +17,7 @@ class PedidoWeb extends Model
     protected $fillable = [
         'comercio_id',
         'sucursal_id',
+        'tipo_entrega',
         'cliente_nombre',
         'cliente_telefono',
         'cliente_direccion',
@@ -28,6 +29,31 @@ class PedidoWeb extends Model
         'comprobante_transferencia_url',
         'notas',
     ];
+
+    protected $appends = ['estado_display'];
+
+    public function getEstadoDisplayAttribute(): string
+    {
+        $labels = [
+            'nuevo'      => 'Nuevo',
+            'preparando' => $this->tipo_entrega === 'local' ? 'Listo para retirar' : 'En preparación',
+            'en_camino'  => 'En camino',
+            'entregado'  => 'Entregado',
+            'cancelado'  => 'Cancelado',
+        ];
+        return $labels[$this->estado_pedido] ?? $this->estado_pedido;
+    }
+
+    public function nextStates(): array
+    {
+        $forwardMap = [
+            'nuevo'      => 'preparando',
+            'preparando' => $this->tipo_entrega === 'local' ? 'entregado' : 'en_camino',
+            'en_camino'  => 'entregado',
+        ];
+        $next = $forwardMap[$this->estado_pedido] ?? null;
+        return $next ? [$next] : [];
+    }
 
     // Relación: Este pedido le pertenece a un Comercio
     public function comercio()
@@ -44,5 +70,10 @@ class PedidoWeb extends Model
     public function items()
     {
         return $this->hasMany(PedidoWebItem::class, 'pedido_web_id');
+    }
+
+    public function payments()
+    {
+        return $this->morphMany(Payment::class, 'payable');
     }
 }

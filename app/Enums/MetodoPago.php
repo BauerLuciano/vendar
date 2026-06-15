@@ -12,18 +12,20 @@ enum MetodoPago: string
     case CUENTA_CORRIENTE = 'CUENTA_CORRIENTE';
     case TARJETA_CREDITO = 'TARJETA_CREDITO';
     case TARJETA_DEBITO = 'TARJETA_DEBITO';
+    case VIUMI = 'VIUMI';
 
     public function label(): string
     {
         return match ($this) {
-            self::EFECTIVO        => 'Efectivo',
-            self::DEBITO          => 'Débito',
-            self::CREDITO         => 'Crédito',
-            self::TRANSFERENCIA   => 'Transferencia',
-            self::MERCADO_PAGO    => 'Mercado Pago',
+            self::EFECTIVO         => 'Efectivo',
+            self::DEBITO           => 'Débito',
+            self::CREDITO          => 'Crédito',
+            self::TRANSFERENCIA    => 'Transferencia',
+            self::MERCADO_PAGO     => 'Mercado Pago',
             self::CUENTA_CORRIENTE => 'Cuenta Corriente',
-            self::TARJETA_CREDITO => 'Tarjeta de Crédito',
-            self::TARJETA_DEBITO  => 'Tarjeta de Débito',
+            self::TARJETA_CREDITO  => 'Tarjeta de Crédito',
+            self::TARJETA_DEBITO   => 'Tarjeta de Débito',
+            self::VIUMI            => 'viüMi',
         };
     }
 
@@ -48,6 +50,7 @@ enum MetodoPago: string
             'TARJETA_CREDITO'      => self::TARJETA_CREDITO,
             'TARJETA_DEBITO'       => self::TARJETA_DEBITO,
             'TARJETA'              => self::TARJETA_DEBITO,
+            'VIUMI'                => self::VIUMI,
         ];
 
         return $map[$normalized] ?? self::EFECTIVO;

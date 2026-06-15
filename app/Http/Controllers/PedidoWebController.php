@@ -6,21 +6,30 @@ use Illuminate\Http\Request;
 use App\Models\PedidoWeb;
 use App\Models\PedidoWebItem;
 use App\Models\Comercio;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
+use App\Services\Payment\PaymentService;
+use App\Services\Payment\PaymentRecorder;
+use App\Services\Payment\Contracts\CheckoutRequest;
 
 class PedidoWebController extends Controller
 {
+    public function __construct(
+        private readonly PaymentService $paymentService,
+        private readonly PaymentRecorder $paymentRecorder,
+    ) {}
+
     public function store(Request $request)
     {
-        // 1. VALIDACIÓN RIGUROSA (Evita errores de Base de Datos como el de Postgres)
+        $gatewayProviders = $this->paymentService->getRegisteredProviders();
+        $metodosPagoValidos = array_merge(['efectivo', 'transferencia'], $gatewayProviders);
+
         $request->validate([
             'comercio_id' => 'required|exists:comercios,id',
             'sucursal_id' => 'required|exists:sucursales,id',
             'items' => 'required|array|min:1',
             'tipo_entrega' => 'required|in:local,delivery',
             'telefono_contacto' => 'required_if:tipo_entrega,delivery|nullable|string|min:6',
-            'metodo_pago' => 'required|in:efectivo,transferencia,mercadopago',
+            'metodo_pago' => 'required|in:' . implode(',', $metodosPagoValidos),
             'direccion_entrega' => 'required_if:tipo_entrega,delivery|nullable|string',
             'total_productos' => 'required|numeric',
             'total_final' => 'required|numeric',
@@ -28,7 +37,6 @@ class PedidoWebController extends Controller
 
         $user = $request->user();
 
-        // Resolvemos el nombre del cliente según el guard autenticado
         $nombreCliente = 'Cliente Invitado';
         if ($user) {
             $nombreCliente = $user->name ?? ($user->nombre . ' ' . $user->apellido);
@@ -41,7 +49,6 @@ class PedidoWebController extends Controller
         DB::beginTransaction();
 
         try {
-            // Validación + reserva de stock dentro de la transacción con lockForUpdate
             foreach ($request->items as $item) {
                 $productoStock = DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
@@ -72,10 +79,10 @@ class PedidoWebController extends Controller
 
             $comercio = Comercio::findOrFail($request->comercio_id);
 
-            // 2. GUARDAR EL PEDIDO (PADRE)
             $pedido = new PedidoWeb();
             $pedido->comercio_id = $comercio->id;
             $pedido->sucursal_id = $request->sucursal_id;
+            $pedido->tipo_entrega = $request->tipo_entrega;
             $pedido->cliente_nombre = $nombreCliente;
             $pedido->cliente_telefono = $request->telefono_contacto;
             $pedido->cliente_direccion = $request->tipo_entrega === 'delivery'
@@ -90,8 +97,7 @@ class PedidoWebController extends Controller
             $pedido->notas = $request->notas;
             $pedido->save();
 
-            // 3. GUARDAR LOS ÍTEMS Y PREPARAR ARRAY PARA MERCADO PAGO
-            $itemsParaMercadoPago = [];
+            $itemsParaPasarela = [];
 
             foreach ($request->items as $item) {
                 PedidoWebItem::create([
@@ -102,8 +108,7 @@ class PedidoWebController extends Controller
                     'subtotal'        => $item['precio'] * $item['cantidad'],
                 ]);
 
-                // Formato que exige la API de Mercado Pago
-                $itemsParaMercadoPago[] = [
+                $itemsParaPasarela[] = [
                     'title'       => $item['nombre'],
                     'quantity'    => (int) $item['cantidad'],
                     'unit_price'  => (float) $item['precio'],
@@ -111,9 +116,8 @@ class PedidoWebController extends Controller
                 ];
             }
 
-            // Si hay envío, MP lo toma como un ítem más
             if ($request->costo_envio > 0) {
-                $itemsParaMercadoPago[] = [
+                $itemsParaPasarela[] = [
                     'title'       => 'Costo de Envío (Delivery)',
                     'quantity'    => 1,
                     'unit_price'  => (float) $request->costo_envio,
@@ -121,49 +125,54 @@ class PedidoWebController extends Controller
                 ];
             }
 
-            // ============================================================
-            // 4. LÓGICA DE PAGO
-            // ============================================================
-            
-            // CASO A: MERCADO PAGO
-            if ($request->metodo_pago === 'mercadopago') {
-                
-                if (!$comercio->mp_access_token) {
-                    throw new \Exception('El local no tiene configurado Mercado Pago.');
-                }
-
+            // PASARELA DE PAGO
+            if ($this->paymentService->isGatewayProvider($request->metodo_pago)) {
                 $backUrlBase = route('tienda.pedido.confirmacion', [
                     'slug'   => $comercio->slug ?? 'default',
                     'pedido' => $pedido->id,
                 ]);
 
-                $response = Http::withToken($comercio->mp_access_token)
-                    ->post('https://api.mercadopago.com/checkout/preferences', [
-                    'items' => $itemsParaMercadoPago,
-                    'external_reference' => (string) $pedido->id,
-                    'back_urls' => [
-                        'success' => $backUrlBase . '?status=approved',
-                        'pending' => $backUrlBase . '?status=pending',
-                        'failure' => $backUrlBase . '?status=rejected',
-                    ],
-                    'auto_return' => 'approved',
-                    'notification_url' => url('/api/mercadopago/notificacion?comercio_id=' . $comercio->id),
-                    'binary_mode' => true,
-                ]);
+                $gateway = $this->paymentService
+                    ->forCommerce($comercio)
+                    ->gateway($request->metodo_pago);
 
-                if ($response->successful()) {
-                    DB::commit(); // Todo bien, guardamos en BD
+                $checkoutRequest = new CheckoutRequest(
+                    referenceId: (string) $pedido->id,
+                    amount: (float) $request->total_final,
+                    title: 'Pedido #' . $pedido->id,
+                    description: 'Pedido en ' . ($comercio->nombre ?? 'VendAR'),
+                    items: $itemsParaPasarela,
+                    successUrl: $backUrlBase . '?status=approved',
+                    failureUrl: $backUrlBase . '?status=rejected',
+                    pendingUrl: $backUrlBase . '?status=pending',
+                    notificationUrl: $gateway->getWebhookUrl($comercio),
+                );
+
+                try {
+                    $response = $this->paymentService
+                        ->forCommerce($comercio)
+                        ->createCheckout($request->metodo_pago, $checkoutRequest);
+
+                    $pedido->pasarela_payment_id = $response->gatewayTransactionId;
+                    $pedido->save();
+
+                    $this->paymentRecorder->recordCheckout(
+                        $pedido,
+                        $request->metodo_pago,
+                        $checkoutRequest,
+                        $response,
+                    );
+
+                    DB::commit();
                     return response()->json([
-                        'url_pago' => $response->json('init_point')
+                        'url_pago' => $response->checkoutUrl
                     ]);
-                } else {
-                    // Si MP falla, lanzamos excepción para hacer el Rollback de la BD
-                    $detalleError = $response->json();
-                    throw new \Exception('Error MP: ' . json_encode($detalleError));
+                } catch (\Throwable $e) {
+                    throw new \Exception('Error al procesar el pago: ' . $e->getMessage());
                 }
             }
 
-            // CASO B: EFECTIVO / TRANSFERENCIA
+            // EFECTIVO / TRANSFERENCIA
             DB::commit();
             return response()->json(['success' => true]);
 

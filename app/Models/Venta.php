@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\MetodoPago;
+use App\Enums\VentaStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Traits\Auditable;
@@ -23,6 +24,7 @@ class Venta extends Model
 
     protected $casts = [
         'pagos' => 'array',
+        'estado' => VentaStatus::class,
     ];
 
     public function turno() { 
@@ -35,6 +37,11 @@ class Venta extends Model
     
     public function detalles() {
         return $this->hasMany(DetalleVenta::class); 
+    }
+
+    public function payments()
+    {
+        return $this->morphMany(Payment::class, 'payable');
     }
 
     public function getMetodoPagoDisplayAttribute()

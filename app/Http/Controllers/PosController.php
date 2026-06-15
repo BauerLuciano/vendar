@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MetodoPago;
+use App\Enums\PaymentChannel;
 use App\Models\Caja;
 use App\Models\TurnoCaja;
 use App\Models\MovimientoCaja;
@@ -10,6 +11,7 @@ use App\Models\Producto;
 use App\Models\Consumidor;
 use App\Models\DetalleVenta;
 use App\Models\VentaPendiente;
+use App\Models\PaymentMethodConfiguration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -50,12 +52,38 @@ class PosController extends Controller
                 ->limit(50)
                 ->get();
 
+            $paymentMethods = PaymentMethodConfiguration::where('comercio_id', $comercioId)
+                ->where('enabled', true)
+                ->where('channel', PaymentChannel::MANUAL)
+                ->get()
+                ->map(fn ($pm) => [
+                    'id' => $pm->id,
+                    'metodo_pago' => $pm->metodo_pago,
+                    'label' => MetodoPago::from($pm->metodo_pago)->label(),
+                    'provider' => $pm->provider,
+                    'display_data' => $pm->display_data,
+                ]);
+
+            $metodosBase = collect(MetodoPago::cases())
+                ->filter(fn ($m) => !in_array($m->value, [
+                    MetodoPago::TRANSFERENCIA->value,
+                    MetodoPago::MERCADO_PAGO->value,
+                    MetodoPago::VIUMI->value,
+                ]))
+                ->values()
+                ->map(fn ($m) => [
+                    'value' => $m->value,
+                    'label' => $m->label(),
+                ]);
+
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
                 'clientes' => $clientesActivos,
                 'totalProductos' => $totalProductos,
                 'frecuentes' => $productosFrecuentes,
+                'paymentMethods' => $paymentMethods,
+                'metodosBase' => $metodosBase,
             ]);
         }
 
