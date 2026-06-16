@@ -2,9 +2,11 @@
 
 namespace App\Services\Payment\Gateways;
 
+use App\Enums\PaymentChannel;
 use App\Enums\PaymentStatus;
 use App\Models\Comercio;
 use App\Services\Payment\Contracts\PaymentGateway;
+use App\Services\Payment\Contracts\CheckoutPresentation;
 use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\Contracts\CheckoutResponse;
 use App\Services\Payment\Contracts\PaymentStatusResponse;
@@ -53,6 +55,24 @@ class MercadoPagoGateway implements PaymentGateway
         return false;
     }
 
+    public function supportsChannel(PaymentChannel $channel): bool
+    {
+        return in_array($channel, [
+            PaymentChannel::API,
+            PaymentChannel::QR,
+            PaymentChannel::POINT,
+        ], true);
+    }
+
+    public function initiatePayment(CheckoutRequest $request, PaymentChannel $channel, array $options = []): CheckoutResponse
+    {
+        return match ($channel) {
+            PaymentChannel::QR => $this->createQrPayment($request, $options),
+            PaymentChannel::POINT => $this->createPointPayment($request, $options),
+            default => $this->createCheckout($request),
+        };
+    }
+
     public function createCheckout(CheckoutRequest $request): CheckoutResponse
     {
         $token = $this->getAccessToken();
@@ -86,6 +106,10 @@ class MercadoPagoGateway implements PaymentGateway
             checkoutUrl: $data['init_point'],
             gatewayTransactionId: $data['id'],
             status: PaymentStatus::PENDING,
+            presentation: new CheckoutPresentation(
+                type: 'redirect',
+                data: $data['init_point'],
+            ),
             raw: $data,
         );
     }
@@ -187,6 +211,56 @@ class MercadoPagoGateway implements PaymentGateway
             amount: $status->amount,
             raw: $status->raw,
         );
+    }
+
+    private function createQrPayment(CheckoutRequest $request, array $options): CheckoutResponse
+    {
+        $token = $this->getAccessToken();
+        $userId = $options['user_id'] ?? $this->config['user_id'] ?? null;
+        $storeId = $options['store_id'] ?? $this->config['store_id'] ?? null;
+
+        if (!$userId || !$storeId) {
+            throw new PaymentException(
+                'MP QR requiere user_id y store_id configurados en payment_gateways'
+            );
+        }
+
+        $payload = [
+            'external_reference' => $request->referenceId,
+            'title' => $request->title,
+            'description' => $request->description,
+            'notification_url' => $request->notificationUrl,
+            'total_amount' => $request->amount,
+            'items' => $request->items,
+            'cash_out' => ['amount' => 0],
+            'sponsor' => [
+                'id' => $this->config['sponsor_id'] ?? null,
+            ],
+        ];
+
+        $response = Http::withToken($token)
+            ->post(self::API_BASE . "/instore/orders/qr/seller/collectors/{$userId}/stores/{$storeId}/orders", $payload);
+
+        if (!$response->successful()) {
+            throw new PaymentException('Error al crear QR en Mercado Pago: ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return new CheckoutResponse(
+            gatewayTransactionId: $data['id'],
+            status: PaymentStatus::PENDING,
+            presentation: new CheckoutPresentation(
+                type: 'qr',
+                data: $data['qr_data'],
+            ),
+            raw: $data,
+        );
+    }
+
+    private function createPointPayment(CheckoutRequest $request, array $options): CheckoutResponse
+    {
+        throw new PaymentException('MP Point no implementado aún');
     }
 
     private function getAccessToken(): string

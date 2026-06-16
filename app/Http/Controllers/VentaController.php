@@ -16,8 +16,11 @@ use App\Models\MovimientoCuentaCorriente;
 use App\Models\MovimientoCaja;
 use App\Models\PaymentMethodConfiguration;
 use App\Jobs\EnviarTicketDigital;
+use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\PaymentRecorder;
+use App\Services\Payment\PaymentService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -26,6 +29,7 @@ class VentaController extends Controller
 {
     public function __construct(
         private readonly PaymentRecorder $paymentRecorder,
+        private readonly PaymentService $paymentService,
     ) {}
 
     public function index(Request $request)
@@ -94,71 +98,95 @@ class VentaController extends Controller
         $permitirStockNegativo = \App\Models\Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
         $permitirStockNegativo = filter_var($permitirStockNegativo, FILTER_VALIDATE_BOOLEAN);
 
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $items = collect($request->items)->sortBy('id')->values()->all();
+        $totalCalculado = collect($items)->sum(fn ($item) => (float) ($item['precio_venta'] ?? 0) * (float) ($item['cantidad'] ?? 0));
+
+        $turno = TurnoCaja::with('caja')
+            ->when($comercioId, fn ($q) => $q->whereHas('caja.sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
+            ->findOrFail($request->turno_caja_id);
+        $sucursalId = $turno->caja->sucursal_id;
+
+        $pagos = $request->pagos;
+        if (!$pagos) {
+            $pagos = [['metodo_pago' => $request->metodo_pago, 'monto' => (float) $request->total]];
+        }
+
+        $pagosNormalizados = collect($pagos)->map(fn ($p) => [
+            'metodo_pago' => MetodoPago::fromString($p['metodo_pago'])->value,
+            'monto' => (float) $p['monto'],
+        ]);
+
+        $sumaPagos = $pagosNormalizados->sum('monto');
+        if (abs($sumaPagos - $totalCalculado) > 0.01) {
+            return redirect()->back()->withErrors(['error' =>
+                "La suma de los pagos (\$$sumaPagos) no coincide con el total calculado (\${$totalCalculado})."
+            ]);
+        }
+
+        $tieneCuentaCorriente = $pagosNormalizados->contains('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value);
+        $montoCC = $pagosNormalizados->where('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value)->sum('monto');
+
+        $metodoPagoNormalizado = $pagosNormalizados->count() === 1
+            ? $pagosNormalizados->first()['metodo_pago']
+            : 'MULTIPLE';
+
+        if ($tieneCuentaCorriente) {
+            if (!$request->consumidor_id) {
+                return redirect()->back()->withErrors(['error' =>
+                    'Debe seleccionar un cliente para realizar una venta en cuenta corriente.'
+                ]);
+            }
+
+            $consumidor = Consumidor::with('cuentaCorriente')
+                ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+                ->where('estado', true)
+                ->find($request->consumidor_id);
+
+            if (!$consumidor) {
+                return redirect()->back()->withErrors(['error' => 'El cliente no existe o no pertenece a tu comercio.']);
+            }
+
+            $cuenta = CuentaCorriente::lockForUpdate()
+                ->where('consumidor_id', $request->consumidor_id)
+                ->first();
+            $deudaActual = $cuenta ? $cuenta->saldo_deudor : 0;
+            $disponible = $consumidor->limite_cuenta_corriente - $deudaActual;
+
+            if ($montoCC > $disponible) {
+                $montoFormateado = number_format($disponible, 2, ',', '.');
+                return redirect()->back()->withErrors(['error' =>
+                    "Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado."
+                ]);
+            }
+        }
+
+        $allConfigs = $this->loadAllConfigs($comercioId);
+        $manualConfigs = $allConfigs['manual'];   // channel=MANUAL
+        $gatewayConfigs = $allConfigs['gateway']; // channel=QR, POINT, API
+
+        $esFlujoManual = $pagosNormalizados->contains(fn ($p) => isset($manualConfigs[$p['metodo_pago']]));
+        $esFlujoGateway = $pagosNormalizados->contains(fn ($p) => isset($gatewayConfigs[$p['metodo_pago']]));
+
+        if ($esFlujoManual && $esFlujoGateway) {
+            return redirect()->back()->withErrors(['error' =>
+                'No podés combinar métodos manuales con pagos electrónicos en una misma venta.'
+            ]);
+        }
+
+        $esPendiente = $esFlujoManual || $esFlujoGateway;
+
+        // ──────────────────────────────────────────────
+        // 1. DB transaction (solo operaciones de BD)
+        // ──────────────────────────────────────────────
         try {
             DB::beginTransaction();
-
-            $comercioId = auth()->user()->branch?->comercio_id;
-
-            $items = collect($request->items)->sortBy('id')->values()->all();
-
-            $totalCalculado = collect($items)->sum(fn ($item) => (float) ($item['precio_venta'] ?? 0) * (float) ($item['cantidad'] ?? 0));
-
-            $turno = TurnoCaja::with('caja')
-                ->when($comercioId, fn ($q) => $q->whereHas('caja.sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
-                ->findOrFail($request->turno_caja_id);
-            $sucursalId = $turno->caja->sucursal_id;
-
-            $pagos = $request->pagos;
-            if (!$pagos) {
-                $pagos = [['metodo_pago' => $request->metodo_pago, 'monto' => (float) $request->total]];
-            }
-
-            $pagosNormalizados = collect($pagos)->map(fn ($p) => [
-                'metodo_pago' => MetodoPago::fromString($p['metodo_pago'])->value,
-                'monto' => (float) $p['monto'],
-            ]);
-
-            $sumaPagos = $pagosNormalizados->sum('monto');
-            if (abs($sumaPagos - $totalCalculado) > 0.01) {
-                throw new \Exception("La suma de los pagos (\$$sumaPagos) no coincide con el total calculado (\${$totalCalculado}).");
-            }
-
-            $tieneCuentaCorriente = $pagosNormalizados->contains('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value);
-            $montoCC = $pagosNormalizados->where('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value)->sum('monto');
-
-            $metodoPagoNormalizado = $pagosNormalizados->count() === 1
-                ? $pagosNormalizados->first()['metodo_pago']
-                : 'MULTIPLE';
-
-            if ($tieneCuentaCorriente) {
-                if (!$request->consumidor_id) {
-                    throw new \Exception('Debe seleccionar un cliente para realizar una venta en cuenta corriente.');
-                }
-
-                $consumidor = Consumidor::with('cuentaCorriente')
-                    ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
-                    ->where('estado', true)
-                    ->findOrFail($request->consumidor_id);
-                $cuenta = CuentaCorriente::lockForUpdate()
-                    ->where('consumidor_id', $request->consumidor_id)
-                    ->first();
-                $deudaActual = $cuenta ? $cuenta->saldo_deudor : 0;
-                $disponible = $consumidor->limite_cuenta_corriente - $deudaActual;
-
-                if ($montoCC > $disponible) {
-                    $montoFormateado = number_format($disponible, 2, ',', '.');
-                    throw new \Exception("Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado.");
-                }
-            }
-
-            $manualConfigs = $this->loadManualConfigs($comercioId);
-            $esFlujoManual = $pagosNormalizados->contains(fn ($p) => isset($manualConfigs[$p['metodo_pago']]));
 
             foreach ($items as $item) {
                 $stockActual = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId)
-                    ->lockForUpdate() 
+                    ->lockForUpdate()
                     ->first();
 
                 $cantDisponible = $stockActual ? $stockActual->cantidad_fisica : 0;
@@ -177,10 +205,10 @@ class VentaController extends Controller
                 'metodo_pago'   => $metodoPagoNormalizado,
                 'pagos'         => $pagosNormalizados->toArray(),
                 'total'         => $totalCalculado,
-                'estado'        => $esFlujoManual ? VentaStatus::PENDING : VentaStatus::COMPLETED,
+                'estado'        => $esPendiente ? VentaStatus::PENDING : VentaStatus::COMPLETED,
             ]);
 
-            if (!$esFlujoManual) {
+            if (!$esPendiente) {
                 foreach ($pagosNormalizados as $pago) {
                     if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value) {
                         if (!isset($cuenta)) {
@@ -213,7 +241,6 @@ class VentaController extends Controller
             }
 
             foreach ($items as $item) {
-                
                 $cantidadAVender = $item['cantidad'];
 
                 $detalle = DetalleVenta::create([
@@ -272,7 +299,7 @@ class VentaController extends Controller
                     ['producto_id' => $item['id'], 'sucursal_id' => $sucursalId],
                     ['cantidad_fisica' => $nuevaCantidad]
                 );
-                
+
                 DB::table('movimientos_stock')->insert([
                     'producto_id'         => $item['id'],
                     'sucursal_id'         => $sucursalId,
@@ -294,11 +321,9 @@ class VentaController extends Controller
                         continue;
                     }
 
-                    $provider = $config['provider'] ?? $pago['metodo_pago'];
-
                     $this->paymentRecorder->createPending(
                         payable: $venta,
-                        provider: $provider,
+                        provider: $config['provider'] ?? $pago['metodo_pago'],
                         amount: $pago['monto'],
                         channel: PaymentChannel::MANUAL,
                         reference: (string) $venta->id,
@@ -306,44 +331,159 @@ class VentaController extends Controller
                 }
             }
 
-            DB::commit();
-
-            if (!$esFlujoManual) {
-                EnviarTicketDigital::dispatch($venta->id);
-            }
-
-            $displayInfo = [];
-            if ($esFlujoManual) {
+            if ($esFlujoGateway) {
                 foreach ($pagosNormalizados as $pago) {
-                    $config = $manualConfigs[$pago['metodo_pago']] ?? null;
-                    $label = MetodoPago::fromString($pago['metodo_pago'])->label();
-                    $displayInfo[] = [
-                        'metodo_pago' => $pago['metodo_pago'],
-                        'label' => $label,
-                        'monto' => $pago['monto'],
-                        'provider' => $config['provider'] ?? null,
-                        'display_data' => $config['display_data'] ?? null,
-                        'config_id' => $config['id'] ?? null,
-                    ];
+                    $config = $gatewayConfigs[$pago['metodo_pago']] ?? null;
+                    if (!$config) {
+                        continue;
+                    }
+
+                    $this->paymentRecorder->createPending(
+                        payable: $venta,
+                        provider: $config['provider'],
+                        amount: $pago['monto'],
+                        channel: PaymentChannel::from($config['channel']),
+                        reference: "venta_{$venta->id}",
+                    );
                 }
             }
 
-            $flash = $esFlujoManual
-                ? [
-                    'success' => 'Venta pendiente de pago',
-                    'venta_id' => $venta->id,
-                    'es_pendiente' => true,
-                    'display_info' => $displayInfo,
-                ]
-                : ['success' => 'Venta exitosa', 'venta_id' => $venta->id];
-
-            return redirect()->back()->with($flash);
-
+            DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
             \Log::error($e->getMessage());
             return redirect()->back()->withErrors(['error' => $e->getMessage()]);
         }
+
+        // ──────────────────────────────────────────────
+        // 2. Si es instantáneo → ticket y respuesta
+        // ──────────────────────────────────────────────
+        if (!$esPendiente) {
+            EnviarTicketDigital::dispatch($venta->id);
+
+            return redirect()->back()->with([
+                'success' => 'Venta exitosa',
+                'venta_id' => $venta->id,
+            ]);
+        }
+
+        // ──────────────────────────────────────────────
+        // 3. Si es manual → respuesta con display_info
+        // ──────────────────────────────────────────────
+        if ($esFlujoManual) {
+            $displayInfo = [];
+            foreach ($pagosNormalizados as $pago) {
+                $config = $manualConfigs[$pago['metodo_pago']] ?? null;
+                $label = MetodoPago::fromString($pago['metodo_pago'])->label();
+                $displayInfo[] = [
+                    'metodo_pago' => $pago['metodo_pago'],
+                    'label' => $label,
+                    'monto' => $pago['monto'],
+                    'provider' => $config['provider'] ?? null,
+                    'display_data' => $config['display_data'] ?? null,
+                    'config_id' => $config['id'] ?? null,
+                    'channel' => 'manual',
+                ];
+            }
+
+            return redirect()->back()->with([
+                'success' => 'Venta pendiente de pago',
+                'venta_id' => $venta->id,
+                'es_pendiente' => true,
+                'display_info' => $displayInfo,
+            ]);
+        }
+
+        // ──────────────────────────────────────────────
+        // 4. Si es gateway → llamar API externa (fuera de tx)
+        // ──────────────────────────────────────────────
+        $displayInfo = [];
+        $gatewayError = null;
+
+        foreach ($pagosNormalizados as $pago) {
+            $config = $gatewayConfigs[$pago['metodo_pago']] ?? null;
+            if (!$config) {
+                continue;
+            }
+
+            $label = MetodoPago::fromString($pago['metodo_pago'])->label();
+            $provider = $config['provider'];
+            $channel = PaymentChannel::from($config['channel']);
+
+            $itemsMapped = array_map(fn ($item) => [
+                'id' => (string) $item['id'],
+                'title' => $item['nombre'] ?? 'Producto',
+                'quantity' => (int) ($item['cantidad'] ?? 1),
+                'unit_price' => (float) ($item['precio_venta'] ?? 0),
+                'total_amount' => (float) ($item['precio_venta'] ?? 0) * (int) ($item['cantidad'] ?? 1),
+            ], $request->items);
+
+            try {
+                $response = $this->paymentService->initiatePosPayment(
+                    provider: $provider,
+                    request: new CheckoutRequest(
+                        referenceId: "venta_{$venta->id}",
+                        title: "Venta POS #{$venta->id}",
+                        description: "Venta en POS",
+                        amount: $pago['monto'],
+                        items: $itemsMapped,
+                        notificationUrl: route('mercadopago.notificacion', ['comercio_id' => $comercioId]),
+                    ),
+                    channel: $channel,
+                    options: [
+                        'user_id' => $config['user_id'] ?? null,
+                        'store_id' => $config['store_id'] ?? null,
+                    ],
+                );
+
+                $venta->payments()
+                    ->where('provider', $provider)
+                    ->where('status', PaymentStatus::PENDING)
+                    ->latest()
+                    ->update([
+                        'provider_reference' => $response->gatewayTransactionId,
+                        'gateway_response' => $response->raw,
+                    ]);
+
+                $presentacion = $response->presentation;
+
+                $displayInfo[] = [
+                    'metodo_pago' => $pago['metodo_pago'],
+                    'label' => $label,
+                    'monto' => $pago['monto'],
+                    'provider' => $provider,
+                    'config_id' => $config['id'],
+                    'channel' => $channel->value,
+                    'presentation' => $presentacion ? [
+                        'type' => $presentacion->type,
+                        'data' => $presentacion->data,
+                    ] : null,
+                ];
+            } catch (\Throwable $e) {
+                \Log::error("Error gateway para venta #{$venta->id}: {$e->getMessage()}");
+                $gatewayError = $e->getMessage();
+            }
+        }
+
+        if ($gatewayError) {
+            return redirect()->back()->withErrors(['error' =>
+                "Venta creada pero el pago electrónico falló: {$gatewayError}. Cancelá la venta e intentá de nuevo."
+            ]);
+        }
+
+        return redirect()->back()->with([
+            'success' => 'Venta pendiente de pago',
+            'venta_id' => $venta->id,
+            'es_pendiente' => true,
+            'display_info' => $displayInfo,
+        ]);
+    }
+
+    public function status(Venta $venta): JsonResponse
+    {
+        return response()->json([
+            'estado' => $venta->estado->value,
+        ]);
     }
 
     public function confirmarPago(Request $request, Venta $venta)
@@ -545,5 +685,38 @@ class VentaController extends Controller
         }
 
         return $indexed;
+    }
+
+    private function loadAllConfigs(?int $comercioId): array
+    {
+        if (!$comercioId) {
+            return ['manual' => [], 'gateway' => []];
+        }
+
+        $configs = PaymentMethodConfiguration::where('comercio_id', $comercioId)
+            ->where('enabled', true)
+            ->get();
+
+        $manual = [];
+        $gateway = [];
+
+        foreach ($configs as $cfg) {
+            $entry = [
+                'provider' => $cfg->provider,
+                'display_data' => $cfg->display_data,
+                'id' => $cfg->id,
+                'channel' => $cfg->channel->value,
+            ];
+
+            if ($cfg->channel === PaymentChannel::MANUAL) {
+                $manual[$cfg->metodo_pago] = $entry;
+            } else {
+                $entry['user_id'] = $cfg->provider_config['user_id'] ?? null;
+                $entry['store_id'] = $cfg->provider_config['store_id'] ?? null;
+                $gateway[$cfg->metodo_pago] = $entry;
+            }
+        }
+
+        return ['manual' => $manual, 'gateway' => $gateway];
     }
 }

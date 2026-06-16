@@ -46,8 +46,9 @@ class PaymentRecorder
         string $provider,
         ?string $gatewayTransactionId = null,
         ?array $gatewayResponse = null,
+        ?string $reference = null,
     ): ?Payment {
-        $payment = $this->findPending($payable, $provider, $gatewayTransactionId);
+        $payment = $this->findPending($payable, $provider, $gatewayTransactionId, $reference);
 
         if (!$payment) {
             return null;
@@ -100,8 +101,9 @@ class PaymentRecorder
         Model $payable,
         string $provider,
         ?string $gatewayTransactionId = null,
+        ?string $reference = null,
     ): ?Payment {
-        $payment = $this->findPending($payable, $provider, $gatewayTransactionId);
+        $payment = $this->findPending($payable, $provider, $gatewayTransactionId, $reference);
 
         if (!$payment) {
             return null;
@@ -197,6 +199,7 @@ class PaymentRecorder
         Model $payable,
         string $provider,
         ?string $gatewayTransactionId = null,
+        ?string $reference = null,
     ): ?Payment {
         $query = $payable->payments()
             ->where('provider', $provider)
@@ -204,6 +207,8 @@ class PaymentRecorder
 
         if ($gatewayTransactionId) {
             $query->where('gateway_transaction_id', $gatewayTransactionId);
+        } elseif ($reference) {
+            $query->where('reference', $reference);
         }
 
         return $query->latest()->first();

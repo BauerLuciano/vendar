@@ -7,9 +7,10 @@ use App\Enums\PaymentStatus;
 class CheckoutResponse
 {
     public function __construct(
-        public readonly string $checkoutUrl,
-        public readonly string $gatewayTransactionId,
-        public readonly PaymentStatus $status,
+        public readonly ?string $checkoutUrl = null,
+        public readonly string $gatewayTransactionId = '',
+        public readonly PaymentStatus $status = PaymentStatus::PENDING,
+        public readonly ?CheckoutPresentation $presentation = null,
         public readonly array $raw = [],
     ) {}
 }

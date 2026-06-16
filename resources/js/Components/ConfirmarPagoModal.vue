@@ -174,12 +174,12 @@ function formatMonto(monto) {
                     <button @click="cancelarVenta()" :disabled="confirmando || cancelando"
                         class="flex-1 px-4 py-3 border-2 border-slate-200 text-slate-600 font-black rounded-xl hover:border-rose-300 hover:text-rose-600 hover:bg-rose-50 transition-all disabled:opacity-50 uppercase tracking-wider text-sm"
                     >
-                        {{ cancelando ? 'Cancelando...' : 'Cancelar venta' }}
+                        {{ cancelando ? 'Cancelando...' : 'Cancelar' }}
                     </button>
                     <button @click="confirmarPago()" :disabled="confirmando || cancelando"
                         class="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black rounded-xl shadow-lg transition-all disabled:opacity-50 uppercase tracking-wider text-sm"
                     >
-                        {{ confirmando ? 'Confirmando...' : 'Confirmar pago' }}
+                        {{ confirmando ? 'Confirmando...' : 'Ya pagó' }}
                     </button>
                 </div>
             </div>

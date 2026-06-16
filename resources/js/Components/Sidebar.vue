@@ -43,7 +43,7 @@ const menu = [
         titulo: 'Comercial',
         roles: ['Cajero', 'Encargado', 'SuperAdmin'], 
         enlaces: [
-            { nombre: 'Caja Diaria', ruta: 'cajadiaria.index', icono: 'caja_diaria', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' }, 
+            { nombre: 'Caja Diaria', ruta: 'caja-diaria.index', icono: 'caja_diaria', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' }, 
             { nombre: 'Punto de Venta', ruta: 'pos.index', icono: 'pos', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' },
             // 🔥 NUEVO ENLACE: PEDIDOS WEB
             { nombre: 'Pedidos Web', ruta: 'pedidos.index', icono: 'pedidos_web', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },

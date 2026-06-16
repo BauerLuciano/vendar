@@ -366,4 +366,16 @@ class ConsumidorController extends Controller
             'total' => $duplicados->count()
         ]);
     }
+
+    public function apiIndex(): \Illuminate\Http\JsonResponse
+    {
+        $comercioId = $this->getComercioId();
+        $query = Consumidor::query();
+
+        if ($comercioId) {
+            $query->where('comercio_id', $comercioId);
+        }
+
+        return response()->json($query->orderBy('nombre')->get());
+    }
 }

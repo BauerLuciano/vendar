@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class VentaPendiente extends Model
 {
+    protected $table = 'ventas_pendientes';
+
     protected $fillable = [
         'user_id',
         'turno_caja_id',

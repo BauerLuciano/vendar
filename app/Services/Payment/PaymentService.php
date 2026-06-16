@@ -2,6 +2,7 @@
 
 namespace App\Services\Payment;
 
+use App\Enums\PaymentChannel;
 use App\Models\Comercio;
 use App\Services\Payment\Contracts\PaymentGateway;
 use App\Services\Payment\Contracts\CheckoutRequest;
@@ -63,6 +64,21 @@ class PaymentService
     public function createCheckout(string $provider, CheckoutRequest $request): CheckoutResponse
     {
         return $this->gateway($provider)->createCheckout($request);
+    }
+
+    public function initiatePosPayment(
+        string $provider,
+        CheckoutRequest $request,
+        PaymentChannel $channel,
+        array $options = [],
+    ): CheckoutResponse {
+        $gateway = $this->gateway($provider);
+
+        if (!$gateway->supportsChannel($channel)) {
+            throw new PaymentException("{$provider} no soporta el canal {$channel->value}");
+        }
+
+        return $gateway->initiatePayment($request, $channel, $options);
     }
 
     public function getPaymentStatus(string $provider, string $gatewayTransactionId): PaymentStatusResponse

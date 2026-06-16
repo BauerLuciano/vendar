@@ -116,7 +116,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 
     Route::get('/caja-diaria', function () {
         return Inertia::render('CajaDiaria/Index');
-    })->name('cajadiaria.index');
+    })->name('caja-diaria.index');
 
     Route::prefix('api/sesiones-caja')->group(function () {
         Route::get('/', [CajaDiariaController::class, 'index']);
@@ -135,6 +135,10 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 // ------------------------------------------------------------------
 // MÓDULO: CUENTAS CORRIENTES (FIADOS)
 // ------------------------------------------------------------------
+Route::middleware(['auth'])->group(function () {
+    Route::get('/api/consumidores', [ConsumidorController::class, 'apiIndex'])->name('api.consumidores.index');
+});
+
 Route::middleware(['auth', 'modulo:fiados'])->group(function () {
     Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
     Route::post('/clientes', [ConsumidorController::class, 'store'])->name('consumidores.store');

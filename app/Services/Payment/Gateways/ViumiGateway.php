@@ -2,6 +2,7 @@
 
 namespace App\Services\Payment\Gateways;
 
+use App\Enums\PaymentChannel;
 use App\Enums\PaymentStatus;
 use App\Models\Comercio;
 use App\Services\Payment\Contracts\PaymentGateway;
@@ -57,6 +58,20 @@ class ViumiGateway implements PaymentGateway
     public function supportsRecurring(): bool
     {
         return false;
+    }
+
+    public function supportsChannel(PaymentChannel $channel): bool
+    {
+        return $channel === PaymentChannel::API;
+    }
+
+    public function initiatePayment(CheckoutRequest $request, PaymentChannel $channel, array $options = []): CheckoutResponse
+    {
+        if (!$this->supportsChannel($channel)) {
+            throw new PaymentException("viüMi no soporta el canal {$channel->value}");
+        }
+
+        return $this->createCheckout($request);
     }
 
     public function createCheckout(CheckoutRequest $request): CheckoutResponse

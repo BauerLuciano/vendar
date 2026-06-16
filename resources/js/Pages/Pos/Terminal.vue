@@ -995,21 +995,23 @@ onUnmounted(() => {
                         </div>
 
                         <div class="px-5 pt-4 pb-2 bg-slate-50 flex flex-col gap-3">
-                            <div class="flex gap-1">
+                            <div class="grid grid-cols-4 gap-1.5">
                                 <button
                                     v-for="m in METODOS_DISPONIBLES" :key="m.value"
                                     @click="togglePago(m.value)"
                                     :title="m.label"
-                                    class="flex-1 flex items-center justify-center px-1 py-2 rounded-xl border-2 transition-all shadow-sm"
+                                    class="flex flex-col items-center justify-center gap-1 py-2 rounded-xl border-2 transition-all shadow-sm"
                                     :class="pagos.some(p => p.metodo_pago === m.value)
                                         ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-indigo-100'
                                         : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
                                 >
-                                    <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                    <svg v-else-if="m.value === 'DEBITO' || m.value === 'CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
-                                    <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                                    <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                                    <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                    <svg v-else-if="m.value === 'DEBITO' || m.value === 'TARJETA_DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
+                                    <svg v-else-if="m.value === 'CREDITO' || m.value === 'TARJETA_CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                    <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                                    <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                                    <svg v-else-if="m.value === 'MERCADO_PAGO'" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 12c0 2 1 3.5 3 3.5s3-1.5 3-3.5-1-3.5-3-3.5-3 1.5-3 3.5z" fill="white"/></svg>
+                                    <span class="text-[9px] font-bold leading-tight text-center">{{ m.label }}</span>
                                 </button>
                             </div>
 

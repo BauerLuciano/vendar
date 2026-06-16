@@ -2,6 +2,7 @@
 
 namespace App\Services\Payment\Contracts;
 
+use App\Enums\PaymentChannel;
 use App\Enums\PaymentStatus;
 use App\Models\Comercio;
 use Illuminate\Http\Request;
@@ -29,4 +30,8 @@ interface PaymentGateway
     public function supportsWebhook(): bool;
 
     public function supportsRecurring(): bool;
+
+    public function supportsChannel(PaymentChannel $channel): bool;
+
+    public function initiatePayment(CheckoutRequest $request, PaymentChannel $channel, array $options = []): CheckoutResponse;
 }
