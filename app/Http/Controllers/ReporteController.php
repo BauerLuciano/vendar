@@ -113,8 +113,6 @@ class ReporteController extends Controller
             'TRANSFERENCIA' => 'Transferencia',
             'MERCADO_PAGO' => 'Mercado Pago',
             'CUENTA_CORRIENTE' => 'Cuenta Corriente',
-            'TARJETA_CREDITO' => 'Tarjeta de Crédito',
-            'TARJETA_DEBITO' => 'Tarjeta de Débito',
             'MULTIPLE' => 'Pago Dividido',
             default => $metodo,
         };

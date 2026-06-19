@@ -2,6 +2,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import LectorCamara from '@/Components/LectorCamara.vue';
 import ConfirmarPagoModal from '@/Components/ConfirmarPagoModal.vue';
+import MpQrPanel from '@/Components/MpQrPanel.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import Swal from 'sweetalert2';
@@ -190,6 +191,15 @@ const METODOS_DISPONIBLES = computed(() => {
     }
 
     return base;
+});
+
+const mpDisplayData = computed(() => {
+    const mp = METODOS_DISPONIBLES.value.find(m => m.value === 'MERCADO_PAGO');
+    return mp?.display_data || null;
+});
+
+const mostrarMpQr = computed(() => {
+    return pagos.value.some(p => p.metodo_pago === 'MERCADO_PAGO') && mpDisplayData.value;
 });
 
 const pagos = ref([{ metodo_pago: 'EFECTIVO', monto: null }]);
@@ -656,20 +666,34 @@ async function fetchVentasPendientesPago() {
     } catch (e) {}
 }
 
-const atajos = {
-    F1: 'EFECTIVO',
-    F2: 'DEBITO',
-    F3: 'CREDITO',
-    F4: 'TRANSFERENCIA',
-    F5: 'MERCADO_PAGO',
-    F8: 'CUENTA_CORRIENTE',
+const atajosDisponibles = computed(() => {
+    const disponibles = new Set(METODOS_DISPONIBLES.value.map(m => m.value));
+    const mapa = {
+        F1: 'EFECTIVO',
+        F2: 'DEBITO',
+        F3: 'CREDITO',
+        F4: 'TRANSFERENCIA',
+        F5: 'MERCADO_PAGO',
+        F8: 'CUENTA_CORRIENTE',
+    };
+    const result = {};
+    for (const [key, value] of Object.entries(mapa)) {
+        if (disponibles.has(value)) {
+            result[key] = value;
+        }
+    }
+    return result;
+});
+
+const teclaDeMetodo = (metodo) => {
+    return Object.keys(atajosDisponibles.value).find(k => atajosDisponibles.value[k] === metodo) || '';
 };
 
 const handleKeydown = (e) => {
     const key = e.key;
-    if (key.startsWith('F') && atajos[key]) {
+    if (key.startsWith('F') && atajosDisponibles.value[key]) {
         e.preventDefault();
-        togglePago(atajos[key]);
+        togglePago(atajosDisponibles.value[key]);
         return;
     }
     if (key === 'F9') {
@@ -1006,12 +1030,13 @@ onUnmounted(() => {
                                         : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
                                 >
                                     <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                    <svg v-else-if="m.value === 'DEBITO' || m.value === 'TARJETA_DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
-                                    <svg v-else-if="m.value === 'CREDITO' || m.value === 'TARJETA_CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                    <svg v-else-if="m.value === 'DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
+                                    <svg v-else-if="m.value === 'CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
                                     <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                                     <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
                                     <svg v-else-if="m.value === 'MERCADO_PAGO'" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 12c0 2 1 3.5 3 3.5s3-1.5 3-3.5-1-3.5-3-3.5-3 1.5-3 3.5z" fill="white"/></svg>
                                     <span class="text-[9px] font-bold leading-tight text-center">{{ m.label }}</span>
+                                    <span v-if="teclaDeMetodo(m.value)" class="text-[8px] font-mono font-black text-slate-400 bg-slate-100 px-1 rounded border border-slate-200 leading-tight">{{ teclaDeMetodo(m.value) }}</span>
                                 </button>
                             </div>
 
@@ -1084,9 +1109,15 @@ onUnmounted(() => {
                             <div v-else-if="tieneCuentaCorriente && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
                                 <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
                             </div>
-                        </div>
+                            </div>
 
-                        <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 z-10">
+                        <MpQrPanel
+                            :show="mostrarMpQr"
+                            :display-data="mpDisplayData"
+                            @close="togglePago('MERCADO_PAGO')"
+                        />
+
+                         <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 z-10">
                             <div v-if="carrito.length === 0" class="h-full flex flex-col items-center justify-center text-slate-300 opacity-70">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                                 <p class="font-bold text-lg">Carrito vacío</p>
@@ -1176,6 +1207,7 @@ onUnmounted(() => {
                                 <template v-else-if="esUnicoEfectivo && Number(montoRecibido) < totalVenta">Faltan ${{ (totalVenta - Number(montoRecibido)).toFixed(2) }}</template>
                                 <template v-else-if="!esPagoCompleto">Asigná el total (${{ restante.toFixed(2) }})</template>
                                 <template v-else>Cobrar ${{ totalVenta.toFixed(2) }}</template>
+                                <span class="ml-2 text-[9px] font-mono font-black text-slate-500 bg-white/20 px-1.5 py-0.5 rounded border border-white/20">F9</span>
                             </button>
                         </div>
                     </div>

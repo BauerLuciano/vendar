@@ -11,7 +11,8 @@
             line-height: 1.3; 
         }
         table { width: 100%; border-collapse: collapse; }
-        .header-section { border-bottom: 2px solid #1e293b; padding-bottom: 15px; margin-bottom: 20px; }
+        .header-separator { border-bottom: 2px solid #1e293b; margin: 18px 0 25px 0; }
+
         .logo { max-height: 60px; margin-bottom: 5px; }
         .company-name { font-size: 16pt; font-weight: bold; color: #1e293b; margin: 0 0 5px 0; text-transform: uppercase; }
         .company-info { font-size: 8.5pt; color: #475569; line-height: 1.4; }
@@ -39,7 +40,7 @@
     </style>
 </head>
 <body>
-    <table class="header-section">
+    <table>
         <tr>
             <td width="60%" style="vertical-align: top;">
                 @if($logo)
@@ -79,6 +80,7 @@
             </td>
         </tr>
     </table>
+    <div class="header-separator"></div>
 
     <table style="margin-bottom: 20px;">
         <tr>

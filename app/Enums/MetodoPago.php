@@ -10,8 +10,6 @@ enum MetodoPago: string
     case TRANSFERENCIA = 'TRANSFERENCIA';
     case MERCADO_PAGO = 'MERCADO_PAGO';
     case CUENTA_CORRIENTE = 'CUENTA_CORRIENTE';
-    case TARJETA_CREDITO = 'TARJETA_CREDITO';
-    case TARJETA_DEBITO = 'TARJETA_DEBITO';
     case VIUMI = 'VIUMI';
 
     public function label(): string
@@ -23,8 +21,6 @@ enum MetodoPago: string
             self::TRANSFERENCIA    => 'Transferencia',
             self::MERCADO_PAGO     => 'Mercado Pago',
             self::CUENTA_CORRIENTE => 'Cuenta Corriente',
-            self::TARJETA_CREDITO  => 'Tarjeta de Crédito',
-            self::TARJETA_DEBITO   => 'Tarjeta de Débito',
             self::VIUMI            => 'viüMi',
         };
     }
@@ -47,9 +43,9 @@ enum MetodoPago: string
             'CUENTA_CORRIENTE'     => self::CUENTA_CORRIENTE,
             'CTA_CTE'              => self::CUENTA_CORRIENTE,
             'FIADO'                => self::CUENTA_CORRIENTE,
-            'TARJETA_CREDITO'      => self::TARJETA_CREDITO,
-            'TARJETA_DEBITO'       => self::TARJETA_DEBITO,
-            'TARJETA'              => self::TARJETA_DEBITO,
+            'TARJETA_CREDITO'      => self::CREDITO,
+            'TARJETA_DEBITO'       => self::DEBITO,
+            'TARJETA'              => self::DEBITO,
             'VIUMI'                => self::VIUMI,
         ];
 

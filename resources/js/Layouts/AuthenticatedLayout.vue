@@ -2,6 +2,9 @@
 import { ref } from 'vue';
 import Sidebar from '@/Components/Sidebar.vue';
 import Header from '@/Components/Header.vue';
+import { useAtajosTeclado } from '@/Composables/useAtajosTeclado';
+
+useAtajosTeclado();
 
 const mostrarMenuMovil = ref(false);
 </script>

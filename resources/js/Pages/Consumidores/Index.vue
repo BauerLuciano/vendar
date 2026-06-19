@@ -144,8 +144,8 @@ const paymentMethods = [
     { value: 'EFECTIVO', label: 'Efectivo' },
     { value: 'MERCADO_PAGO', label: 'Mercado pago' },
     { value: 'TRANSFERENCIA', label: 'Transferencia bancaria' },
-    { value: 'TARJETA_CREDITO', label: 'Tarjeta de crédito' },
-    { value: 'TARJETA_DEBITO', label: 'Tarjeta de débito' }
+    { value: 'DEBITO', label: 'Débito' },
+    { value: 'CREDITO', label: 'Crédito' },
 ];
 
 const formCobro = useForm({

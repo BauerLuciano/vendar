@@ -37,7 +37,7 @@
             
             <div class="relative">
                 <button 
-                    @click="campanaAbierta = !campanaAbierta; menuAbierto = false"
+                    @click="campanaAbierta = !campanaAbierta; menuAbierto = false; ayudaAbierta = false"
                     class="relative p-2 text-slate-400 hover:text-white transition-colors group outline-none"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 group-hover:rotate-12 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -93,8 +93,50 @@
 
             <div class="relative">
                 <button 
-                    @click="menuAbierto = !menuAbierto; campanaAbierta = false"
+                    @click="ayudaAbierta = !ayudaAbierta; campanaAbierta = false; menuAbierto = false"
+                    class="relative p-2 text-slate-400 hover:text-sky-400 transition-colors group outline-none"
+                    title="Atajos de teclado"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+                        <path d="M12 17h.01" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                </button>
+
+                <div 
+                    v-show="ayudaAbierta" 
+                    class="absolute right-0 mt-3 w-72 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.8)] border border-slate-700/60 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right"
+                >
+                    <div class="px-4 py-3 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                        </svg>
+                        <p class="text-xs uppercase tracking-widest font-black text-slate-300">Atajos de Teclado</p>
+                    </div>
+
+                    <div class="p-3 space-y-1.5">
+                        <div v-for="atajo in atajos" :key="atajo.f" class="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-800/50 border border-slate-700/30">
+                            <span class="text-sm font-bold text-slate-200">{{ atajo.nombre }}</span>
+                            <kbd class="text-[9px] font-mono font-black text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-600/50">{{ atajo.f }}</kbd>
+                        </div>
+                    </div>
+
+                    <div class="px-4 py-2.5 bg-slate-800/30 border-t border-slate-700/50">
+                        <p class="text-[9px] text-slate-500 font-medium leading-relaxed">
+                            En el POS: <kbd class="text-[8px] font-mono font-bold text-slate-400 bg-slate-800 px-1 py-0.5 rounded border border-slate-600/50">F1-F5</kbd> métodos de pago,
+                            <kbd class="text-[8px] font-mono font-bold text-slate-400 bg-slate-800 px-1 py-0.5 rounded border border-slate-600/50">F8</kbd> cta. cte.,
+                            <kbd class="text-[8px] font-mono font-bold text-slate-400 bg-slate-800 px-1 py-0.5 rounded border border-slate-600/50">F9</kbd> cobrar.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="relative">
+                <button 
+                    @click="menuAbierto = !menuAbierto; campanaAbierta = false; ayudaAbierta = false"
                     class="flex items-center gap-3 p-1 pr-4 rounded-full bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 hover:border-slate-600 transition-all group outline-none"
+                    title="Menú de usuario"
                 >
                     <div class="relative">
                         <div class="w-9 h-9 bg-slate-700 group-hover:bg-sky-500 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-inner transition-all">
@@ -146,6 +188,12 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { usePage, router, Link } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+const atajos = [
+    { f: 'F1', nombre: 'Dashboard' },
+    { f: 'F5', nombre: 'Punto de Venta' },
+    { f: 'F6', nombre: 'Caja Diaria' },
+    { f: 'F7', nombre: 'Historial de Ventas' },
+];
 
 defineEmits(['abrirMenu']);
 
@@ -170,6 +218,7 @@ const checkTurnoActivo = async () => {
 
 const menuAbierto = ref(false);
 const campanaAbierta = ref(false);
+const ayudaAbierta = ref(false);
 
 const logout = () => {
     Swal.fire({
@@ -192,6 +241,7 @@ const closeMenus = (e) => {
     if (!e.target.closest('.relative')) {
         menuAbierto.value = false;
         campanaAbierta.value = false;
+        ayudaAbierta.value = false;
     }
 };
 

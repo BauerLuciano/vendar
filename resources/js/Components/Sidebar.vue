@@ -36,18 +36,18 @@ const menu = [
         titulo: 'Principal',
         roles: [], 
         enlaces: [
-            { nombre: 'Dashboard', ruta: 'dashboard', icono: 'dashboard', roles: [] },
+            { nombre: 'Dashboard', ruta: 'dashboard', icono: 'dashboard', roles: [], atajo: 'F1' },
         ]
     },
     {
         titulo: 'Comercial',
         roles: ['Cajero', 'Encargado', 'SuperAdmin'], 
         enlaces: [
-            { nombre: 'Caja Diaria', ruta: 'caja-diaria.index', icono: 'caja_diaria', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' }, 
-            { nombre: 'Punto de Venta', ruta: 'pos.index', icono: 'pos', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' },
+            { nombre: 'Caja Diaria', ruta: 'caja-diaria.index', icono: 'caja_diaria', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos', atajo: 'F6' }, 
+            { nombre: 'Punto de Venta', ruta: 'pos.index', icono: 'pos', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos', atajo: 'F5' },
             // 🔥 NUEVO ENLACE: PEDIDOS WEB
             { nombre: 'Pedidos Web', ruta: 'pedidos.index', icono: 'pedidos_web', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },
-            { nombre: 'Historial de Ventas', ruta: 'ventas.index', icono: 'ventas', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' }, 
+            { nombre: 'Historial de Ventas', ruta: 'ventas.index', icono: 'ventas', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos', atajo: 'F7' }, 
             { nombre: 'Reportes', ruta: 'reportes.index', icono: 'reportes', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },
         ]
     },
@@ -192,7 +192,8 @@ const handleLogout = () => {
                                     <svg v-if="item.icono === 'admin_global'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" /></svg>
                                     <svg v-if="item.icono === 'solicitudes'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
                                 </span>
-                                {{ item.nombre }}
+                                <span class="flex-1">{{ item.nombre }}</span>
+                                <span v-if="item.atajo" class="text-[9px] font-mono font-black text-slate-500 bg-slate-800/90 px-1.5 py-0.5 rounded-md border border-slate-700/60 shadow-sm">{{ item.atajo }}</span>
                             </Link>
                         </template>
                     </div>
