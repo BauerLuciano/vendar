@@ -36,7 +36,7 @@ class CajaDiariaController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $sucursalId = $user->branch_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
 
         $sesiones = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])
             ->when($sucursalId, fn ($q) => $q->where('sucursal_id', $sucursalId))
@@ -196,7 +196,7 @@ class CajaDiariaController extends Controller
     public function getCajasDisponibles(Request $request)
     {
         $user = $request->user();
-        $sucursalId = $user->branch_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
         
         $cajas = Caja::where('estado', true)
             ->when($sucursalId, fn ($q) => $q->where('sucursal_id', $sucursalId))

@@ -20,10 +20,7 @@ class ReposicionController extends Controller
         $user = auth()->user();
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
         
-        $sucursalId = $user->branch_id;
-        if (!$sucursalId) {
-            $sucursalId = null;
-        }
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
         if (!$sucursalId) {
             return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
         }
@@ -63,7 +60,7 @@ class ReposicionController extends Controller
         ]);
 
         $user = auth()->user();
-        $sucursalId = $user->branch_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
         if (!$sucursalId) {
             return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
         }

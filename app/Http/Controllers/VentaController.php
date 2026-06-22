@@ -35,10 +35,10 @@ class VentaController extends Controller
     public function index(Request $request)
     {
         $user = auth()->user();
-        if (!$user->branch_id) {
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
+        if (!$sucursalId) {
             abort(403, 'No tienes una sucursal asignada.');
         }
-        $sucursalId = $user->branch_id;
         
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');

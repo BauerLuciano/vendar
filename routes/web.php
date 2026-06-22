@@ -141,6 +141,8 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 // ------------------------------------------------------------------
 Route::middleware(['auth'])->group(function () {
     Route::get('/api/consumidores', [ConsumidorController::class, 'apiIndex'])->name('api.consumidores.index');
+    Route::get('/elegir-sucursal', [\App\Http\Controllers\ElegirSucursalController::class, 'create'])->name('elegir.sucursal');
+    Route::post('/elegir-sucursal', [\App\Http\Controllers\ElegirSucursalController::class, 'store'])->name('elegir.sucursal.store');
 });
 
 Route::middleware(['auth', 'modulo:fiados'])->group(function () {

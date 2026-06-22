@@ -12,13 +12,14 @@ class VerificarModulo
     public function handle(Request $request, Closure $next, string $modulo): Response
     {
         $user = $request->user();
+        $sucursalId = session('sucursal_activa_id', $user?->branch_id);
 
-        if (!$user || !$user->branch_id) {
+        if (!$user || !$sucursalId) {
             return $next($request);
         }
 
         // Buscamos a qué comercio pertenece el usuario actual
-        $sucursal = Sucursal::with('comercio')->find($user->branch_id);
+        $sucursal = Sucursal::with('comercio')->find($sucursalId);
         $comercio = $sucursal?->comercio;
 
         if (!$comercio) {

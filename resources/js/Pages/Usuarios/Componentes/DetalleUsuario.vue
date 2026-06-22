@@ -28,8 +28,15 @@ defineEmits(['cerrar']);
                 </div>
                 
                 <div class="border-t border-slate-100 pt-4">
-                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sucursal Asignada</p>
-                    <p class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sucursales</p>
+                    <div v-if="usuario?.sucursales?.length" class="flex flex-wrap gap-1.5 mt-1.5">
+                        <span v-for="suc in usuario.sucursales" :key="suc.id"
+                            class="text-[11px] font-bold px-2.5 py-1 rounded-full"
+                            :class="suc.id === usuario.branch_id ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-600'">
+                            {{ suc.nombre }}<span v-if="suc.id === usuario.branch_id" class="ml-1 text-[10px] opacity-70">(base)</span>
+                        </span>
+                    </div>
+                    <p v-else class="text-sm font-bold text-slate-700">
                         📍 {{ usuario?.branch?.nombre || 'No asignada' }}
                     </p>
                 </div>

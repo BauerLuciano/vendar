@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
 use App\Traits\Auditable;
 
@@ -34,6 +35,12 @@ class Sucursal extends Model
     public function comercio()
     {
         return $this->belongsTo(Comercio::class, 'comercio_id');
+    }
+
+    public function usuarios(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'sucursal_user')
+            ->withTimestamps();
     }
 
     public function productos() {

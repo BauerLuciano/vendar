@@ -17,23 +17,47 @@ const form = useForm({
     email: '',
     password: '',
     branch_id: '',
-    rol: ''
+    rol: '',
+    sucursales: []
 });
 
-// Propiedad computada para saber si necesita sucursal
 const requiereSucursal = computed(() => {
     return form.rol !== 'Administrador Global';
 });
 
-// Resetea o llena el formulario cuando se abre el modal
+// sucursales disponibles como base: solo las que están checkeadas
+const sucursalesBase = computed(() => {
+    return props.sucursales.filter(s => form.sucursales.includes(s.id));
+});
+
+// si se descheckea la sucursal base actual, reasigna a la primera disponible
+watch(() => form.sucursales, (vals) => {
+    if (form.branch_id && !vals.includes(form.branch_id) && vals.length > 0) {
+        form.branch_id = vals[0];
+    } else if (vals.length === 0) {
+        form.branch_id = '';
+    }
+}, { deep: true });
+
+// si cambia la base, la agrega automáticamente a sucursales asignadas
+watch(() => form.branch_id, (nuevo) => {
+    if (nuevo && !form.sucursales.includes(nuevo)) {
+        form.sucursales.push(nuevo);
+    }
+});
+
 watch(() => props.mostrar, (mostrando) => {
     if (mostrando) {
         if (props.usuario) {
             form.name = props.usuario.name;
             form.email = props.usuario.email;
-            form.password = ''; // Por seguridad no traemos la contraseña
+            form.password = '';
             form.branch_id = props.usuario.branch_id || '';
             form.rol = props.usuario.roles?.length > 0 ? props.usuario.roles[0].name : '';
+            form.sucursales = props.usuario.sucursales?.map(s => s.id) || [];
+            if (props.usuario.branch_id && !form.sucursales.includes(props.usuario.branch_id)) {
+                form.sucursales.push(props.usuario.branch_id);
+            }
         } else {
             form.reset();
         }
@@ -42,11 +66,31 @@ watch(() => props.mostrar, (mostrando) => {
 });
 
 const guardar = () => {
+    // asegurar que la sucursal base esté siempre en el array asignado
+    if (form.branch_id && !form.sucursales.includes(form.branch_id)) {
+        form.sucursales.push(form.branch_id);
+    }
+
     if (props.usuario) {
-        form.put(route('usuarios.update', props.usuario.id), {
-            onSuccess: () => {
-                emit('cerrar');
-                Swal.fire('¡Actualizado!', 'Usuario modificado con éxito.', 'success');
+        Swal.fire({
+            title: '¿Actualizar Usuario?',
+            text: `Se van a modificar los datos de ${props.usuario.name}.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#0284c7',
+            confirmButtonText: 'Sí, actualizar',
+            cancelButtonText: 'Cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                form.put(route('usuarios.update', props.usuario.id), {
+                    onSuccess: () => {
+                        emit('cerrar');
+                        Swal.fire('¡Actualizado!', 'Usuario modificado con éxito.', 'success');
+                    },
+                    onError: () => {
+                        Swal.fire('Error', 'No se pudo actualizar el usuario. Revisá los datos e intentá de nuevo.', 'error');
+                    }
+                });
             }
         });
     } else {
@@ -54,6 +98,9 @@ const guardar = () => {
             onSuccess: () => {
                 emit('cerrar');
                 Swal.fire('¡Creado!', 'Nuevo usuario registrado en el sistema.', 'success');
+            },
+            onError: () => {
+                Swal.fire('Error', 'No se pudo crear el usuario. Revisá los datos e intentá de nuevo.', 'error');
             }
         });
     }
@@ -93,7 +140,7 @@ const guardar = () => {
                         <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Sucursal Base</label>
                         <select v-model="form.branch_id" class="w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" :required="requiereSucursal">
                             <option value="" disabled>Seleccione...</option>
-                            <option v-for="sucursal in sucursales" :key="sucursal.id" :value="sucursal.id">{{ sucursal.nombre }}</option>
+                            <option v-for="sucursal in sucursalesBase" :key="sucursal.id" :value="sucursal.id">{{ sucursal.nombre }}</option>
                         </select>
                         <span class="text-rose-500 text-xs" v-if="form.errors.branch_id">{{ form.errors.branch_id }}</span>
                     </div>
@@ -104,6 +151,21 @@ const guardar = () => {
                             <option v-for="rol in roles" :key="rol.id" :value="rol.name">{{ rol.name }}</option>
                         </select>
                     </div>
+                </div>
+
+                <div v-show="requiereSucursal" class="border-t border-slate-100 pt-4">
+                    <label class="block text-[11px] font-bold text-slate-500 uppercase mb-2">Sucursales Asignadas</label>
+                    <span class="text-[10px] text-slate-400 block mb-3">Tildá las sucursales a las que este usuario va a tener acceso:</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label v-for="sucursal in sucursales.filter(s => s.id !== form.branch_id)" :key="sucursal.id"
+                            class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all text-sm"
+                            :class="form.sucursales.includes(sucursal.id) ? 'bg-sky-50 border-sky-300 text-sky-800 font-bold' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'">
+                            <input type="checkbox" :value="sucursal.id" v-model="form.sucursales"
+                                class="rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+                            {{ sucursal.nombre }}
+                        </label>
+                    </div>
+                    <span class="text-rose-500 text-xs" v-if="form.errors.sucursales">{{ form.errors.sucursales }}</span>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-6 mt-2 border-t border-slate-100">

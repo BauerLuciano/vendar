@@ -23,6 +23,8 @@ class DashboardController extends Controller
         $user->load('branch');
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
 
+        $sucursalActivaId = (int) session('sucursal_activa_id', $user->branch_id);
+
         $comercioId = $user->branch?->comercio_id;
         $sucursalIds = $comercioId
             ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
@@ -52,7 +54,14 @@ class DashboardController extends Controller
         // 4. Cajas activas (lista completa)
         $cajasQuery = TurnoCaja::with(['cajero:id,name', 'caja', 'sucursal:id,nombre'])
             ->whereNull('monto_cierre');
-        $this->scopeSucursal($cajasQuery, $esJefe, $user, $sucursalIds, 'sucursal_id');
+
+        if (!$esJefe) {
+            // Cajero ve solo SU turno activo (sin importar sucursal)
+            $cajasQuery->where('user_id', $user->id);
+        } elseif ($sucursalIds->isNotEmpty()) {
+            // Jefe ve todas las cajas activas del comercio
+            $cajasQuery->whereIn('sucursal_id', $sucursalIds);
+        }
 
         $cajasActivasLista = $cajasQuery->get()->map(function ($t) {
             $facturado = (float) Venta::where('turno_caja_id', $t->id)->sum('total');
@@ -84,8 +93,8 @@ class DashboardController extends Controller
             ->where('productos.estado', true)
             ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
 
-        if (!$esJefe && $user->branch_id) {
-            $productosBajoStock->where('producto_sucursal.sucursal_id', $user->branch_id);
+        if (!$esJefe && $sucursalActivaId) {
+            $productosBajoStock->where('producto_sucursal.sucursal_id', $sucursalActivaId);
         } elseif ($sucursalIds->isNotEmpty()) {
             $productosBajoStock->whereIn('producto_sucursal.sucursal_id', $sucursalIds);
         }
@@ -96,8 +105,8 @@ class DashboardController extends Controller
         $pedidosQuery = PedidoWeb::with('sucursal:id,nombre')
             ->whereIn('estado_pedido', ['nuevo', 'preparando', 'en_camino']);
 
-        if (!$esJefe && $user->branch_id) {
-            $pedidosQuery->where('sucursal_id', $user->branch_id);
+        if (!$esJefe && $sucursalActivaId) {
+            $pedidosQuery->where('sucursal_id', $sucursalActivaId);
         } elseif ($sucursalIds->isNotEmpty()) {
             $pedidosQuery->where('comercio_id', $comercioId);
         }
@@ -174,7 +183,7 @@ class DashboardController extends Controller
             'fechaDesde'          => $fechaDesde,
             'fechaHasta'          => $fechaHasta,
             'esJefe'              => $esJefe,
-            'sucursalUsuario'     => $user->branch ? $user->branch->nombre : 'Sede Central',
+            'sucursalUsuario'     => Sucursal::find($sucursalActivaId)?->nombre ?? ($user->branch?->nombre ?? 'Sede Central'),
         ]);
     }
 
@@ -183,6 +192,8 @@ class DashboardController extends Controller
         $user = auth()->user();
         $user->load('branch');
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
+
+        $sucursalActivaId = (int) session('sucursal_activa_id', $user->branch_id);
 
         $comercioId = $user->branch?->comercio_id;
         $sucursalIds = $comercioId
@@ -213,12 +224,14 @@ class DashboardController extends Controller
             ->whereBetween('ventas.created_at', [$fechaDesde . ' 00:00:00', $fechaHasta . ' 23:59:59'])
             ->sum('ventas.total') ?? 0);
 
-        $cajasCount = TurnoCaja::whereNull('monto_cierre')->when(!$esJefe && $user->branch_id, fn($q) => $q->where('sucursal_id', $user->branch_id))
-            ->when($sucursalIds->isNotEmpty() && $esJefe, fn($q) => $q->whereIn('sucursal_id', $sucursalIds))->count();
+        $cajasCount = TurnoCaja::whereNull('monto_cierre')
+            ->when(!$esJefe, fn($q) => $q->where('user_id', $user->id))
+            ->when($sucursalIds->isNotEmpty() && $esJefe, fn($q) => $q->whereIn('sucursal_id', $sucursalIds))
+            ->count();
 
         $pedidosQuery = PedidoWeb::whereIn('estado_pedido', ['nuevo', 'preparando', 'en_camino']);
-        if (!$esJefe && $user->branch_id) {
-            $pedidosQuery->where('sucursal_id', $user->branch_id);
+        if (!$esJefe && $sucursalActivaId) {
+            $pedidosQuery->where('sucursal_id', $sucursalActivaId);
         } elseif ($sucursalIds->isNotEmpty()) {
             $pedidosQuery->where('comercio_id', $comercioId);
         }
@@ -247,8 +260,8 @@ class DashboardController extends Controller
             ->join('sucursales', 'sucursales.id', '=', 'producto_sucursal.sucursal_id')
             ->select('productos.nombre as producto', 'productos.stock_minimo', 'producto_sucursal.cantidad_fisica as cantidad_fisica', 'sucursales.nombre as sucursal')
             ->where('productos.estado', true)->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
-        if (!$esJefe && $user->branch_id) {
-            $bajoStock->where('producto_sucursal.sucursal_id', $user->branch_id);
+        if (!$esJefe && $sucursalActivaId) {
+            $bajoStock->where('producto_sucursal.sucursal_id', $sucursalActivaId);
         } elseif ($sucursalIds->isNotEmpty()) {
             $bajoStock->whereIn('producto_sucursal.sucursal_id', $sucursalIds);
         }
@@ -281,7 +294,7 @@ class DashboardController extends Controller
             'usuario'         => $user->name,
             'fecha'           => now()->format('d/m/Y'),
             'hora'            => now()->format('H:i'),
-            'sucursal'        => $user->branch?->nombre ?? 'Todas',
+            'sucursal'        => Sucursal::find($sucursalActivaId)?->nombre ?? ($user->branch?->nombre ?? 'Todas'),
             'ventasPeriodo'   => $ventasPeriodo,
             'deudaTotal'      => $deudaTotal,
             'cajasActivas'    => $cajasCount,
@@ -298,8 +311,9 @@ class DashboardController extends Controller
 
     private function scopeSucursal($query, $esJefe, $user, $sucursalIds, $columna = 'sucursal_id')
     {
-        if (!$esJefe && $user->branch_id) {
-            $query->where($columna, $user->branch_id);
+        $sucursalActivaId = (int) session('sucursal_activa_id', $user->branch_id);
+        if (!$esJefe && $sucursalActivaId) {
+            $query->where($columna, $sucursalActivaId);
         } elseif ($sucursalIds->isNotEmpty()) {
             $query->whereIn($columna, $sucursalIds);
         }

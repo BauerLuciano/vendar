@@ -32,7 +32,7 @@ class PosController extends Controller
             ->first();
 
         if ($turnoAbierto) {
-            $sucursalId = $user->branch_id;
+            $sucursalId = session('sucursal_activa_id', $user->branch_id);
             if (!$sucursalId) {
                 return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
             }
@@ -87,7 +87,7 @@ class PosController extends Controller
             ]);
         }
 
-        $sucursalId = $user->branch_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
         if (!$sucursalId) {
             return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
         }
@@ -311,7 +311,7 @@ class PosController extends Controller
     public function buscarProductos(Request $request)
     {
         $user = auth()->user();
-        $sucursalId = $user->branch_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
         if (!$sucursalId) {
             return response()->json([]);
         }

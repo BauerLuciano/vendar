@@ -52,8 +52,17 @@ class AuthenticatedSessionController extends Controller
             return redirect()->intended(route('cliente.inicio'));
         }
 
-        if ($user->hasRole('Administrador Global')) {
-            return redirect()->intended(route('admin.comercios.index'));
+        // Si tiene acceso a más de una sucursal, que elija
+        $cantSucursales = $user->sucursales()->count();
+        if ($cantSucursales > 1 || ($cantSucursales === 0 && $user->branch_id)) {
+            // auto-set si tiene solo branch_id sin pivot
+            if ($cantSucursales === 0 && $user->branch_id) {
+                session(['sucursal_activa_id' => $user->branch_id]);
+            } else {
+                return redirect()->route('elegir.sucursal');
+            }
+        } elseif ($user->branch_id) {
+            session(['sucursal_activa_id' => $user->branch_id]);
         }
 
         // Si es dueño del kiosco o empleado, va al Dashboard normal

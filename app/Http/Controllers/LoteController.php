@@ -12,7 +12,7 @@ class LoteController extends Controller
     {
         $user = auth()->user();
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
-        $sucursalId = $user->branch_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
 
         $lotes = Lote::with(['producto', 'sucursal'])
             ->where('stock_actual', '>', 0) // Solo mostramos los lotes que todavía tienen mercadería

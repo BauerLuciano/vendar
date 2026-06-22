@@ -28,6 +28,7 @@ class HandleInertiaRequests extends Middleware
                     'name' => $request->user()->name,
                     'email' => $request->user()->email,
                     'branch_id' => $request->user()->branch_id,
+                    'sucursal_activa_id' => session('sucursal_activa_id', $request->user()->branch_id),
                     'is_active' => $request->user()->is_active,
                     'plan_deseado' => $request->user()->plan_deseado,
                     'roles' => $request->user()->getRoleNames(),
@@ -43,7 +44,8 @@ class HandleInertiaRequests extends Middleware
 
                 // 🔒 MÓDULOS HABILITADOS: Trae qué funciones compró el dueño (tenant) de esta sucursal
                 'modulos' => fn () => $request->user() && $request->user()->branch_id ? (function() use ($request) {
-                    $sucursal = \App\Models\Sucursal::with('comercio')->find($request->user()->branch_id);
+                    $sucursalId = session('sucursal_activa_id', $request->user()->branch_id);
+                    $sucursal = \App\Models\Sucursal::with('comercio')->find($sucursalId);
                     return $sucursal && $sucursal->comercio 
                         ? ($sucursal->comercio->modulos_habilitados ?? ['pos' => true]) 
                         : ['pos' => true];
@@ -58,8 +60,9 @@ class HandleInertiaRequests extends Middleware
                         ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
                         
                     // Filtro por sucursal si no es jefe
-                    if (method_exists($request->user(), 'hasRole') && !$request->user()->hasRole(['SuperAdmin', 'Administrador Global']) && $request->user()->branch_id) {
-                        $query->where('producto_sucursal.sucursal_id', $request->user()->branch_id);
+                    $sucursalId = session('sucursal_activa_id', $request->user()->branch_id);
+                    if (method_exists($request->user(), 'hasRole') && !$request->user()->hasRole(['SuperAdmin', 'Administrador Global']) && $sucursalId) {
+                        $query->where('producto_sucursal.sucursal_id', $sucursalId);
                     }
 
                     return [
@@ -89,6 +92,13 @@ class HandleInertiaRequests extends Middleware
                             : ['permitir_stock_negativo' => '0', 'moneda' => 'ARS'],
 
             'csrf_token' => fn () => csrf_token(),
+
+            'sucursal_activa' => fn () => $request->user() ? (function() use ($request) {
+                $id = session('sucursal_activa_id', $request->user()->branch_id);
+                if (!$id) return null;
+                $suc = \App\Models\Sucursal::find($id);
+                return $suc ? ['id' => $suc->id, 'nombre' => $suc->nombre] : null;
+            })() : null,
 
             'flash' => [
                 'exito' => fn () => $request->session()->get('exito'),

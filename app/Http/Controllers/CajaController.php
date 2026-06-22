@@ -20,14 +20,17 @@ class CajaController extends Controller
         $query = Caja::with('sucursal');
         
         // Si NO es jefe y tiene sucursal, solo ve las cajas de su sucursal
-        if (!$esJefe && $user->branch_id) {
-            $query->where('sucursal_id', $user->branch_id);
+        if (!$esJefe) {
+            $sucursalId = session('sucursal_activa_id', $user->branch_id);
+            if ($sucursalId) {
+                $query->where('sucursal_id', $sucursalId);
+            }
         }
         $cajas = $query->orderBy('estado', 'desc')->orderBy('id', 'desc')->get();   
              
         $sucursales = $esJefe 
             ? Sucursal::where('tipo', 'punto_de_venta')->get() 
-            : Sucursal::where('id', $user->branch_id)->where('tipo', 'punto_de_venta')->get();
+            : Sucursal::where('id', session('sucursal_activa_id', $user->branch_id))->where('tipo', 'punto_de_venta')->get();
 
         return Inertia::render('Cajas/Index', [
             'cajas' => $cajas,

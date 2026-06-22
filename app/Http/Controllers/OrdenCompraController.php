@@ -31,8 +31,11 @@ class OrdenCompraController extends Controller
 
         $query = OrdenCompra::with(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
 
-        if (!$esJefe && $user->branch_id) {
-            $query->where('sucursal_id', $user->branch_id);
+        if (!$esJefe) {
+            $sucursalId = session('sucursal_activa_id', $user->branch_id);
+            if ($sucursalId) {
+                $query->where('sucursal_id', $sucursalId);
+            }
         }
 
         $ordenes = $query->when($search, function ($q, $search) {
@@ -58,7 +61,7 @@ class OrdenCompraController extends Controller
 
         $comercioId = $user->branch?->comercio_id;
         $proveedores = Proveedor::deComercio($comercioId)->where('estado', true)->get();
-        $sucursales = $esJefe ? Sucursal::all() : Sucursal::where('id', $user->branch_id)->get();
+        $sucursales = $esJefe ? Sucursal::all() : Sucursal::where('id', session('sucursal_activa_id', $user->branch_id))->get();
 
         return Inertia::render('OrdenesCompra/Index', [
             'ordenes' => $ordenes,
@@ -72,7 +75,7 @@ class OrdenCompraController extends Controller
     {
         $user = auth()->user();
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
-        $sucursalesToProcess = $esJefe ? Sucursal::pluck('id') : [$user->branch_id];
+        $sucursalesToProcess = $esJefe ? Sucursal::pluck('id') : [session('sucursal_activa_id', $user->branch_id)];
 
         DB::beginTransaction();
         try {

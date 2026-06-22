@@ -19,8 +19,11 @@ class GestionPedidosWebController extends Controller
 
         $query = PedidoWeb::with(['items.producto', 'sucursal']);
 
-        if (!$esJefe && $user->branch_id) {
-            $query->where('sucursal_id', $user->branch_id);
+        if (!$esJefe) {
+            $sucursalId = session('sucursal_activa_id', $user->branch_id);
+            if ($sucursalId) {
+                $query->where('sucursal_id', $sucursalId);
+            }
         } elseif ($sucursalIds->isNotEmpty()) {
             $query->whereIn('sucursal_id', $sucursalIds);
         }

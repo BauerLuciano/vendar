@@ -18,7 +18,7 @@ class UsuarioController extends Controller
         $rol = $request->input('rol', 'all');
 
         // 🔥 FILTRO DE INVISIBILIDAD: Nunca mostramos al Administrador Global ni a los clientes
-        $query = User::with(['branch', 'roles'])
+        $query = User::with(['branch', 'sucursales', 'roles'])
             ->whereDoesntHave('roles', function ($q) {
                 $q->whereIn('name', ['Administrador Global', 'cliente']);
             });
@@ -34,7 +34,10 @@ class UsuarioController extends Controller
         });
 
         $query->when($sucursal_id !== 'all', function ($q) use ($sucursal_id) {
-            $q->where('branch_id', $sucursal_id);
+            $q->where(function ($sub) use ($sucursal_id) {
+                $sub->where('branch_id', $sucursal_id)
+                    ->orWhereHas('sucursales', fn($qq) => $qq->where('sucursal_id', $sucursal_id));
+            });
         });
 
         $query->when($rol !== 'all', function ($q) use ($rol) {
@@ -65,12 +68,13 @@ class UsuarioController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'name'      => 'required|string|max:255',
-            'email'     => 'required|string|email|max:255|unique:users',
-            'password'  => 'required|string|min:8',
-            // 🔥 Si sos Administrador Global, la sucursal es opcional (nullable)
-            'branch_id' => $request->rol === 'Administrador Global' ? 'nullable' : 'required|exists:sucursales,id', 
-            'rol'       => 'required|string|exists:roles,name'
+            'name'        => 'required|string|max:255',
+            'email'       => 'required|string|email|max:255|unique:users',
+            'password'    => 'required|string|min:8',
+            'branch_id'   => $request->rol === 'Administrador Global' ? 'nullable' : 'required|exists:sucursales,id',
+            'rol'         => 'required|string|exists:roles,name',
+            'sucursales'  => 'nullable|array',
+            'sucursales.*' => 'exists:sucursales,id',
         ]);
 
         $userAuth = auth()->user();
@@ -95,6 +99,16 @@ class UsuarioController extends Controller
         $usuario->is_active = true;
         $usuario->save();
 
+        if ($request->filled('sucursales')) {
+            $sucursalesValidas = \App\Models\Sucursal::where('comercio_id', $comercioId)
+                ->whereIn('id', $request->sucursales)
+                ->pluck('id')
+                ->toArray();
+            $usuario->sucursales()->sync($sucursalesValidas);
+        } elseif ($request->branch_id) {
+            $usuario->sucursales()->sync([$request->branch_id]);
+        }
+
         $usuario->assignRole($request->rol);
 
         return redirect()->back()->with('exito', 'Usuario creado correctamente.');
@@ -108,12 +122,13 @@ class UsuarioController extends Controller
         }
 
         $request->validate([
-            'name'      => 'required|string|max:255',
-            'email'     => 'required|string|email|max:255|unique:users,email,' . $usuario->id,
-            'password'  => 'nullable|string|min:8', 
-            // 🔥 Misma regla para la actualización
-            'branch_id' => $request->rol === 'Administrador Global' ? 'nullable' : 'required|exists:sucursales,id',
-            'rol'       => 'required|string|exists:roles,name'
+            'name'        => 'required|string|max:255',
+            'email'       => 'required|string|email|max:255|unique:users,email,' . $usuario->id,
+            'password'    => 'nullable|string|min:8',
+            'branch_id'   => $request->rol === 'Administrador Global' ? 'nullable' : 'required|exists:sucursales,id',
+            'rol'         => 'required|string|exists:roles,name',
+            'sucursales'  => 'nullable|array',
+            'sucursales.*' => 'exists:sucursales,id',
         ]);
 
         $usuario->name = $request->name;
@@ -125,6 +140,18 @@ class UsuarioController extends Controller
         }
 
         $usuario->save();
+
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($request->filled('sucursales')) {
+            $sucursalesValidas = \App\Models\Sucursal::where('comercio_id', $comercioId)
+                ->whereIn('id', $request->sucursales)
+                ->pluck('id')
+                ->toArray();
+            $usuario->sucursales()->sync($sucursalesValidas);
+        } elseif ($request->branch_id) {
+            $usuario->sucursales()->sync([$request->branch_id]);
+        }
+
         $usuario->syncRoles([$request->rol]);
 
         return redirect()->back()->with('exito', 'Usuario actualizado correctamente.');

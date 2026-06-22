@@ -177,8 +177,17 @@ const eliminarUsuario = (usuario) => {
                                     </div>
                                 </td>
                                 
-                                <td class="p-4 text-center text-sm font-bold text-slate-600">
-                                    {{ user.branch?.nombre || '-' }}
+                                <td class="p-4 text-center">
+                                    <div class="flex flex-wrap gap-1 justify-center">
+                                        <template v-if="user.sucursales?.length">
+                                            <span v-for="suc in user.sucursales" :key="suc.id"
+                                                class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                                :class="suc.id === user.branch_id ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'">
+                                                {{ suc.nombre }}
+                                            </span>
+                                        </template>
+                                        <span v-else class="text-sm font-bold text-slate-600">{{ user.branch?.nombre || '-' }}</span>
+                                    </div>
                                 </td>
                                 
                                 <td class="p-4 text-center">
