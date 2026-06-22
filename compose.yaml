@@ -1,8 +1,8 @@
 services:
     laravel.test:
         build:
-            context: './vendor/laravel/sail/runtimes/8.5'
-            dockerfile: Dockerfile
+            context: './'
+            dockerfile: docker/8.5/Dockerfile
             args:
                 WWWGROUP: '${WWWGROUP}'
         image: 'sail-8.5/app'
@@ -24,6 +24,17 @@ services:
         depends_on:
             - pgsql
             - redis
+
+    caddy:
+        image: caddy:alpine
+        ports:
+            - '443:443'
+        volumes:
+            - './docker/caddy/Caddyfile:/etc/caddy/Caddyfile'
+        networks:
+            - sail
+        depends_on:
+            - laravel.test
     pgsql:
         image: 'postgres:18-alpine'
         ports:

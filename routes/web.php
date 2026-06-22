@@ -37,6 +37,8 @@ use App\Models\Plan;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 
@@ -124,6 +126,8 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
         Route::post('/abrir', [CajaDiariaController::class, 'abrirCaja']);
         Route::post('/movimiento-manual', [CajaDiariaController::class, 'crearMovimientoManual']);
         Route::get('/cajas-disponibles', [CajaDiariaController::class, 'getCajasDisponibles']);
+        Route::get('/cajas-disponibles-admin', [CajaDiariaController::class, 'getCajasDisponiblesAdmin']);
+        Route::get('/abiertas-global', [CajaDiariaController::class, 'getSesionesAbiertasGlobal']);
         Route::get('/pendientes', [CajaDiariaController::class, 'getPendientes']);
         Route::get('/{id}/balance', [CajaDiariaController::class, 'getBalance']);
         Route::get('/{id}/movimientos', [CajaDiariaController::class, 'getMovimientos']);
@@ -209,6 +213,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::post('/productos/{producto}', [ProductoController::class, 'update'])->name('productos.update');
     Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
+    Route::get('/productos/buscar-por-codigo/{codigo}', [ProductoController::class, 'buscarPorCodigo'])->name('productos.buscar-codigo');
     Route::post('/productos/{producto}/ajuste-stock', [ProductoController::class, 'ajustarStock'])->name('productos.ajustar');
 
     Route::get('/categorias', [CategoriaController::class, 'index'])->name('categorias.index');
@@ -423,5 +428,4 @@ Route::get('/', function () {
         'planes' => $planes,
     ]);
 });
-
 require __DIR__.'/auth.php';

@@ -92,6 +92,7 @@ class UsuarioController extends Controller
         $usuario->password = Hash::make($request->password);
         $usuario->branch_id = $request->branch_id;
         $usuario->comercio_id = $comercioId;
+        $usuario->is_active = true;
         $usuario->save();
 
         $usuario->assignRole($request->rol);

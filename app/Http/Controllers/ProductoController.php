@@ -7,9 +7,12 @@ use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Proveedor;
 use App\Models\Sucursal;
+use App\Services\BarcodeLookupService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 
@@ -52,6 +55,7 @@ class ProductoController extends Controller
             'stock_inicial'       => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'imagen_url'          => 'nullable|url', // Campo nuevo para la API externa
             'promocion_activa'    => 'boolean',
             'precio_promocion'    => 'nullable|numeric|min:0|lt:precio_venta',
             'etiqueta_promocion'  => 'nullable|string|max:50',
@@ -65,9 +69,24 @@ class ProductoController extends Controller
 
         DB::beginTransaction();
         try {
+            // Lógica de Imagen: Prioriza archivo subido, sino baja desde URL
             if ($request->hasFile('imagen')) {
                 $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
+            } elseif (!empty($validados['imagen_url'])) {
+                try {
+                    $imageContents = Http::get($validados['imagen_url'])->body();
+                    if ($imageContents) {
+                        $filename = 'productos/' . uniqid('prod_api_') . '.jpg';
+                        Storage::disk('public')->put($filename, $imageContents);
+                        $validados['imagen'] = $filename;
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("No se pudo descargar la imagen externa del producto: " . $e->getMessage());
+                }
             }
+            
+            // Eliminamos la url porque no pertenece a la tabla
+            unset($validados['imagen_url']);
 
             $validados['estado'] = true;
 
@@ -139,6 +158,7 @@ class ProductoController extends Controller
             'stock_minimo'        => 'required|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'imagen_url'          => 'nullable|url',
             'promocion_activa'    => 'boolean',
             'precio_promocion'    => 'nullable|numeric|min:0|lt:precio_venta',
             'etiqueta_promocion'  => 'nullable|string|max:50',
@@ -153,9 +173,23 @@ class ProductoController extends Controller
                 Storage::disk('public')->delete($producto->imagen);
             }
             $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
+        } elseif (!empty($validados['imagen_url']) && !$producto->imagen) {
+            // Solo descarga si no tenía imagen previa o se está reemplazando todo
+            try {
+                $imageContents = Http::get($validados['imagen_url'])->body();
+                if ($imageContents) {
+                    $filename = 'productos/' . uniqid('prod_api_') . '.jpg';
+                    Storage::disk('public')->put($filename, $imageContents);
+                    $validados['imagen'] = $filename;
+                }
+            } catch (\Exception $e) {
+                Log::warning("No se pudo descargar la imagen externa: " . $e->getMessage());
+            }
         } else {
             unset($validados['imagen']);
         }
+
+        unset($validados['imagen_url']); // Limpiamos para el update
 
         if ($request->has('promocion_activa')) {
             if ($request->boolean('promocion_activa')) {
@@ -247,6 +281,35 @@ class ProductoController extends Controller
             ->get();
 
         return response()->json($movimientos);
+    }
+
+    public function buscarPorCodigo(string $codigo, BarcodeLookupService $barcodeService)
+    {
+        $comercioId = auth()->user()->branch?->comercio_id;
+
+        $producto = $barcodeService->lookupLocal($codigo, $comercioId);
+
+        if ($producto) {
+            return response()->json([
+                'found' => true,
+                'producto' => [
+                    'id' => $producto->id,
+                    'nombre' => $producto->nombre,
+                    'codigo_barras' => $producto->codigo_barras,
+                    'marca' => $producto->marca?->nombreMarca,
+                    'categoria' => $producto->categoria?->nombreCategoria,
+                    'unidad_medida' => $producto->unidad_medida,
+                    'imagen' => $producto->imagen ? asset('storage/' . $producto->imagen) : null,
+                ],
+            ]);
+        }
+
+        $apiData = $barcodeService->lookupExternal($codigo);
+
+        return response()->json([
+            'found' => false,
+            'api_data' => $apiData?->toArray(),
+        ]);
     }
 
     public function generarPlu()

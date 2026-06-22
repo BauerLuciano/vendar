@@ -3,6 +3,7 @@ import { useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import LectorCamara from '@/Components/LectorCamara.vue';
 
 const props = defineProps({
     mostrar: Boolean,
@@ -38,6 +39,7 @@ const formulario = useForm({
     unidad_peso_visual: 'Kg',
     descripcion: '',
     imagen: null,
+    imagen_url: null, // <-- AGREGADO: Para mandar la URL de la API a Laravel
     promocion_activa: false,
     precio_promocion: '',
     etiqueta_promocion: '🔥 Promoción',
@@ -63,6 +65,7 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.promocion_fin = nuevoValor.promocion_fin || '';
         formulario.stock_minimo = nuevoValor.stock_minimo;
         formulario.descripcion = nuevoValor.descripcion || '';
+        formulario.imagen_url = null;
         imagenPreview.value = nuevoValor.url_imagen;
 
         if (nuevoValor.unidad_medida === 'Kg' && nuevoValor.stock_minimo > 0 && nuevoValor.stock_minimo < 1) {
@@ -82,6 +85,7 @@ const alSeleccionarImagen = (e) => {
     const archivo = e.target.files[0];
     if (archivo) {
         formulario.imagen = archivo;
+        formulario.imagen_url = null; // Priorizamos la foto subida por el usuario
         imagenPreview.value = URL.createObjectURL(archivo);
     }
 };
@@ -93,15 +97,170 @@ const autogenerarPlu = async () => {
     } catch (error) {
         console.error("Error al generar PLU", error);
         Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'error',
-            title: 'Error al generar el código',
-            showConfirmButton: false,
-            timer: 3000
+            toast: true, position: 'top-end', icon: 'error',
+            title: 'Error al generar el código', showConfirmButton: false, timer: 3000
         });
     }
 };
+
+const mostrarEscaner = ref(false);
+const buscandoCodigo = ref(false);
+
+function validarEAN13(code) {
+    if (!/^\d{13}$/.test(code)) return false;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+        sum += parseInt(code[i]) * (i % 2 === 0 ? 1 : 3);
+    }
+    return (10 - (sum % 10)) % 10 === parseInt(code[12]);
+}
+
+function manejarCodigoEscaneado(codigo) {
+    if (codigo.length === 13) {
+        const reversed = codigo.split('').reverse().join('');
+        if (!validarEAN13(codigo) && validarEAN13(reversed)) {
+            codigo = reversed;
+        }
+    }
+    mostrarEscaner.value = false;
+    formulario.codigo_barras = codigo;
+    buscarCodigo(codigo);
+}
+
+async function buscarCodigo(codigo) {
+    if (!codigo || codigo.length < 2) return;
+    if (buscandoCodigo.value) return;
+    buscandoCodigo.value = true;
+
+    Swal.fire({
+        toast: true, position: 'top-end', icon: 'info',
+        title: '🔎 Buscando información del código...', showConfirmButton: false, timer: 8000,
+    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    try {
+        const res = await axios.get(route('productos.buscar-codigo', codigo), {
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        // Si ya existe en nuestra base de datos local
+        if (res.data.found) {
+            const p = res.data.producto;
+            const result = await Swal.fire({
+                title: 'Producto ya existe en DB',
+                html: `
+                    <div class="text-left space-y-1">
+                        <p class="text-sm font-bold text-slate-700">${p.nombre}</p>
+                        <p class="text-xs text-slate-500">Marca: ${p.marca || '—'} · Categoría: ${p.categoria || '—'}</p>
+                        <p class="text-xs text-slate-500">Código: ${p.codigo_barras}</p>
+                    </div>
+                `,
+                icon: 'info',
+                confirmButtonText: 'Ir a editar producto',
+                confirmButtonColor: '#0284c7',
+                showCancelButton: true,
+                cancelButtonText: 'Cerrar',
+            });
+            
+            if (result.isConfirmed) {
+                window.location.href = `/productos`; 
+            }
+            return;
+        }
+
+        // Si se encontró en la API externa (OpenFoodFacts)
+        const apiData = res.data.api_data;
+        if (apiData && (apiData.nombre || apiData.title)) {
+            const confirmar = await Swal.fire({
+                title: '¿Cargar este producto?',
+                html: `
+                    <div class="flex flex-col items-center gap-3">
+                        <div class="w-32 h-32 bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200">
+                            ${apiData.imagen
+                                ? `<img src="${apiData.imagen}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
+                                : '<span class="text-3xl text-slate-300">📦</span>'
+                            }
+                        </div>
+                        <div class="text-left w-full space-y-1">
+                            <p class="font-bold text-slate-800 text-base">${apiData.nombre || apiData.title || 'Producto'}</p>
+                            ${apiData.marca ? `<p class="text-sm text-slate-500"><span class="font-medium">Marca:</span> ${apiData.marca}</p>` : ''}
+                            ${apiData.presentacion ? `<p class="text-sm text-slate-500"><span class="font-medium">Presentación:</span> ${apiData.presentacion}</p>` : ''}
+                        </div>
+                    </div>
+                `,
+                icon: null,
+                showCancelButton: true,
+                confirmButtonText: 'Sí, cargar',
+                cancelButtonText: 'No',
+                confirmButtonColor: '#059669',
+                cancelButtonColor: '#64748b',
+                reverseButtons: true,
+                customClass: { popup: 'rounded-2xl' },
+            });
+
+            if (!confirmar.isConfirmed) return;
+
+            // Autocompletar el formulario
+            formulario.nombre = apiData.nombre || apiData.title || formulario.nombre;
+
+            if (apiData.marca) {
+                const marcaMatch = props.marcas.find(m => m.nombreMarca.toLowerCase().includes(apiData.marca.toLowerCase()));
+                if (marcaMatch) formulario.marca_id = marcaMatch.id;
+            }
+
+            if (apiData.categoria) {
+                const catMatch = props.categorias.find(c => c.nombreCategoria.toLowerCase().includes(apiData.categoria.toLowerCase()));
+                if (catMatch) formulario.categoria_id = catMatch.id;
+            }
+
+            if (apiData.presentacion) {
+                const cant = apiData.presentacion.toLowerCase().replace(/\s/g, '');
+                if (cant.includes('kg') || cant.includes('kl') || cant.includes('g')) {
+                    formulario.unidad_medida = 'Kg';
+                }
+            }
+
+            formulario.descripcion = apiData.descripcion || formulario.descripcion;
+            
+            // MAGIA ACÁ: Guardamos la URL para enviársela a Laravel
+            if (apiData.imagen) {
+                imagenPreview.value = apiData.imagen;
+                formulario.imagen_url = apiData.imagen;
+            }
+
+            const rellenados = [];
+            if (formulario.nombre) rellenados.push('Nombre');
+            if (formulario.marca_id) rellenados.push('Marca');
+            if (formulario.categoria_id) rellenados.push('Categoría');
+            if (formulario.descripcion) rellenados.push('Descripción');
+
+            Swal.fire({
+                toast: true, position: 'top-end', icon: 'success',
+                title: `✅ Autocompletado: ${rellenados.join(', ')}`, showConfirmButton: false, timer: 4000,
+            });
+        } else {
+            Swal.fire({
+                toast: true, position: 'top-end', icon: 'warning',
+                title: '⚠️ Código cargado. No se encontraron datos online.', showConfirmButton: false, timer: 4000,
+            });
+        }
+    } catch (e) {
+        clearTimeout(timeoutId);
+        console.error('Error al buscar código:', e);
+        const msg = e.code === 'ERR_CANCELED' || e.name === 'AbortError'
+            ? '⚠️ La consulta tardó demasiado. Completá los datos manualmente.'
+            : 'Error al consultar el código de barras';
+        Swal.fire({
+            toast: true, position: 'top-end', icon: 'warning',
+            title: msg, showConfirmButton: false, timer: 5000,
+        });
+    } finally {
+        buscandoCodigo.value = false;
+    }
+}
 
 const guardar = () => {
     if (formulario.unidad_medida === 'Kg' && formulario.unidad_peso_visual === 'Gramos') {
@@ -121,8 +280,9 @@ const guardar = () => {
         formulario.promocion_fin = '';
     }
 
+    // Asegurarse de forzar FormData porque estamos mandando (potencialmente) archivos
     formulario.post(ruta, {
-        forceFormData: true,
+        forceFormData: true, 
         onSuccess: () => {
             Swal.fire({
                 title: '¡Éxito!',
@@ -134,18 +294,15 @@ const guardar = () => {
             formulario.reset();
             imagenPreview.value = null;
         },
-        onError: (err) => {
-            console.error(err);
-        }
+        onError: (err) => console.error(err)
     });
 };
 </script>
 
 <template>
-    <div v-if="mostrar" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 transition-opacity">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden max-h-[90vh]">
+    <div v-if="mostrar" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 transition-opacity">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden max-h-[90vh]">
             
-            <!-- HEADER -->
             <div class="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0">
                 <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center text-sky-600">
@@ -160,11 +317,9 @@ const guardar = () => {
                 </button>
             </div>
             
-            <!-- CONTENIDO SCROLLABLE -->
             <div class="p-4 overflow-y-auto flex-1 bg-white custom-scrollbar">
                 <form id="productoForm" @submit.prevent="guardar" class="space-y-4">
                     
-                    <!-- ===== SECCIÓN 1: INFORMACIÓN BÁSICA ===== -->
                     <div class="space-y-3">
                         <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
                             <svg class="w-4 h-4 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -172,32 +327,37 @@ const guardar = () => {
                         </div>
                         
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
-                            <!-- Nombre -->
                             <div class="col-span-1 sm:col-span-2 lg:col-span-12">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nombre del Producto *</label>
                                 <input v-model="formulario.nombre" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500 ring-rose-100': formulario.errors.nombre}" placeholder="Ej: Coca Cola 2.25L Retornable" required>
                                 <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.nombre }}</p>
                             </div>
 
-                            <!-- Código barras -->
                             <div class="col-span-1 sm:col-span-1 lg:col-span-6">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Cód. Barras o PLU *</label>
                                 <div class="flex gap-2">
                                     <input v-model="formulario.codigo_barras" type="text" minlength="2" maxlength="14" 
-                                        @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')" 
+                                        @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')"
+                                        @keyup.enter="buscarCodigo(formulario.codigo_barras)"
                                         class="flex-1 bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm font-mono focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" 
                                         :class="{'border-rose-500': formulario.errors.codigo_barras}" 
                                         placeholder="Ej: 7791237290126" required>
-                                        
+                                    
+                                    <button type="button" @click="mostrarEscaner = true" title="Escanear código de barras"
+                                        class="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 rounded-lg px-3 flex items-center justify-center transition-colors">
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><rect x="2" y="4" width="2" height="16" rx="0.5"/><rect x="5" y="5" width="1" height="14" rx="0.3"/><rect x="7" y="3" width="3" height="18" rx="0.5"/><rect x="11" y="6" width="1" height="12" rx="0.3"/><rect x="13" y="4" width="2" height="16" rx="0.5"/><rect x="16" y="7" width="1" height="10" rx="0.3"/><rect x="18" y="3" width="3" height="18" rx="0.5"/><rect x="22" y="5" width="1" height="14" rx="0.3"/></svg>
+                                    </button>
                                     <button type="button" @click="autogenerarPlu" title="Generar PLU"
                                         class="bg-sky-100 text-sky-700 hover:bg-sky-200 border border-sky-200 rounded-lg px-3 flex items-center justify-center transition-colors">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
                                     </button>
+                                    <div v-if="buscandoCodigo" class="flex items-center">
+                                        <svg class="animate-spin h-5 w-5 text-sky-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                    </div>
                                 </div>
                                 <p v-if="formulario.errors.codigo_barras" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.codigo_barras }}</p>
                             </div>
 
-                            <!-- Categoría -->
                             <div class="col-span-1 sm:col-span-1 lg:col-span-6">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Categoría *</label>
                                 <select v-model="formulario.categoria_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.categoria_id}" required>
@@ -207,7 +367,6 @@ const guardar = () => {
                                 <p v-if="formulario.errors.categoria_id" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.categoria_id }}</p>
                             </div>
 
-                            <!-- Marca -->
                             <div class="col-span-1 sm:col-span-1 lg:col-span-4">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Marca *</label>
                                 <select v-model="formulario.marca_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
@@ -216,7 +375,6 @@ const guardar = () => {
                                 </select>
                             </div>
 
-                            <!-- Proveedor -->
                             <div class="col-span-1 sm:col-span-1 lg:col-span-4">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Proveedor *</label>
                                 <select v-model="formulario.proveedor_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
@@ -225,7 +383,6 @@ const guardar = () => {
                                 </select>
                             </div>
 
-                            <!-- Forma de venta -->
                             <div class="col-span-1 sm:col-span-1 lg:col-span-4">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Forma de Venta *</label>
                                 <select v-model="formulario.unidad_medida" class="w-full bg-slate-50 border border-slate-200 text-sky-700 font-bold rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
@@ -236,7 +393,6 @@ const guardar = () => {
                         </div>
                     </div>
 
-                    <!-- ===== SECCIÓN 2: PRECIOS ===== -->
                     <div class="space-y-3">
                         <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
                             <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -255,7 +411,6 @@ const guardar = () => {
                         </div>
                     </div>
 
-                    <!-- ===== SECCIÓN 3: PROMOCIÓN (con toggle) ===== -->
                     <div class="space-y-3">
                         <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
                             <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
@@ -301,7 +456,6 @@ const guardar = () => {
                         </template>
                     </div>
 
-                    <!-- ===== SECCIÓN 4: STOCK Y EXTRAS ===== -->
                     <div class="space-y-3">
                         <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
                             <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
@@ -309,7 +463,6 @@ const guardar = () => {
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                            <!-- Stock mínimo -->
                             <div class="col-span-1 sm:col-span-4">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Alerta Stock Mín.</label>
                                 <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
@@ -322,7 +475,6 @@ const guardar = () => {
                                 </div>
                             </div>
 
-                            <!-- Stock inicial (solo creación) -->
                             <div v-if="!formulario.id" class="col-span-1 sm:col-span-8">
                                 <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
                                     <div class="flex-1">
@@ -340,7 +492,6 @@ const guardar = () => {
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <!-- Retornable -->
                             <div>
                                 <label class="flex items-center p-2.5 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors" :class="{'bg-sky-50 border-sky-200': formulario.es_retornable}">
                                     <input type="checkbox" v-model="formulario.es_retornable" class="w-4 h-4 text-sky-600 rounded border-slate-300">
@@ -348,13 +499,11 @@ const guardar = () => {
                                 </label>
                             </div>
 
-                            <!-- Descripción -->
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Descripción / Notas</label>
                                 <textarea v-model="formulario.descripcion" rows="2" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors resize-none" placeholder="Anotaciones internas..."></textarea>
                             </div>
 
-                            <!-- Foto -->
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Foto</label>
                                 <div class="h-20 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors flex items-center justify-center relative overflow-hidden group cursor-pointer" @click="$refs.fileInput.click()">
@@ -373,7 +522,6 @@ const guardar = () => {
                 </form>
             </div>
 
-            <!-- FOOTER -->
             <div class="bg-slate-50 border-t border-slate-200 px-4 py-3 flex items-center justify-end gap-3 shrink-0">
                 <button type="button" @click="$emit('cerrar')" class="px-5 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors uppercase tracking-wider">Cancelar</button>
                 <button type="submit" form="productoForm" class="bg-sky-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-sky-700 shadow-lg shadow-sky-600/20 transition-all uppercase tracking-wider flex items-center gap-2" :disabled="formulario.processing">
@@ -383,6 +531,12 @@ const guardar = () => {
             </div>
 
         </div>
+
+        <LectorCamara 
+            v-if="mostrarEscaner" 
+            @escaneado="manejarCodigoEscaneado" 
+            @cerrar="mostrarEscaner = false" 
+        />
     </div>
 </template>
 

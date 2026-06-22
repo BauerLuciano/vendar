@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import axios from 'axios'; 
 import Swal from 'sweetalert2';
@@ -24,6 +24,114 @@ const mostrarModalDetalleHistorial = ref(false);
 const cajaSeleccionada = ref(null);
 const movimientosHistorial = ref([]);
 const cargandoMovimientosHistorial = ref(false);
+
+// ADMIN GLOBAL: sesiones abiertas en otras sucursales
+const sesionesGlobal = ref([]);
+const sucursalesGlobal = ref([]);
+const mostrarModalDetalleGlobal = ref(false);
+const sesionGlobalSeleccionada = ref(null);
+const movimientosGlobal = ref([]);
+const cargandoMovimientosGlobal = ref(false);
+
+const page = usePage();
+const esAdmin = computed(() =>
+    ['SuperAdmin', 'Administrador Global'].some(r => page.props.auth?.user?.roles?.includes(r))
+);
+const resumenGlobal = computed(() => {
+    const data = sesionesGlobal.value;
+    return {
+        cantidad: data.length,
+        efectivo: data.reduce((s, c) => s + (parseFloat(c.esperado_efectivo) || 0), 0),
+        mp: data.reduce((s, c) => s + (parseFloat(c.esperado_mp) || 0), 0),
+        transf: data.reduce((s, c) => s + (parseFloat(c.esperado_transf) || 0), 0),
+        total: data.reduce((s, c) => s + (parseFloat(c.total) || 0), 0),
+        sucursales: sucursalesGlobalUnicas.value.length,
+    };
+});
+
+// ADMIN: toggle y filtros para la tabla de cajas globales
+const mostrarPanelGlobal = ref(false);
+const filtroSucursalGlobal = ref('');
+const filtroCajaGlobal = ref('');
+const filtroCajeroGlobal = ref('');
+
+const sucursalesGlobalUnicas = computed(() =>
+    sucursalesGlobal.value.length
+        ? [...new Set(sucursalesGlobal.value.map(s => s.nombre).filter(Boolean))]
+        : [...new Set(sesionesGlobal.value.map(s => s.sucursal_nombre).filter(Boolean))]
+);
+
+// fusiona todas las sucursales con las sesiones abiertas (placeholder para sucursales sin cajas)
+const sesionesGlobalConVacias = computed(() => {
+    const sucNombres = sucursalesGlobalUnicas.value;
+    const sesMap = {};
+    for (const s of sesionesGlobal.value) {
+        const nom = s.sucursal_nombre;
+        if (!sesMap[nom]) sesMap[nom] = [];
+        sesMap[nom].push(s);
+    }
+    const result = [];
+    for (const nom of sucNombres) {
+        const ses = sesMap[nom];
+        if (ses && ses.length > 0) {
+            result.push(...ses);
+        } else {
+            result.push({
+                id: null,
+                sucursal_nombre: nom,
+                caja_nombre: null,
+                usuario_apertura_nombre: null,
+                fecha_apertura: null,
+                esperado_efectivo: 0,
+                esperado_mp: 0,
+                esperado_transf: 0,
+                total: 0,
+                _sinCajas: true,
+            });
+        }
+    }
+    return result;
+});
+const cajerosGlobalUnicos = computed(() =>
+    [...new Set(sesionesGlobal.value.map(s => s.usuario_apertura_nombre).filter(Boolean))]
+);
+const cajasGlobalFiltradas = computed(() => {
+    let cajas = sesionesGlobal.value.filter(s => !s._sinCajas).map(s => s.caja_nombre).filter(Boolean);
+    if (filtroSucursalGlobal.value) {
+        cajas = sesionesGlobal.value
+            .filter(s => !s._sinCajas && s.sucursal_nombre === filtroSucursalGlobal.value)
+            .map(s => s.caja_nombre)
+            .filter(Boolean);
+    }
+    return [...new Set(cajas)];
+});
+const sesionesGlobalFiltradas = computed(() => {
+    return sesionesGlobalConVacias.value.filter(s => {
+        if (s._sinCajas) return true; // siempre mostrar sucursales sin cajas (si pasan filtro sucursal)
+        if (filtroSucursalGlobal.value && s.sucursal_nombre !== filtroSucursalGlobal.value) return false;
+        if (filtroCajaGlobal.value && s.caja_nombre !== filtroCajaGlobal.value) return false;
+        if (filtroCajeroGlobal.value && s.usuario_apertura_nombre !== filtroCajeroGlobal.value) return false;
+        return true;
+    }).filter(s => {
+        // después de aplicar filtros de caja/cajero, si la sucursal se filtró completamente, ocultarla
+        if (s._sinCajas && filtroCajaGlobal.value) return false;
+        if (s._sinCajas && filtroCajeroGlobal.value) return false;
+        return true;
+    });
+});
+
+// muestra aviso cuando se filtra por una sucursal que no tiene cajas abiertas
+const mostrarAvisoSinCajas = computed(() => {
+    if (!filtroSucursalGlobal.value) return false;
+    const reales = sesionesGlobal.value.filter(s => s.sucursal_nombre === filtroSucursalGlobal.value);
+    return reales.length === 0;
+});
+
+const limpiarFiltrosGlobal = () => {
+    filtroSucursalGlobal.value = '';
+    filtroCajaGlobal.value = '';
+    filtroCajeroGlobal.value = '';
+};
 
 // NUEVO: Estado para almacenar los consumidores (clientes)
 const consumidores = ref([]);
@@ -213,7 +321,6 @@ const inicializar = async () => {
       const resSesion = await axios.get('/api/sesiones-caja/actual');
       sesionActual.value = resSesion.data;
       await cargarDatosCajaAbierta(sesionActual.value.id);
-      iniciarRadar();
     } catch (e) {
       if (e.response && e.response.status === 404) {
         sesionActual.value = null;
@@ -222,6 +329,10 @@ const inicializar = async () => {
     }
     await cargarHistorial();
     await cargarConsumidores(); // Cargamos los clientes al inicializar
+    await cargarSesionesGlobal(); // ADMIN: sesiones de otras sucursales
+    if (sesionActual.value || esAdmin.value) {
+      iniciarRadar(); // admin necesita polling para sesiones globales
+    }
   } catch (error) {
     console.error(error);
   } finally {
@@ -239,12 +350,40 @@ const cargarConsumidores = async () => {
   }
 };
 
+// ADMIN: carga sesiones abiertas de todas las sucursales
+const cargarSesionesGlobal = async () => {
+  if (!esAdmin.value) return;
+  try {
+    const res = await axios.get('/api/sesiones-caja/abiertas-global');
+    sesionesGlobal.value = res.data.sesiones ?? [];
+    sucursalesGlobal.value = res.data.sucursales ?? [];
+  } catch (e) { console.error(e); }
+};
+
+// ADMIN: ver detalle (movimientos) de una sesión de otra sucursal
+const verDetalleSesionGlobal = async (sesion) => {
+  sesionGlobalSeleccionada.value = sesion;
+  mostrarModalDetalleGlobal.value = true;
+  cargandoMovimientosGlobal.value = true;
+  try {
+    const res = await axios.get(`/api/sesiones-caja/${sesion.id}/movimientos`);
+    movimientosGlobal.value = res.data;
+  } catch (error) { console.error(error); }
+  finally { cargandoMovimientosGlobal.value = false; }
+};
+
 const cargarDatosApertura = async () => {
-  const [resCajas, resPendientes] = await Promise.all([
-    axios.get('/api/sesiones-caja/cajas-disponibles'),
-    axios.get('/api/sesiones-caja/pendientes')
-  ]);
-  cajasDisponibles.value = resCajas.data.filter(c => c.estado);
+  const endpoints = [axios.get('/api/sesiones-caja/pendientes')];
+
+  if (esAdmin.value) {
+    endpoints.unshift(axios.get('/api/sesiones-caja/cajas-disponibles-admin'));
+  } else {
+    endpoints.unshift(axios.get('/api/sesiones-caja/cajas-disponibles'));
+  }
+
+  const [resCajas, resPendientes] = await Promise.all(endpoints);
+  const cajas = esAdmin.value ? resCajas.data : resCajas.data.filter(c => c.estado);
+  cajasDisponibles.value = cajas;
   if (cajasDisponibles.value.length > 0) {
     formApertura.value.caja = cajasDisponibles.value[0].id;
   }
@@ -278,12 +417,22 @@ const checkNuevosMovimientos = async () => {
   } catch (error) { console.error(error); }
 };
 
+const checkSesionesGlobal = async () => {
+  if (!esAdmin.value || mostrarHistorial.value) return;
+  try {
+    await cargarSesionesGlobal();
+  } catch (error) { console.error(error); }
+};
+
 // URL Dinámica para inyectar en el href del botón imprimir
 const BlackUrlReporteCaja = (id) => `/api/sesiones-caja/${id}/descargar_pdf`;
 
 const iniciarRadar = () => {
   if (pollingInterval) clearInterval(pollingInterval);
-  pollingInterval = setInterval(checkNuevosMovimientos, 15000);
+  pollingInterval = setInterval(() => {
+    checkNuevosMovimientos();
+    checkSesionesGlobal();
+  }, 15000);
 };
 
 const detenerRadar = () => { if (pollingInterval) clearInterval(pollingInterval); };
@@ -418,6 +567,7 @@ const cerrarModales = (e) => {
         mostrarModalCierre.value = false;
         mostrarModalGasto.value = false;
         mostrarModalDetalleHistorial.value = false;
+        mostrarModalDetalleGlobal.value = false;
     }
 };
 
@@ -453,7 +603,14 @@ onUnmounted(() => {
             <h1 class="text-2xl font-black text-slate-800"><i class="ri-bank-card-line"></i> Caja Diaria</h1>
             <p class="text-slate-500 text-sm mt-1">Control de ingresos, egresos y arqueo de caja.</p>
           </div>
-          <div class="header-buttons">
+          <div class="header-buttons flex items-center gap-2">
+              <button v-if="esAdmin"
+                @click="mostrarPanelGlobal = true"
+                class="bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 text-white font-bold py-2 px-4 rounded-xl transition-all text-sm shadow-lg shadow-sky-600/20 flex items-center gap-2">
+                <i class="ri-eye-line"></i>
+                Visor de Cajas
+                <span class="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{{ resumenGlobal.sucursales }}</span>
+              </button>
               <button 
               class="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-xl transition-colors text-sm" 
               @click="mostrarHistorial = !mostrarHistorial"
@@ -469,6 +626,30 @@ onUnmounted(() => {
         </div>
 
         <div v-else>
+
+          <!-- ADMIN: Summary Bar -->
+          <div v-if="esAdmin && !mostrarHistorial && resumenGlobal.sucursales > 0" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+            <div class="bg-slate-800 rounded-xl p-4 col-span-2 md:col-span-1 flex items-center gap-3">
+              <div class="bg-emerald-500/20 p-2 rounded-lg"><i class="ri-bank-card-line text-emerald-400 text-xl"></i></div>
+              <div><span class="block text-2xl font-black text-white">{{ resumenGlobal.cantidad }}</span><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cajas Abiertas</span></div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+              <div class="bg-emerald-100 p-2 rounded-lg"><i class="ri-money-dollar-circle-line text-emerald-600 text-xl"></i></div>
+              <div><span class="block text-lg font-black text-emerald-700">{{ formatearMoneda(resumenGlobal.efectivo) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Efectivo</span></div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+              <div class="bg-sky-100 p-2 rounded-lg"><i class="ri-smartphone-line text-sky-600 text-xl"></i></div>
+              <div><span class="block text-lg font-black text-sky-700">{{ formatearMoneda(resumenGlobal.mp) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mercado Pago</span></div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+              <div class="bg-indigo-100 p-2 rounded-lg"><i class="ri-bank-line text-indigo-600 text-xl"></i></div>
+              <div><span class="block text-lg font-black text-indigo-700">{{ formatearMoneda(resumenGlobal.transf) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Transferencias</span></div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+              <div class="bg-amber-100 p-2 rounded-lg"><i class="ri-store-3-line text-amber-600 text-xl"></i></div>
+              <div><span class="block text-lg font-black text-amber-700">{{ resumenGlobal.sucursales }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sucursales</span></div>
+            </div>
+          </div>
           
           <div v-if="mostrarHistorial">
             <h2 class="text-lg font-bold text-slate-700 mb-4">Historial de Sesiones Anteriores</h2>
@@ -558,7 +739,9 @@ onUnmounted(() => {
                   <label class="block text-sm font-bold text-slate-700 mb-1">Seleccionar Caja Física</label>
                   <select v-model="formApertura.caja" required class="w-full border-gray-300 rounded-lg">
                     <option value="" disabled>Seleccione una caja...</option>
-                    <option v-for="c in cajasDisponibles" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+                    <option v-for="c in cajasDisponibles" :key="c.id" :value="c.id">
+                      {{ esAdmin && c.sucursal_nombre ? c.sucursal_nombre + ' — ' + c.nombre : c.nombre }}
+                    </option>
                   </select>
                 </div>
 
@@ -667,6 +850,192 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN: Modal visor de cajas de todas las sucursales -->
+    <div v-if="mostrarPanelGlobal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
+        <div class="flex justify-between items-center border-b px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-700 shrink-0">
+          <div class="flex items-center gap-3">
+            <div class="bg-sky-500/20 p-2 rounded-lg"><i class="ri-eye-line text-sky-400 text-xl"></i></div>
+            <div>
+              <h3 class="text-white font-black text-lg uppercase tracking-wider">Visor de Cajas</h3>
+              <p class="text-[11px] text-slate-400 font-medium">
+                <span class="text-emerald-400 font-bold">{{ sesionesGlobal.length }} abierta{{ sesionesGlobal.length !== 1 ? 's' : '' }}</span> en {{ resumenGlobal.sucursales }} sucursal{{ resumenGlobal.sucursales !== 1 ? 'es' : '' }}
+                <template v-if="resumenGlobal.total > 0">· Total: <span class="text-white font-bold">${{ formatearMoneda(resumenGlobal.total) }}</span></template>
+              </p>
+            </div>
+          </div>
+          <button @click="mostrarPanelGlobal = false" class="text-slate-300 hover:text-white transition-colors text-2xl hover:bg-slate-600 rounded-full w-10 h-10 flex items-center justify-center"><i class="ri-close-line"></i></button>
+        </div>
+
+        <div class="p-6 overflow-y-auto flex-1">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 items-end">
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Sucursal</label>
+              <select v-model="filtroSucursalGlobal" class="w-full border-slate-300 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                <option value="">Todas</option>
+                <option v-for="s in sucursalesGlobalUnicas" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Caja</label>
+              <select v-model="filtroCajaGlobal" class="w-full border-slate-300 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                <option value="">Todas</option>
+                <option v-for="c in cajasGlobalFiltradas" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Cajero</label>
+              <select v-model="filtroCajeroGlobal" class="w-full border-slate-300 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                <option value="">Todos</option>
+                <option v-for="c in cajerosGlobalUnicos" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div>
+              <button class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 rounded-lg text-sm transition-colors" @click="limpiarFiltrosGlobal">
+                <i class="ri-refresh-line align-middle mr-1"></i> Limpiar
+              </button>
+            </div>
+          </div>
+
+          <div v-if="mostrarAvisoSinCajas" class="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm mb-4">
+            <i class="ri-alert-line text-xl shrink-0"></i>
+            <span>No hay cajas abiertas en <strong>{{ filtroSucursalGlobal }}</strong>.</span>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-slate-50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Sucursal</th>
+                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Caja</th>
+                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Cajero</th>
+                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Abierta</th>
+                  <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Efectivo</th>
+                  <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">MP</th>
+                  <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Transf</th>
+                  <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Total</th>
+                  <th class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase">Acción</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <template v-for="sesion in sesionesGlobalFiltradas" :key="sesion.id ?? 'sin-caja-' + sesion.sucursal_nombre">
+                  <tr v-if="sesion._sinCajas" class="text-slate-400 border-dashed">
+                    <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-500">{{ sesion.sucursal_nombre }}</td>
+                    <td class="px-4 py-3 text-sm text-slate-300" colspan="8">—</td>
+                  </tr>
+                  <tr v-else class="hover:bg-sky-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{{ sesion.sucursal_nombre }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-600">{{ sesion.caja_nombre }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-600">{{ sesion.usuario_apertura_nombre }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-500">{{ formatearFechaCorta(sesion.fecha_apertura) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-emerald-700">{{ formatearMoneda(sesion.esperado_efectivo) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-sky-700">{{ formatearMoneda(sesion.esperado_mp) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-indigo-700">{{ formatearMoneda(sesion.esperado_transf) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-black text-slate-800">{{ formatearMoneda(sesion.total) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-center">
+                      <button @click="verDetalleSesionGlobal(sesion)"
+                        class="bg-sky-100 hover:bg-sky-200 text-sky-700 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1">
+                        <i class="ri-eye-line"></i> Ver
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-4 flex items-center gap-2 text-[11px] text-slate-400 bg-slate-50 rounded-lg p-3 border border-slate-200">
+            <i class="ri-information-line text-sky-500"></i>
+            <span>Modo <strong class="text-slate-700">solo lectura</strong>. No podés realizar movimientos en estas cajas. Solo quién abrió la caja puede registrar movimientos o cerrarla.</span>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 bg-slate-50 border-t shrink-0 flex justify-end">
+          <button @click="mostrarPanelGlobal = false" class="px-6 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase tracking-wider">
+            <i class="ri-close-line text-base"></i> Cerrar Visor
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN: Modal de solo lectura para caja de otra sucursal -->
+    <div v-if="mostrarModalDetalleGlobal" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
+        <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-800 text-white shrink-0">
+          <h3 class="text-xl font-bold flex items-center gap-2">
+            <i class="ri-store-2-line"></i> {{ sesionGlobalSeleccionada?.sucursal_nombre }} — {{ sesionGlobalSeleccionada?.caja_nombre }}
+          </h3>
+          <button @click="mostrarModalDetalleGlobal = false" class="text-slate-300 hover:text-white transition-colors text-2xl"><i class="ri-close-line"></i></button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 p-6 bg-slate-50 border-b shrink-0">
+          <div class="bg-white p-3 rounded-lg border shadow-sm">
+            <span class="block text-xs font-bold text-slate-400 uppercase">Sucursal</span>
+            <span class="font-bold text-slate-700 block">{{ sesionGlobalSeleccionada?.sucursal_nombre }}</span>
+          </div>
+          <div class="bg-white p-3 rounded-lg border shadow-sm">
+            <span class="block text-xs font-bold text-slate-400 uppercase">Caja</span>
+            <span class="font-bold text-slate-700 block">{{ sesionGlobalSeleccionada?.caja_nombre }}</span>
+          </div>
+          <div class="bg-white p-3 rounded-lg border shadow-sm">
+            <span class="block text-xs font-bold text-slate-400 uppercase">Abierta por</span>
+            <span class="font-bold text-slate-700 block">{{ sesionGlobalSeleccionada?.usuario_apertura_nombre }}</span>
+          </div>
+          <div class="bg-white p-3 rounded-lg border shadow-sm">
+            <span class="block text-xs font-bold text-slate-400 uppercase">Apertura</span>
+            <span class="font-bold text-slate-700 block">{{ formatearFecha(sesionGlobalSeleccionada?.fecha_apertura) }}</span>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-auto p-6 bg-white">
+          <div class="flex items-center gap-2 mb-4 pb-2 border-b">
+            <span class="bg-sky-100 text-sky-800 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1"><i class="ri-eye-line"></i> Solo lectura</span>
+            <span class="text-xs text-slate-400">No podés realizar movimientos en esta caja.</span>
+          </div>
+
+          <div v-if="cargandoMovimientosGlobal" class="flex justify-center items-center py-12 text-slate-400">
+            <i class="ri-loader-4-line animate-spin text-4xl mr-3"></i> Cargando movimientos...
+          </div>
+
+          <table v-else class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Tipo</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Concepto</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Método</th>
+                <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Monto</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 bg-white">
+              <tr v-for="mov in movimientosGlobal" :key="mov.id" class="hover:bg-slate-50">
+                <td class="px-4 py-3 text-sm text-slate-600">{{ formatearHora(mov.fecha) }}</td>
+                <td class="px-4 py-3">
+                  <span :class="mov.tipo === 'INGRESO' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'" class="px-2 py-1 text-[10px] font-bold rounded">{{ mov.tipo }}</span>
+                </td>
+                <td class="px-4 py-3 text-sm font-medium text-slate-700">{{ mov.concepto }}</td>
+                <td class="px-4 py-3">
+                  <span :class="getMetodoPagoBadgeClass(mov.metodo_pago)" class="px-2 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide">{{ mov.metodo_pago_display || mov.metodo_pago || 'N/D' }}</span>
+                </td>
+                <td class="px-4 py-3 text-right font-bold" :class="mov.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'">
+                  {{ mov.tipo === 'EGRESO' ? '-' : '+' }}{{ formatearMoneda(mov.monto) }}
+                </td>
+              </tr>
+              <tr v-if="movimientosGlobal.length === 0">
+                <td colspan="5" class="text-center py-10 text-slate-500 font-medium border-t border-dashed">Sin movimientos registrados en esta sesión.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="px-6 py-4 bg-slate-100 border-t shrink-0 flex justify-end">
+          <button @click="mostrarModalDetalleGlobal = false" class="px-8 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase">
+            <i class="ri-arrow-go-back-line text-base"></i> Cerrar
+          </button>
         </div>
       </div>
     </div>
@@ -938,3 +1307,13 @@ onUnmounted(() => {
     </div>
   </AuthenticatedLayout>
 </template>
+
+<style scoped>
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.2s ease-out;
+}
+</style>

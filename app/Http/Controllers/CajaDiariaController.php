@@ -175,7 +175,7 @@ class CajaDiariaController extends Controller
         $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
 
         if (!$turno) {
-            return response()->json(['error' => 'No hay turno abierto'], 400);
+            return response()->json(['error' => 'No hay un turno abierto para tu usuario. Solo podés registrar movimientos en tu propia caja.'], 400);
         }
 
         $movimiento = MovimientoCaja::create([
@@ -203,6 +203,82 @@ class CajaDiariaController extends Controller
             ->get();
                      
         return response()->json($cajas);
+    }
+
+    /**
+     * Cajas disponibles para ADMIN (todas las sucursales del comercio)
+     */
+    public function getCajasDisponiblesAdmin(Request $request)
+    {
+        $user = $request->user();
+        if (!$user->hasRole(['SuperAdmin', 'Administrador Global'])) {
+            abort(403);
+        }
+
+        $comercioId = $user->branch?->comercio_id;
+        $cajas = Caja::where('estado', true)
+            ->whereHas('sucursal', fn ($q) => $q->when($comercioId, fn ($sq) => $sq->where('comercio_id', $comercioId)))
+            ->with('sucursal')
+            ->get()
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'nombre' => $c->nombre,
+                'sucursal_id' => $c->sucursal_id,
+                'sucursal_nombre' => $c->sucursal?->nombre,
+            ]);
+
+        return response()->json($cajas);
+    }
+
+    /**
+     * Todas las sesiones abiertas del comercio (solo admin)
+     */
+    public function getSesionesAbiertasGlobal(Request $request)
+    {
+        $user = $request->user();
+        if (!$user->hasRole(['SuperAdmin', 'Administrador Global'])) {
+            abort(403);
+        }
+
+        $comercioId = $user->branch?->comercio_id;
+        if (!$comercioId) {
+            return response()->json([]);
+        }
+
+        $sucursales = Sucursal::where('comercio_id', $comercioId)->select('id', 'nombre')->get();
+
+        $sucursalIds = $sucursales->pluck('id');
+
+        $sesiones = TurnoCaja::with(['caja.sucursal', 'usuarioApertura'])
+            ->where('estado', 'Abierto')
+            ->whereIn('sucursal_id', $sucursalIds)
+            ->get()
+            ->map(function ($turno) {
+                $movs = MovimientoCaja::where('turno_caja_id', $turno->id)->get();
+                $efectivo = 0; $mp = 0; $transf = 0;
+                foreach ($movs as $mov) {
+                    $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
+                    if ($mov->metodo_pago === MetodoPago::EFECTIVO->value) $efectivo += $monto;
+                    elseif ($mov->metodo_pago === MetodoPago::MERCADO_PAGO->value) $mp += $monto;
+                    else $transf += $monto;
+                }
+                return [
+                    'id'                    => $turno->id,
+                    'caja_nombre'           => $turno->caja->nombre ?? '—',
+                    'sucursal_nombre'       => $turno->caja->sucursal?->nombre ?? '—',
+                    'usuario_apertura_nombre' => $turno->usuarioApertura?->name ?? 'Desconocido',
+                    'fecha_apertura'        => $turno->fecha_apertura,
+                    'esperado_efectivo'     => $efectivo,
+                    'esperado_mp'           => $mp,
+                    'esperado_transf'       => $transf,
+                    'total'                 => $efectivo + $mp + $transf,
+                ];
+            });
+
+        return response()->json([
+            'sucursales' => $sucursales,
+            'sesiones'   => $sesiones,
+        ]);
     }
 
     /**

@@ -10,11 +10,11 @@ export default defineConfig({
         },
     },
     server: {
-        host: '0.0.0.0', // Esto hace que funcione en TODAS las compus
-        port: 5174, // CAMBIAMOS ACÁ PARA EVITAR EL CHOQUE CON DOCKER
-        strictPort: true,
+        host: '0.0.0.0', 
+        port: 5173, 
+        strictPort: true, 
         hmr: {
-            host: 'localhost',
+            host: '192.168.18.99', // LA IP DE TU PC, NECESARIA PARA EL CELULAR
         },
         cors: true,
         watch: {
@@ -23,7 +23,6 @@ export default defineConfig({
         }
     },
     plugins: [
-        // LE AGREGAMOS ESTA OPCIÓN OFICIAL PARA ENTRAR EN EL FLUJO DE LARAVEL
         VueDevTools({
             appendTo: 'resources/js/app.js'
         }),
