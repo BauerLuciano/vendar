@@ -27,6 +27,7 @@ use App\Http\Controllers\{
     PedidoWebController, 
     GestionPedidosWebController,
     ReporteController,
+    PromotionController,
 };
 
 use App\Models\CuentaCorriente;
@@ -217,6 +218,23 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
     Route::get('/productos/buscar-por-codigo/{codigo}', [ProductoController::class, 'buscarPorCodigo'])->name('productos.buscar-codigo');
     Route::post('/productos/{producto}/ajuste-stock', [ProductoController::class, 'ajustarStock'])->name('productos.ajustar');
+
+    // ------------------------------------------------------------------
+    // PROMOCIONES
+    // ------------------------------------------------------------------
+    Route::get('/promotions', [PromotionController::class, 'index'])->name('promotions.index');
+    Route::get('/promotions/create', [PromotionController::class, 'create'])->name('promotions.create');
+    Route::post('/promotions', [PromotionController::class, 'store'])->name('promotions.store');
+    Route::get('/promotions/{promotion}/edit', [PromotionController::class, 'edit'])->name('promotions.edit');
+    Route::put('/promotions/{promotion}', [PromotionController::class, 'update'])->name('promotions.update');
+    Route::delete('/promotions/{promotion}', [PromotionController::class, 'destroy'])->name('promotions.destroy');
+    Route::patch('/promotions/{promotion}/toggle', [PromotionController::class, 'toggleActive'])->name('promotions.toggle');
+    Route::post('/promotions/preview', [PromotionController::class, 'preview'])->name('promotions.preview');
+    Route::get('/promotions/search-products', [PromotionController::class, 'searchProducts'])->name('promotions.search-products');
+    Route::post('/promotions/{promotion}/products', [PromotionController::class, 'assignProducts'])->name('promotions.products.assign');
+    Route::delete('/promotions/{promotion}/products/{producto}', [PromotionController::class, 'removeProduct'])->name('promotions.products.remove');
+    Route::get('/promotions/evaluate/product', [PromotionController::class, 'evaluateProduct'])->name('promotions.evaluate');
+    Route::get('/promotions/{promotion}', [PromotionController::class, 'show'])->name('promotions.show');
 
     Route::get('/categorias', [CategoriaController::class, 'index'])->name('categorias.index');
     Route::post('/categorias', [CategoriaController::class, 'store'])->name('categorias.store');

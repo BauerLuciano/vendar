@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\GlobalProduct;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
@@ -25,11 +26,6 @@ class Producto extends Model
         'stock_minimo',
         'imagen',
         'estado',
-        'precio_promocion',
-        'promocion_activa',
-        'etiqueta_promocion',
-        'promocion_tipo',
-        'promocion_fin',
     ];
 
     protected $casts = [
@@ -38,9 +34,6 @@ class Producto extends Model
         'precio_costo' => 'decimal:2',
         'precio_venta' => 'decimal:2',
         'stock_minimo' => 'decimal:3',
-        'precio_promocion' => 'decimal:2',
-        'promocion_activa' => 'boolean',
-        'promocion_fin' => 'date',
     ];
 
     protected $appends = ['url_imagen', 'sku'];
@@ -56,22 +49,6 @@ class Producto extends Model
     public function getSkuAttribute()
     {
         return $this->codigo_barras;
-    }
-
-    public function getAhorroAttribute(): ?float
-    {
-        if (!$this->promocion_activa || $this->precio_promocion === null) {
-            return null;
-        }
-        return round($this->precio_venta - $this->precio_promocion, 2);
-    }
-
-    public function getPorcentajeAhorroAttribute(): ?float
-    {
-        if (!$this->promocion_activa || $this->precio_promocion === null || $this->precio_venta <= 0) {
-            return null;
-        }
-        return round((1 - $this->precio_promocion / $this->precio_venta) * 100, 1);
     }
 
     public function reglaLiquidacion()
@@ -101,7 +78,11 @@ class Producto extends Model
                     ->withTimestamps();
     }
 
-    // 🔥 Relación agregada para solucionar el problema de rendimiento (N+1)
+    public function globalProduct()
+    {
+        return $this->belongsTo(GlobalProduct::class, 'codigo_barras', 'codigo_barras');
+    }
+
     public function lotes()
     {
         return $this->hasMany(Lote::class, 'producto_id');

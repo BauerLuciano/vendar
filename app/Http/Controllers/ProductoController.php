@@ -7,7 +7,9 @@ use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Proveedor;
 use App\Models\Sucursal;
-use App\Services\BarcodeLookupService;
+use App\Services\ProductLookupService;
+use App\Services\Promotion\PromotionEngineService;
+use App\Services\Promotion\DTOs\PromotionResult;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +41,7 @@ class ProductoController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, ProductLookupService $lookup)
     {
         $validados = $request->validate([
             'nombre'              => 'required|string|max:255',
@@ -55,21 +57,15 @@ class ProductoController extends Controller
             'stock_inicial'       => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
-            'imagen_url'          => 'nullable|url', // Campo nuevo para la API externa
-            'promocion_activa'    => 'boolean',
-            'precio_promocion'    => 'nullable|numeric|min:0|lt:precio_venta',
-            'etiqueta_promocion'  => 'nullable|string|max:50',
-            'promocion_fin'       => 'nullable|date',
+            'imagen_url'          => 'nullable|url',
         ], [
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'codigo_barras.min' => 'El código debe tener al menos 2 números.',
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
-            'precio_promocion.lt' => 'El precio promocional debe ser menor al precio de venta.',
         ]);
 
         DB::beginTransaction();
         try {
-            // Lógica de Imagen: Prioriza archivo subido, sino baja desde URL
             if ($request->hasFile('imagen')) {
                 $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
             } elseif (!empty($validados['imagen_url'])) {
@@ -84,22 +80,19 @@ class ProductoController extends Controller
                     Log::warning("No se pudo descargar la imagen externa del producto: " . $e->getMessage());
                 }
             }
-            
-            // Eliminamos la url porque no pertenece a la tabla
+
             unset($validados['imagen_url']);
 
             $validados['estado'] = true;
 
-            if ($request->boolean('promocion_activa')) {
-                $validados['promocion_tipo'] = 'manual';
-            } else {
-                $validados['precio_promocion'] = null;
-                $validados['etiqueta_promocion'] = null;
-                $validados['promocion_tipo'] = null;
-                $validados['promocion_fin'] = null;
-            }
-
             $producto = Producto::create($validados);
+
+            $lookup->createFromManual([
+                'codigo_barras' => $validados['codigo_barras'],
+                'nombre' => $validados['nombre'],
+                'descripcion' => $validados['descripcion'] ?? null,
+                'imagen' => $validados['imagen'] ?? null,
+            ]);
 
             $sucursalId = auth()->user()->branch_id;
             if (!$sucursalId) {
@@ -159,13 +152,8 @@ class ProductoController extends Controller
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
             'imagen_url'          => 'nullable|url',
-            'promocion_activa'    => 'boolean',
-            'precio_promocion'    => 'nullable|numeric|min:0|lt:precio_venta',
-            'etiqueta_promocion'  => 'nullable|string|max:50',
-            'promocion_fin'       => 'nullable|date',
         ], [
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
-            'precio_promocion.lt' => 'El precio promocional debe ser menor al precio de venta.',
         ]);
 
         if ($request->hasFile('imagen')) {
@@ -174,7 +162,6 @@ class ProductoController extends Controller
             }
             $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
         } elseif (!empty($validados['imagen_url']) && !$producto->imagen) {
-            // Solo descarga si no tenía imagen previa o se está reemplazando todo
             try {
                 $imageContents = Http::get($validados['imagen_url'])->body();
                 if ($imageContents) {
@@ -189,18 +176,7 @@ class ProductoController extends Controller
             unset($validados['imagen']);
         }
 
-        unset($validados['imagen_url']); // Limpiamos para el update
-
-        if ($request->has('promocion_activa')) {
-            if ($request->boolean('promocion_activa')) {
-                $validados['promocion_tipo'] = 'manual';
-            } else {
-                $validados['precio_promocion'] = null;
-                $validados['etiqueta_promocion'] = null;
-                $validados['promocion_tipo'] = null;
-                $validados['promocion_fin'] = null;
-            }
-        }
+        unset($validados['imagen_url']);
 
         $producto->update($validados);
 
@@ -283,32 +259,46 @@ class ProductoController extends Controller
         return response()->json($movimientos);
     }
 
-    public function buscarPorCodigo(string $codigo, BarcodeLookupService $barcodeService)
+    public function buscarPorCodigo(string $codigo, ProductLookupService $lookup, PromotionEngineService $engine)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
+        $result = $lookup->lookup($codigo);
 
-        $producto = $barcodeService->lookupLocal($codigo, $comercioId);
+        if ($result->found) {
+            $gp = $result->globalProduct;
+            $comercioId = auth()->user()->branch?->comercio_id;
 
-        if ($producto) {
+            $tenantProduct = Producto::where('codigo_barras', $codigo)
+                ->whereHas('sucursales', fn($q) => $q->where('comercio_id', $comercioId))
+                ->first();
+
+            $basePrice = $tenantProduct?->precio_venta
+                ? (float) $tenantProduct->precio_venta
+                : null;
+
+            $promotions = $tenantProduct
+                ? $engine->forProducto($tenantProduct, $comercioId, $basePrice)
+                : new PromotionResult();
+
             return response()->json([
                 'found' => true,
-                'producto' => [
-                    'id' => $producto->id,
-                    'nombre' => $producto->nombre,
-                    'codigo_barras' => $producto->codigo_barras,
-                    'marca' => $producto->marca?->nombreMarca,
-                    'categoria' => $producto->categoria?->nombreCategoria,
-                    'unidad_medida' => $producto->unidad_medida,
-                    'imagen' => $producto->imagen ? asset('storage/' . $producto->imagen) : null,
+                'global_product' => [
+                    'id' => $gp->id,
+                    'nombre' => $gp->nombre,
+                    'codigo_barras' => $gp->codigo_barras,
+                    'marca' => $gp->marca,
+                    'categoria' => $gp->categoria,
+                    'presentacion' => $gp->presentacion,
+                    'imagen' => $gp->imagen,
+                    'descripcion' => $gp->descripcion,
                 ],
+                'promotions' => $promotions->toArray(),
+                'source' => $result->source,
             ]);
         }
 
-        $apiData = $barcodeService->lookupExternal($codigo);
-
         return response()->json([
             'found' => false,
-            'api_data' => $apiData?->toArray(),
+            'codigo_barras' => $codigo,
         ]);
     }
 

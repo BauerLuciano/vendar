@@ -5,12 +5,12 @@ namespace App\Services;
 use App\Models\BarcodeCache;
 use App\Models\Producto;
 use App\Services\BarcodeLookup\BarcodeResult;
-use App\Services\BarcodeLookup\OpenFoodFactsStrategy;
+use App\Services\BarcodeLookup\BarcodeLookupProviderRegistry;
 
 class BarcodeLookupService
 {
     public function __construct(
-        private readonly OpenFoodFactsStrategy $openFoodFacts,
+        private readonly BarcodeLookupProviderRegistry $registry,
     ) {}
 
     public function lookupLocal(string $barcode, int $comercioId): ?Producto
@@ -34,7 +34,21 @@ class BarcodeLookupService
             );
         }
 
-        $result = $this->openFoodFacts->lookup($barcode);
+        $result = null;
+        foreach ($this->registry->getAllEnabled() as $provider) {
+            try {
+                $providerResult = $provider->lookup($barcode);
+                if ($providerResult) {
+                    $result = $result
+                        ? $result->merge($providerResult)
+                        : $providerResult;
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning(
+                    "Barcode provider {$provider->identifier()} failed for {$barcode}: {$e->getMessage()}"
+                );
+            }
+        }
 
         if ($result) {
             BarcodeCache::updateOrCreate(

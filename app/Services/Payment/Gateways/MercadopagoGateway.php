@@ -15,7 +15,7 @@ use App\Services\Payment\Exceptions\PaymentException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
-class MercadoPagoGateway implements PaymentGateway
+class MercadopagoGateway implements PaymentGateway
 {
     private const API_BASE = 'https://api.mercadopago.com';
 

@@ -14,7 +14,7 @@ export default defineConfig({
         port: 5173, 
         strictPort: true, 
         hmr: {
-            host: '192.168.18.99', // LA IP DE TU PC, NECESARIA PARA EL CELULAR
+            host: 'localhost',
         },
         cors: true,
         watch: {

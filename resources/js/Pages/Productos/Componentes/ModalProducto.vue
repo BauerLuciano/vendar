@@ -39,11 +39,7 @@ const formulario = useForm({
     unidad_peso_visual: 'Kg',
     descripcion: '',
     imagen: null,
-    imagen_url: null, // <-- AGREGADO: Para mandar la URL de la API a Laravel
-    promocion_activa: false,
-    precio_promocion: '',
-    etiqueta_promocion: '🔥 Promoción',
-    promocion_fin: '',
+    imagen_url: null,
 });
 
 watch(() => props.producto, (nuevoValor) => {
@@ -59,10 +55,6 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.es_retornable = Boolean(nuevoValor.es_retornable);
         formulario.precio_costo = nuevoValor.precio_costo;
         formulario.precio_venta = nuevoValor.precio_venta;
-        formulario.promocion_activa = Boolean(nuevoValor.promocion_activa);
-        formulario.precio_promocion = nuevoValor.precio_promocion || '';
-        formulario.etiqueta_promocion = nuevoValor.etiqueta_promocion || '🔥 Promoción';
-        formulario.promocion_fin = nuevoValor.promocion_fin || '';
         formulario.stock_minimo = nuevoValor.stock_minimo;
         formulario.descripcion = nuevoValor.descripcion || '';
         formulario.imagen_url = null;
@@ -274,13 +266,6 @@ const guardar = () => {
     const esEdicion = !!formulario.id;
     const ruta = esEdicion ? route('productos.update', formulario.id) : route('productos.store');
     
-    if (!formulario.promocion_activa) {
-        formulario.precio_promocion = '';
-        formulario.etiqueta_promocion = '';
-        formulario.promocion_fin = '';
-    }
-
-    // Asegurarse de forzar FormData porque estamos mandando (potencialmente) archivos
     formulario.post(ruta, {
         forceFormData: true, 
         onSuccess: () => {
@@ -411,56 +396,11 @@ const guardar = () => {
                         </div>
                     </div>
 
-                    <div class="space-y-3">
-                        <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
-                            <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
-                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Promoción</span>
-                        </div>
-
-                        <label class="flex items-center p-3 border border-amber-200 rounded-lg cursor-pointer hover:bg-amber-50 transition-colors" :class="{'bg-amber-50 border-amber-400': formulario.promocion_activa}">
-                            <input type="checkbox" v-model="formulario.promocion_activa" class="w-4 h-4 text-amber-600 rounded border-slate-300">
-                            <div class="ml-3">
-                                <span class="block text-xs font-bold text-amber-700">Activar Promoción</span>
-                                <span class="block text-[10px] text-amber-600">Badge y precio rebajado en tienda pública.</span>
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
+                                <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Stock y extras</span>
                             </div>
-                        </label>
-
-                        <template v-if="formulario.promocion_activa">
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Precio Promocional ($)</label>
-                                    <input v-model="formulario.precio_promocion" type="number" step="0.01" :max="formulario.precio_venta" class="w-full bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.precio_promocion}">
-                                    <p v-if="formulario.errors.precio_promocion" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.precio_promocion }}</p>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Etiqueta</label>
-                                    <select v-model="formulario.etiqueta_promocion" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
-                                        <option value="🔥 Promoción">🔥 Promoción</option>
-                                        <option value="⚡ Oferta especial">⚡ Oferta especial</option>
-                                        <option value="💰 Ahorrá hoy">💰 Ahorrá hoy</option>
-                                        <option value="🏆 Oferta única">🏆 Oferta única</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Válido hasta</label>
-                                    <input v-model="formulario.promocion_fin" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
-                                </div>
-                            </div>
-
-                            <div v-if="formulario.precio_promocion && formulario.precio_venta" class="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">
-                                <span class="text-[10px] font-bold text-emerald-700">
-                                    Ahorro: {{ formatearDinero(parseFloat(formulario.precio_venta) - parseFloat(formulario.precio_promocion)) }}
-                                    ({{ ((1 - formulario.precio_promocion / formulario.precio_venta) * 100).toFixed(1) }}% OFF)
-                                </span>
-                            </div>
-                        </template>
-                    </div>
-
-                    <div class="space-y-3">
-                        <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
-                            <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Stock y extras</span>
-                        </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
                             <div class="col-span-1 sm:col-span-4">

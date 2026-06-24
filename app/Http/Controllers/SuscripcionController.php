@@ -53,8 +53,6 @@ class SuscripcionController extends Controller
 
             $comercio->update(['pending_plan_id' => $plan->id]);
 
-            $baseUrl = config('app.url');
-
             $checkoutRequest = new CheckoutRequest(
                 referenceId: (string) $comercio->id,
                 amount: (float) $plan->precio_mensual,
@@ -67,9 +65,9 @@ class SuscripcionController extends Controller
                     'unit_price' => (float) $plan->precio_mensual,
                     'currency_id' => 'ARS',
                 ]],
-                successUrl: "{$baseUrl}/mi-plan?pago=exito&plan_id={$plan->id}",
-                failureUrl: "{$baseUrl}/mi-plan?pago=error",
-                pendingUrl: "{$baseUrl}/mi-plan?pago=pendiente",
+                successUrl: route('suscripcion.mi-plan', ['pago' => 'exito', 'plan_id' => $plan->id]),
+                failureUrl: route('suscripcion.mi-plan', ['pago' => 'error']),
+                pendingUrl: route('suscripcion.mi-plan', ['pago' => 'pendiente']),
                 notificationUrl: url('/api/mercadopago/notificacion?tipo=plan'),
             );
 

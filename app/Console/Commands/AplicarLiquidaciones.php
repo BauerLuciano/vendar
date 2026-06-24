@@ -2,17 +2,20 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
+use App\Models\GlobalProduct;
 use App\Models\Lote;
 use App\Models\Producto;
+use App\Models\Promotion;
 use App\Models\ReglaLiquidacion;
+use App\Models\Sucursal;
 use Carbon\Carbon;
+use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 class AplicarLiquidaciones extends Command
 {
     protected $signature = 'inventario:liquidar-lotes';
-    protected $description = 'Revisa lotes por vencer y les activa el estado de liquidación preventiva + promociones automáticas';
+    protected $description = 'Revisa lotes por vencer y les activa promociones por liquidación';
 
     public function handle()
     {
@@ -26,9 +29,9 @@ class AplicarLiquidaciones extends Command
         }
 
         $lotesAfectados = 0;
-        $promosAfectadas = 0;
+        $promosCreadas = 0;
 
-        DB::transaction(function () use ($reglasActivas, &$lotesAfectados, &$promosAfectadas) {
+        DB::transaction(function () use ($reglasActivas, &$lotesAfectados, &$promosCreadas) {
             foreach ($reglasActivas as $regla) {
                 $fechaGatillo = Carbon::now()->addDays($regla->dias_anticipacion);
 
@@ -50,21 +53,44 @@ class AplicarLiquidaciones extends Command
 
                 if ($lotesRegla > 0) {
                     $producto = Producto::find($regla->producto_id);
-                    if ($producto && $producto->promocion_tipo !== 'manual') {
-                        $precioPromo = round($producto->precio_venta * (1 - $regla->porcentaje_descuento / 100), 2);
-                        $producto->update([
-                            'precio_promocion' => $precioPromo,
-                            'promocion_activa' => true,
-                            'etiqueta_promocion' => '🔥 Promoción',
-                            'promocion_tipo' => 'vencimiento',
-                            'promocion_fin' => $fechaGatillo,
-                        ]);
-                        $promosAfectadas++;
-                    }
+                    if (!$producto) continue;
+
+                    $gp = GlobalProduct::where('codigo_barras', $producto->codigo_barras)->first();
+                    if (!$gp) continue;
+
+                    $sucursal = $producto->sucursales()->first();
+                    $comercioId = $sucursal?->comercio_id;
+                    if (!$comercioId) continue;
+
+                    $existing = Promotion::where('name', "Liquidación - {$producto->nombre}")
+                        ->where('comercio_id', $comercioId)
+                        ->where('type', 'MANUAL')
+                        ->where('active', true)
+                        ->first();
+
+                    if ($existing) continue;
+
+                    $promo = Promotion::create([
+                        'comercio_id'    => $comercioId,
+                        'name'           => "Liquidación - {$producto->nombre}",
+                        'description'    => "Liquidación automática por vencimiento de lote (Regla: {$regla->id})",
+                        'type'           => 'MANUAL',
+                        'discount_type'  => 'percent',
+                        'value'          => $regla->porcentaje_descuento,
+                        'starts_at'      => now(),
+                        'ends_at'        => $fechaGatillo,
+                        'active'         => true,
+                        'priority'       => 100,
+                        'exclusive'      => false,
+                        'cumulative'     => false,
+                    ]);
+
+                    $promo->products()->syncWithoutDetaching([$gp->id]);
+                    $promosCreadas++;
                 }
             }
         });
 
-        $this->info("Proceso terminado. Lotes en liquidación: {$lotesAfectados}. Promociones activadas: {$promosAfectadas}.");
+        $this->info("Proceso terminado. Lotes en liquidación: {$lotesAfectados}. Promociones creadas: {$promosCreadas}.");
     }
 }

@@ -6,11 +6,16 @@ use App\Models\Categoria;
 use App\Models\Comercio;
 use App\Models\Producto;
 use App\Models\Sucursal;
+use App\Services\Promotion\PromotionEngineService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class TiendaController extends Controller
 {
+    public function __construct(
+        private readonly PromotionEngineService $engine,
+    ) {}
+
     public function __invoke($slug)
     {
         $comercio = Comercio::where('slug', $slug)->firstOrFail();
@@ -68,6 +73,7 @@ class TiendaController extends Controller
             ]);
         }
 
+        $comercioId = $sucursal->comercio_id;
         $perPage = (int) $request->input('per_page', 200);
         $busqueda = $request->input('busqueda');
         $categoriaId = $request->input('categoria_id');
@@ -77,6 +83,7 @@ class TiendaController extends Controller
         $query = $sucursal->productos()
             ->with('categoria')
             ->with('marca')
+            ->with('globalProduct')
             ->where('productos.estado', true);
 
         if ($busqueda) {
@@ -94,33 +101,48 @@ class TiendaController extends Controller
 
         $productos = $query->paginate(min($perPage, 200), ['*'], 'page', (int) $request->input('page', 1));
 
-        $mapped = collect($productos->items())->map(function ($prod) {
+        $results = $this->engine->forProducts(
+            collect($productos->items()),
+            $comercioId,
+        );
+
+        $resultByProductoId = [];
+        foreach ($results as $r) {
+            $resultByProductoId[$r['producto']->id] = $r['promotion_result'];
+        }
+
+        $mapped = collect($productos->items())->map(function ($prod) use ($resultByProductoId) {
             $pivot = $prod->pivot;
             $cantidad_fisica = $pivot?->cantidad_fisica ?? 0;
             $cantidad_reservada = $pivot?->cantidad_reservada ?? 0;
             $stock_disponible = max(0, $cantidad_fisica - $cantidad_reservada);
 
-            $enPromocion = $prod->promocion_activa && $prod->precio_promocion !== null;
+            $promoResult = $resultByProductoId[$prod->id] ?? null;
+            $promo = $promoResult?->bestPromotion;
 
             return [
-                'id'                => $prod->id,
-                'nombre'            => $prod->nombre,
-                'descripcion'       => $prod->descripcion,
-                'categoria_id'      => $prod->categoria_id,
-                'categoria'         => $prod->categoria
+                'id'           => $prod->id,
+                'nombre'       => $prod->nombre,
+                'descripcion'  => $prod->descripcion,
+                'categoria_id' => $prod->categoria_id,
+                'categoria'    => $prod->categoria
                     ? ['id' => $prod->categoria->id, 'nombre' => $prod->categoria->nombreCategoria]
                     : null,
-                'marca'             => $prod->marca ? ['id' => $prod->marca->id, 'nombre' => $prod->marca->nombre] : null,
-                'precio'            => $prod->precio_venta,
-                'precio_promocion'  => $prod->precio_promocion,
-                'promocion_activa'  => $prod->promocion_activa,
-                'etiqueta_promocion' => $prod->etiqueta_promocion,
-                'ahorro'            => $enPromocion ? round($prod->precio_venta - $prod->precio_promocion, 2) : null,
-                'porcentaje_ahorro' => $enPromocion && $prod->precio_venta > 0
-                    ? round((1 - $prod->precio_promocion / $prod->precio_venta) * 100, 1)
-                    : null,
-                'imagen_url'        => $prod->url_imagen,
-                'stock'             => $stock_disponible,
+                'marca'       => $prod->marca ? ['id' => $prod->marca->id, 'nombre' => $prod->marca->nombre] : null,
+                'precio'      => (float) $prod->precio_venta,
+                'imagen_url'  => $prod->url_imagen,
+                'stock'       => $stock_disponible,
+                'promotion'   => $promo ? [
+                    'active'           => true,
+                    'label'            => $promo->discountLabel ?? 'Promoción',
+                    'original_price'   => $promo->originalPrice,
+                    'final_price'      => $promo->finalPrice,
+                    'discount_amount'  => $promo->discountAmount,
+                    'discount_percent' => $promo->originalPrice > 0
+                        ? round(($promo->discountAmount / $promo->originalPrice) * 100)
+                        : null,
+                    'ends_at'          => $promo->promotion->endsAt,
+                ] : null,
             ];
         });
 
@@ -151,30 +173,44 @@ class TiendaController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $productos = $sucursal->productos()
-            ->where('productos.estado', true)
-            ->where('productos.promocion_activa', true)
-            ->whereNotNull('productos.precio_promocion')
-            ->whereColumn('productos.precio_promocion', '<', 'productos.precio_venta')
-            ->limit(10)
-            ->get()
-            ->map(function ($prod) {
-                $enPromocion = $prod->promocion_activa && $prod->precio_promocion !== null;
-                return [
-                    'id'                => $prod->id,
-                    'nombre'            => $prod->nombre,
-                    'precio'            => $prod->precio_venta,
-                    'precio_promocion'  => $prod->precio_promocion,
-                    'etiqueta_promocion'=> $prod->etiqueta_promocion,
-                    'ahorro'            => $enPromocion ? round($prod->precio_venta - $prod->precio_promocion, 2) : null,
-                    'porcentaje_ahorro' => $enPromocion && $prod->precio_venta > 0
-                        ? round((1 - $prod->precio_promocion / $prod->precio_venta) * 100, 1)
-                        : null,
-                    'imagen_url'        => $prod->url_imagen,
-                    'categoria'         => $prod->categoria?->nombreCategoria,
-                ];
-            });
+        $comercioId = $sucursal->comercio_id;
 
-        return response()->json(['data' => $productos]);
+        $productos = $sucursal->productos()
+            ->with('categoria')
+            ->with('globalProduct')
+            ->where('productos.estado', true)
+            ->limit(20)
+            ->get();
+
+        $results = $this->engine->forProducts($productos, $comercioId);
+
+        $mapped = collect();
+        foreach ($results as $r) {
+            $promoResult = $r['promotion_result'];
+            $promo = $promoResult->bestPromotion;
+            if ($promo === null) continue;
+
+            $prod = $r['producto'];
+            $mapped->push([
+                'id'                => $prod->id,
+                'nombre'            => $prod->nombre,
+                'precio'            => (float) $prod->precio_venta,
+                'imagen_url'        => $prod->url_imagen,
+                'categoria'         => $prod->categoria?->nombreCategoria,
+                'promotion' => [
+                    'active'           => true,
+                    'label'            => $promo->discountLabel ?? 'Promoción',
+                    'original_price'   => $promo->originalPrice,
+                    'final_price'      => $promo->finalPrice,
+                    'discount_amount'  => $promo->discountAmount,
+                    'discount_percent' => $promo->originalPrice > 0
+                        ? round(($promo->discountAmount / $promo->originalPrice) * 100)
+                        : null,
+                    'ends_at'          => $promo->promotion->endsAt,
+                ],
+            ]);
+        }
+
+        return response()->json(['data' => $mapped->values()->all()]);
     }
 }

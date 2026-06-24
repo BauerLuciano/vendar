@@ -144,15 +144,15 @@ onUnmounted(() => {
                             class="absolute top-2 left-2 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-lg z-10"
                             style="background: linear-gradient(135deg, #f7941e, #ff6b35); color: #fff;"
                         >
-                            {{ p.etiqueta_promocion || '🔥 Promoción' }}
+                            {{ p.promotion?.label || '🔥 Promoción' }}
                         </div>
                         <div
-                            v-if="p.porcentaje_ahorro"
+                            v-if="p.promotion?.discount_percent"
                             class="absolute top-2 right-2 z-10 flex flex-col items-center justify-center rounded-xl font-black leading-none shadow-lg"
                             style="background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; min-width: 52px; padding: 6px 8px;"
                         >
                             <span class="text-[11px] opacity-80">-</span>
-                            <span class="text-lg">{{ p.porcentaje_ahorro }}%</span>
+                            <span class="text-lg">{{ p.promotion.discount_percent }}%</span>
                             <span class="text-[8px] uppercase tracking-wider font-bold" style="background: rgba(255,255,255,0.2); border-radius: 3px; padding: 1px 6px; margin-top: 1px;">OFF</span>
                         </div>
                     </div>
@@ -162,13 +162,13 @@ onUnmounted(() => {
                         </h3>
 
                         <div class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mb-1">
-                            <span class="text-base font-black tracking-tight" style="color: #f7941e;">{{ formatearDinero(p.precio_promocion) }}</span>
+                            <span class="text-base font-black tracking-tight" style="color: #f7941e;">{{ formatearDinero(p.promotion?.final_price) }}</span>
                             <span class="text-[10px] line-through" :style="{ color: 'var(--text-muted)' }">{{ formatearDinero(p.precio) }}</span>
                         </div>
 
-                        <p v-if="p.ahorro && p.ahorro > 0" class="text-[10px] font-bold flex items-center gap-1" style="color: #22c55e;">
+                        <p v-if="p.promotion?.discount_amount && p.promotion.discount_amount > 0" class="text-[10px] font-bold flex items-center gap-1" style="color: #22c55e;">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            Ahorrás {{ formatearDinero(p.ahorro) }}
+                            Ahorrás {{ formatearDinero(p.promotion.discount_amount) }}
                         </p>
 
                         <button

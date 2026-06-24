@@ -49,7 +49,9 @@ const confirmarUpgrade = async (planId, paymentId) => {
         });
         if (response.data?.status === 'ok' || response.data?.status === 'already_upgraded') {
             estadoPago.value = 'aprobado';
-            setTimeout(() => window.location.reload(), 1500);
+            setTimeout(() => {
+                window.location.href = window.location.pathname;
+            }, 1500);
         }
     } catch {
         // Si falla, el webhook lo procesará. Empezamos polling.
@@ -67,7 +69,9 @@ const iniciarPolling = (planId) => {
                 clearInterval(polling.value);
                 polling.value = null;
                 estadoPago.value = 'aprobado';
-                setTimeout(() => window.location.reload(), 1000);
+                setTimeout(() => {
+                    window.location.href = window.location.pathname;
+                }, 1000);
             }
         } catch {
             // silent
@@ -131,16 +135,15 @@ onUnmounted(() => {
                     <p class="text-sm mt-1">Estamos verificando tu pago con Mercado Pago. Tu plan se actualizará en segundos.</p>
                 </div>
                 <div v-if="estadoPago === 'aprobado'" class="mx-4 sm:mx-0 mb-8 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">¡Pago confirmado!</p>
-                    <p class="text-sm mt-1">Tu plan se actualizó correctamente. Recargando...</p>
+                    <p class="font-bold text-lg">¡Plan actualizado correctamente!</p>
+                    <p class="text-sm mt-1">Recargando...</p>
                 </div>
                 <div v-if="estadoPago === 'error'" class="mx-4 sm:mx-0 mb-8 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">El pago no pudo completarse</p>
+                    <p class="font-bold text-lg">El pago fue rechazado.</p>
                     <p class="text-sm mt-1">Intentá nuevamente o contactanos si el problema persiste.</p>
                 </div>
                 <div v-if="estadoPago === 'pendiente'" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">Pago pendiente</p>
-                    <p class="text-sm mt-1">Completá el pago en Mercado Pago para activar tu nuevo plan.</p>
+                    <p class="font-bold text-lg">Estamos esperando la confirmación del pago.</p>
                 </div>
                 <div v-if="estadoPago === 'timeout'" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
                     <p class="font-bold text-lg">Estamos procesando tu pago</p>

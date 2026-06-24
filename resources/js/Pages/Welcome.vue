@@ -129,7 +129,7 @@ const productCounts = computed(() => ({
 
 const productosFiltrados = computed(() => {
     if (filtroPromosOnly.value) {
-        return productos.value.filter(p => p.promocion_activa);
+        return productos.value.filter(p => p.promotion);
     }
     return productos.value;
 });
@@ -140,8 +140,8 @@ const agregarAlCarrito = (producto) => {
         return;
     }
     const precioLimpio = parsearPrecio(
-        producto.promocion_activa && producto.precio_promocion
-            ? producto.precio_promocion
+        producto.promotion
+            ? producto.promotion.final_price
             : producto.precio
     );
     const existe = carrito.value.find(item => item.id === producto.id);
