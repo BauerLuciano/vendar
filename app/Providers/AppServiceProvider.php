@@ -17,6 +17,10 @@ use App\Services\Promotion\PromotionRuleService;
 use App\Services\Promotion\PromotionEngineService;
 use App\Services\Promotion\PromotionConflictResolver;
 use App\Services\Promotion\Contracts\PromotionRuleEvaluator;
+use App\Models\Promotion;
+use App\Models\StoreConfig;
+use App\Observers\PromotionObserver;
+use App\Observers\StoreConfigObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -87,6 +91,9 @@ class AppServiceProvider extends ServiceProvider
             Logout::class,
             [LogAuthenticationActivity::class, 'handleLogout']
         );
+
+        Promotion::observe(PromotionObserver::class);
+        StoreConfig::observe(StoreConfigObserver::class);
 
         Activity::saving(function (Activity $activity) {
             $props = $activity->properties ?? collect();

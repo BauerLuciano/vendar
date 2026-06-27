@@ -1,6 +1,8 @@
 <script setup>
 import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import axios from 'axios';
+import BaseSkeleton from '@/Components/UI/BaseSkeleton.vue';
+import BaseBadge from '@/Components/UI/BaseBadge.vue';
 
 const props = defineProps({
     sucursalId: [String, Number],
@@ -88,12 +90,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div id="promo-section" v-if="promos.length > 0" class="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6">
+    <div id="promo-section" v-if="promos.length > 0 || cargando" class="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-black" style="background: linear-gradient(135deg, #f7941e, #ff6b35); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
                 🔥 Ofertas destacadas
             </h2>
             <button
+                v-if="!cargando"
                 @click="$emit('ver-todas')"
                 class="text-[11px] font-bold flex items-center gap-1 transition-all duration-200 hover:gap-1.5"
                 style="color: #f7941e;"
@@ -103,7 +106,18 @@ onUnmounted(() => {
             </button>
         </div>
 
-        <div class="relative">
+        <div v-if="cargando" class="flex gap-3 overflow-x-hidden flex-nowrap">
+            <div v-for="n in 5" :key="n" class="shrink-0 w-[82vw] sm:w-[44vw] md:w-[30vw] lg:w-[19%] xl:w-[16%] border rounded-2xl overflow-hidden" :style="{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }">
+                <BaseSkeleton width="100%" height="192px" rounded="0" />
+                <div class="p-3 space-y-2">
+                    <BaseSkeleton width="75%" height="12px" rounded="4px" />
+                    <BaseSkeleton width="50%" height="20px" rounded="4px" />
+                    <BaseSkeleton width="100%" height="36px" rounded="10px" />
+                </div>
+            </div>
+        </div>
+
+        <div v-if="!cargando" class="relative">
             <button
                 v-if="showNav && canScrollLeft"
                 @click="scrollLeft"
@@ -134,12 +148,16 @@ onUnmounted(() => {
                     :style="{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }"
                     @click="emit('detail', p)"
                 >
-                    <div class="relative h-40 sm:h-44 md:h-48 flex items-center justify-center p-3 overflow-hidden" :style="{ backgroundColor: 'var(--bg-image)' }">
+                    <div class="relative flex items-center justify-center p-3 overflow-hidden" :style="{ backgroundColor: 'var(--bg-image)', aspectRatio: '4 / 3' }">
                         <img
                             :src="p.imagen_url || '/img/LogoVendar-Sidebar.png'"
                             :alt="p.nombre"
+                            loading="lazy"
                             class="max-h-full max-w-full object-contain promo-card-img transition-transform duration-500"
                         >
+                        <div v-if="p.stock <= 0" class="absolute inset-0 flex items-center justify-center z-10" style="background: rgba(0,0,0,0.45);">
+                            <BaseBadge variant="danger">Sin stock</BaseBadge>
+                        </div>
                         <div
                             class="absolute top-2 left-2 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-lg z-10"
                             style="background: linear-gradient(135deg, #f7941e, #ff6b35); color: #fff;"
@@ -147,7 +165,7 @@ onUnmounted(() => {
                             {{ p.promotion?.label || '🔥 Promoción' }}
                         </div>
                         <div
-                            v-if="p.promotion?.discount_percent"
+                            v-if="p.promotion?.discount_percent && p.stock > 0"
                             class="absolute top-2 right-2 z-10 flex flex-col items-center justify-center rounded-xl font-black leading-none shadow-lg"
                             style="background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; min-width: 52px; padding: 6px 8px;"
                         >
@@ -173,17 +191,20 @@ onUnmounted(() => {
 
                         <button
                             @click.stop="emit('agregar', p)"
+                            :disabled="p.stock <= 0"
                             class="btn-add-promo mt-2 w-full font-black text-[10px] uppercase tracking-widest py-2.5 rounded-xl border transition-all duration-200 active:scale-95"
+                            :class="p.stock <= 0 ? 'opacity-50 cursor-not-allowed' : ''"
                             style="background: linear-gradient(135deg, #f7941e, #ff6b35); color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(247, 148, 30, 0.25);"
                         >
-                            + Agregar
+                            <template v-if="p.stock <= 0">Sin Stock</template>
+                            <template v-else>+ Agregar</template>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div v-if="showNav" class="flex items-center justify-center gap-2 mt-3">
+        <div v-if="!cargando && showNav" class="flex items-center justify-center gap-2 mt-3">
             <button
                 v-for="dot in totalDots"
                 :key="dot"

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, reactive } from 'vue';
+import { ref, watch, reactive, computed } from 'vue';
 import { router, Head } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2'; 
@@ -139,6 +139,10 @@ const abrirDetalles = (orden) => {
     ordenSeleccionada.value = orden;
     showModal.value = true;
 };
+
+const tieneVencimiento = computed(() =>
+    ordenSeleccionada.value?.detalles?.some(d => d.fecha_vencimiento) ?? false
+);
 
 const cerrarModal = () => {
     showModal.value = false;
@@ -350,6 +354,7 @@ const badgeClases = (estado) => {
                                         <th class="py-3 px-4 text-[10px] font-black uppercase text-slate-500">Producto</th>
                                         <th class="py-3 px-4 text-[10px] font-black uppercase text-center text-slate-500">Cant.</th>
                                         <th class="py-3 px-4 text-[10px] font-black uppercase text-right text-slate-500">Costo</th>
+                                        <th v-if="tieneVencimiento" class="py-3 px-4 text-[10px] font-black uppercase text-center text-slate-500">Vence</th>
                                         <th class="py-3 px-4 text-[10px] font-black uppercase text-right text-slate-500">Subtotal</th>
                                     </tr>
                                 </thead>
@@ -360,6 +365,10 @@ const badgeClases = (estado) => {
                                             <span class="bg-sky-100 text-sky-700 px-2 py-1 rounded-lg font-black text-sm">{{ detalle.cantidad_pedida }}</span>
                                         </td>
                                         <td class="py-3 px-4 text-right text-slate-500 font-medium">{{ formatearDinero(detalle.costo_unitario_estimado) }}</td>
+                                        <td v-if="tieneVencimiento" class="py-3 px-4 text-center">
+                                            <span v-if="detalle.fecha_vencimiento" class="bg-amber-100 text-amber-700 px-2 py-1 rounded-lg text-[11px] font-bold">{{ formatearFecha(detalle.fecha_vencimiento) }}</span>
+                                            <span v-else class="text-slate-300 text-xs">—</span>
+                                        </td>
                                         <td class="py-3 px-4 text-right font-black text-slate-800">{{ formatearDinero(detalle.subtotal_estimado) }}</td>
                                     </tr>
                                 </tbody>

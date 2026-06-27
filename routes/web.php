@@ -57,8 +57,13 @@ Route::get('/pending-approval', function () {
     return Inertia::render('PendingApproval');
 })->name('pending.approval');
 
-Route::get('/api/catalogo/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'catalogo']);
-Route::get('/api/promociones/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'promociones']);
+Route::get('/api/catalogo/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'catalogo'])
+    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
+Route::get('/api/promociones/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'promociones'])
+    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
+Route::post('/configuracion/storefront/reset', [\App\Http\Controllers\StorefrontConfigController::class, 'reset'])
+    ->name('configuracion.storefront.reset')
+    ->middleware(['auth', 'verified']);
 
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
@@ -110,6 +115,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 
     Route::get('/reportes', [ReporteController::class, 'index'])->name('reportes.index');
     Route::get('/reportes/pdf', [ReporteController::class, 'pdf'])->name('reportes.pdf');
+    Route::get('/reportes/rotacion', [ReporteController::class, 'rotacion'])->name('reportes.rotacion');
 
     Route::get('/cajas', [CajaController::class, 'index'])->name('cajas.index');
     Route::post('/cajas', [CajaController::class, 'store'])->name('cajas.store');
@@ -218,6 +224,9 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
     Route::get('/productos/buscar-por-codigo/{codigo}', [ProductoController::class, 'buscarPorCodigo'])->name('productos.buscar-codigo');
     Route::post('/productos/{producto}/ajuste-stock', [ProductoController::class, 'ajustarStock'])->name('productos.ajustar');
+    Route::get('/productos/exportar', [ProductoController::class, 'exportar'])->name('productos.exportar');
+    Route::get('/productos/pdf', [ProductoController::class, 'pdf'])->name('productos.pdf');
+    Route::post('/productos/importar', [ProductoController::class, 'importar'])->name('productos.importar');
 
     // ------------------------------------------------------------------
     // PROMOCIONES
@@ -283,6 +292,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::post('/configuracion', [ConfiguracionController::class, 'update'])->name('configuracion.update');
     Route::post('/configuracion/metodo-pago', [ConfiguracionController::class, 'storePaymentMethodConfig'])->name('configuracion.metodo-pago.store');
     Route::delete('/configuracion/metodo-pago/{paymentMethodConfiguration}', [ConfiguracionController::class, 'destroyPaymentMethodConfig'])->name('configuracion.metodo-pago.destroy');
+    Route::post('/configuracion/storefront', [\App\Http\Controllers\StorefrontConfigController::class, 'update'])->name('configuracion.storefront.update');
 });
 
 // ==================================================================

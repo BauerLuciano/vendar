@@ -10,6 +10,7 @@ use App\Services\Promotion\DTOs\AppliedPromotion;
 use App\Services\Promotion\DTOs\PromotionData;
 use App\Services\Promotion\DTOs\PromotionResult;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class PromotionEngineService
@@ -117,22 +118,30 @@ class PromotionEngineService
 
     private function getAllActiveManualPromotions(?int $comercioId): Collection
     {
-        return Promotion::with('products')
-            ->active()
-            ->where('type', 'MANUAL')
-            ->ofComercio($comercioId)
-            ->orderByDesc('priority')
-            ->get();
+        $suffix = $comercioId === null ? 'global' : $comercioId;
+
+        return Cache::remember("promotions_manual_{$suffix}", 3600, function () use ($comercioId) {
+            return Promotion::with('products')
+                ->active()
+                ->where('type', 'MANUAL')
+                ->ofComercio($comercioId)
+                ->orderByDesc('priority')
+                ->get();
+        });
     }
 
     private function getAllActiveAutoPromotions(?int $comercioId): Collection
     {
-        return Promotion::with('rules')
-            ->active()
-            ->where('type', 'AUTO')
-            ->ofComercio($comercioId)
-            ->orderByDesc('priority')
-            ->get();
+        $suffix = $comercioId === null ? 'global' : $comercioId;
+
+        return Cache::remember("promotions_auto_{$suffix}", 3600, function () use ($comercioId) {
+            return Promotion::with('rules')
+                ->active()
+                ->where('type', 'AUTO')
+                ->ofComercio($comercioId)
+                ->orderByDesc('priority')
+                ->get();
+        });
     }
 
     private function getActiveManualPromotions(Producto $producto, ?int $comercioId): Collection

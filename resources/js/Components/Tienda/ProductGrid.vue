@@ -18,6 +18,12 @@ const emit = defineEmits(['agregar', 'detail', 'sort-change', 'page-change']);
 
 <template>
     <main class="flex-grow relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 pb-24">
+        <nav v-if="sucursalElegida && (categoriaSeleccionada !== 'todas' || busqueda)" class="flex items-center gap-1.5 text-[10px] font-bold mb-3" :style="{ color: 'var(--text-muted)' }">
+            <a :href="`/tienda/${$page.props.tienda_slug || ''}`" class="hover:underline transition-colors" :style="{ color: 'var(--color-accent)' }">Inicio</a>
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            <span v-if="categoriaSeleccionada !== 'todas'">{{ categorias?.find(c => c.id == categoriaSeleccionada)?.nombre || 'Categoría' }}</span>
+            <span v-else-if="busqueda">Resultados: "{{ busqueda }}"</span>
+        </nav>
         <div class="flex items-center justify-between mb-5" v-if="sucursalElegida">
             <div>
                 <h2 class="text-base font-black uppercase tracking-tight transition-colors" :style="{ color: 'var(--text-primary)' }">

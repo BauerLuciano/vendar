@@ -1,6 +1,6 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, useForm, usePage } from '@inertiajs/vue3';
+import { Head, useForm, usePage, router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import Swal from 'sweetalert2';
 
@@ -9,6 +9,7 @@ const props = defineProps({
     comercio: Object,
     paymentMethodConfigs: Array,
     metodoPagoOptions: Array,
+    storeConfig: Object,
 });
 
 const tabActiva = ref('general');
@@ -117,6 +118,47 @@ function eliminarPmc(pmc) {
     });
 }
 
+const showAdvanced = ref(false);
+
+const storefrontForm = useForm({
+    theme: { ...(props.storeConfig?.theme || {}) },
+    sections: { ...(props.storeConfig?.sections || {}) },
+    seo: { ...(props.storeConfig?.seo || {}) },
+    content: { ...(props.storeConfig?.content || {}) },
+});
+
+function guardarStorefront() {
+    storefrontForm.post(route('configuracion.storefront.update'), {
+        preserveScroll: true,
+        onSuccess: () => {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Configuración de tienda guardada', showConfirmButton: false, timer: 2000 });
+        },
+    });
+}
+
+function resetColors() {
+    Swal.fire({
+        title: '¿Restablecer colores?',
+        text: 'Los colores volverán a los valores originales de fábrica.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, restablecer',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#ef4444',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.post(route('configuracion.storefront.reset'), {}, {
+                preserveScroll: true,
+                onSuccess: () => {
+                    storefrontForm.defaults('theme', { ...(window.defaultStoreTheme || {}) });
+                    storefrontForm.reset('theme');
+                    Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Colores restablecidos', showConfirmButton: false, timer: 2000 });
+                },
+            });
+        }
+    });
+}
+
 const guardarConfiguracion = () => {
     form.transform((data) => ({
         ...data,
@@ -175,6 +217,10 @@ const guardarConfiguracion = () => {
                             <button @click="tabActiva = 'metodos_pago_pos'" :class="tabActiva === 'metodos_pago_pos' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                                 POS - Medios de Pago
+                            </button>
+                            <button @click="tabActiva = 'storefront'" :class="tabActiva === 'storefront' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                Storefront
                             </button>
                         </nav>
                     </div>
@@ -496,7 +542,284 @@ const guardarConfiguracion = () => {
                             </div>
                         </div>
 
-                        <form @submit.prevent="guardarConfiguracion" class="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                        <div v-show="tabActiva === 'storefront'" class="p-8">
+                            <form @submit.prevent="guardarStorefront">
+                                <div class="mb-8">
+                                    <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Personalizá tu tienda</h2>
+
+                                    <div class="max-w-lg space-y-5">
+                                        <div>
+                                            <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Color principal</label>
+                                            <p class="text-xs text-slate-400 mb-2">Se usa en botones, ofertas y banners</p>
+                                            <div class="flex gap-2">
+                                                <input v-model="storefrontForm.theme.primary_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer shrink-0">
+                                                <input v-model="storefrontForm.theme.primary_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Color de fondo de la página</label>
+                                            <div class="flex gap-2">
+                                                <input v-model="storefrontForm.theme.background_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer shrink-0">
+                                                <input v-model="storefrontForm.theme.background_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Mensaje de WhatsApp</label>
+                                            <p class="text-xs text-slate-400 mb-2">Texto que se envía cuando alguien hace clic en WhatsApp</p>
+                                            <input v-model="storefrontForm.sections.whatsapp.greeting" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-8">
+                                    <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Secciones</h2>
+
+                                    <div class="space-y-6">
+                                        <div class="border border-slate-200 rounded-2xl p-5">
+                                            <label class="flex items-center gap-3 mb-4 cursor-pointer">
+                                                <input v-model="storefrontForm.sections.hero.enabled" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                <span class="font-bold text-slate-800 text-lg">Portada</span>
+                                            </label>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Título</label>
+                                                    <input v-model="storefrontForm.sections.hero.title" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Subtítulo</label>
+                                                    <input v-model="storefrontForm.sections.hero.subtitle" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Texto del Botón</label>
+                                                    <input v-model="storefrontForm.sections.hero.button_text" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Enlace del botón</label>
+                                                    <input v-model="storefrontForm.sections.hero.button_url" type="text" placeholder="#productos" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Color de Fondo</label>
+                                                    <div class="flex gap-2">
+                                                        <input v-model="storefrontForm.sections.hero.background_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer">
+                                                        <input v-model="storefrontForm.sections.hero.background_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Color del Botón</label>
+                                                    <div class="flex gap-2">
+                                                        <input v-model="storefrontForm.sections.hero.button_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer">
+                                                        <input v-model="storefrontForm.sections.hero.button_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Dirección de la imagen</label>
+                                                    <input v-model="storefrontForm.sections.hero.image_url" type="text" placeholder="https://..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="border border-slate-200 rounded-2xl p-5">
+                                            <label class="flex items-center gap-3 mb-4 cursor-pointer">
+                                                <input v-model="storefrontForm.sections.categories.enabled" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                <span class="font-bold text-slate-800 text-lg">Categorías</span>
+                                            </label>
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Título</label>
+                                                    <input v-model="storefrontForm.sections.categories.title" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Vista</label>
+                                                    <select v-model="storefrontForm.sections.categories.layout" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                        <option value="grid">Grilla</option>
+                                                        <option value="list">Lista</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Columnas</label>
+                                                    <select v-model="storefrontForm.sections.categories.columns" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                        <option :value="2">2</option>
+                                                        <option :value="3">3</option>
+                                                        <option :value="4">4</option>
+                                                        <option :value="6">6</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="border border-slate-200 rounded-2xl p-5">
+                                            <span class="font-bold text-slate-800 text-lg block mb-4">Productos Destacados</span>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Título</label>
+                                                    <input v-model="storefrontForm.sections.products.title" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Columnas</label>
+                                                    <select v-model="storefrontForm.sections.products.columns" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                        <option :value="2">2</option>
+                                                        <option :value="3">3</option>
+                                                        <option :value="4">4</option>
+                                                        <option :value="6">6</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-4 mt-4">
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input v-model="storefrontForm.sections.products.show_prices" type="checkbox" class="w-4 h-4 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                    <span class="text-sm font-medium text-slate-700">Mostrar precios</span>
+                                                </label>
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input v-model="storefrontForm.sections.products.show_discounts" type="checkbox" class="w-4 h-4 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                    <span class="text-sm font-medium text-slate-700">Mostrar descuentos</span>
+                                                </label>
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input v-model="storefrontForm.sections.products.show_add_to_cart" type="checkbox" class="w-4 h-4 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                    <span class="text-sm font-medium text-slate-700">Botón agregar al carrito</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="border border-slate-200 rounded-2xl p-5">
+                                            <label class="flex items-center gap-3 mb-4 cursor-pointer">
+                                                <input v-model="storefrontForm.sections.promotions.enabled" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                <span class="font-bold text-slate-800 text-lg">Promociones</span>
+                                            </label>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Título</label>
+                                                    <input v-model="storefrontForm.sections.promotions.title" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Forma de mostrar</label>
+                                                    <select v-model="storefrontForm.sections.promotions.layout" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                        <option value="grid">Grilla</option>
+                                                        <option value="carousel">Carrusel</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="border border-slate-200 rounded-2xl p-5">
+                                            <label class="flex items-center gap-3 mb-4 cursor-pointer">
+                                                <input v-model="storefrontForm.sections.footer.enabled" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                <span class="font-bold text-slate-800 text-lg">Pie de Página</span>
+                                            </label>
+                                            <div>
+                                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Texto</label>
+                                                <input v-model="storefrontForm.sections.footer.text" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500 mb-4">
+                                            </div>
+                                            <div class="flex flex-wrap gap-4">
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input v-model="storefrontForm.sections.footer.show_contact" type="checkbox" class="w-4 h-4 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                    <span class="text-sm font-medium text-slate-700">Mostrar contacto</span>
+                                                </label>
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input v-model="storefrontForm.sections.footer.show_social" type="checkbox" class="w-4 h-4 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                    <span class="text-sm font-medium text-slate-700">Mostrar redes sociales</span>
+                                                </label>
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input v-model="storefrontForm.sections.footer.show_payment_methods" type="checkbox" class="w-4 h-4 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                    <span class="text-sm font-medium text-slate-700">Mostrar medios de pago</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="border border-slate-200 rounded-2xl p-5">
+                                            <label class="flex items-center gap-3 mb-4 cursor-pointer">
+                                                <input v-model="storefrontForm.sections.whatsapp.enabled" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
+                                                <span class="font-bold text-slate-800 text-lg">WhatsApp</span>
+                                            </label>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Número de Teléfono</label>
+                                                    <input v-model="storefrontForm.sections.whatsapp.phone" type="text" placeholder="5491122334455" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-8 border border-slate-200 rounded-2xl overflow-hidden">
+                                    <button type="button" @click="showAdvanced = !showAdvanced" class="w-full flex items-center justify-between px-5 py-4 bg-slate-50 hover:bg-slate-100 transition-colors">
+                                        <span class="font-bold text-slate-700 text-sm uppercase tracking-widest">⚙️ Avanzado</span>
+                                        <svg class="w-5 h-5 text-slate-400 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                    </button>
+                                    <div v-show="showAdvanced" class="p-5 space-y-6">
+                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Color secundario</label>
+                                                <div class="flex gap-2">
+                                                    <input v-model="storefrontForm.theme.secondary_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer">
+                                                    <input v-model="storefrontForm.theme.secondary_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Color de texto</label>
+                                                <div class="flex gap-2">
+                                                    <input v-model="storefrontForm.theme.text_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer">
+                                                    <input v-model="storefrontForm.theme.text_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Barra superior</label>
+                                                <div class="flex gap-2">
+                                                    <input v-model="storefrontForm.theme.header_background" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer">
+                                                    <input v-model="storefrontForm.theme.header_background" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Barra inferior</label>
+                                                <div class="flex gap-2">
+                                                    <input v-model="storefrontForm.theme.footer_background" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer">
+                                                    <input v-model="storefrontForm.theme.footer_background" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Redondeo de bordes</label>
+                                                <input v-model="storefrontForm.theme.border_radius" type="text" placeholder="0.5rem" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-sky-500">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Tipografía</label>
+                                                <input v-model="storefrontForm.theme.font_family" type="text" placeholder="Inter, system-ui, sans-serif" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-sky-500">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">Qué ven Google y las redes sociales</h3>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Título para Google</label>
+                                                    <input v-model="storefrontForm.seo.meta_title" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Descripción para Google</label>
+                                                    <input v-model="storefrontForm.seo.meta_description" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Imagen al compartir en redes</label>
+                                                    <input v-model="storefrontForm.seo.og_image" type="text" placeholder="https://..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-sky-500">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                                    <button type="button" @click="resetColors" class="border border-red-200 text-red-600 hover:bg-red-50 font-bold py-3 px-6 rounded-xl transition-all text-sm">
+                                        🔄 Restablecer colores
+                                    </button>
+                                    <button type="submit" :disabled="storefrontForm.processing"
+                                        class="bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white font-black py-3 px-8 rounded-xl shadow-lg uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2"
+                                    >
+                                        {{ storefrontForm.processing ? 'Guardando...' : 'Guardar Configuración de Tienda' }}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <form v-show="tabActiva !== 'storefront'" @submit.prevent="guardarConfiguracion" class="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
                             <button type="submit" :disabled="form.processing" class="bg-slate-900 hover:bg-sky-600 disabled:bg-slate-300 text-white font-black py-3 px-8 rounded-xl shadow-lg uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2">
                                 <span v-if="form.processing">Guardando...</span>
                                 <span v-else>Guardar Ajustes</span>

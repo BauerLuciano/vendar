@@ -82,4 +82,9 @@ class Comercio extends Model
     {
         return $this->belongsTo(Plan::class, 'pending_plan_id');
     }
+
+    public function storeConfig()
+    {
+        return $this->hasOne(StoreConfig::class, 'comercio_id');
+    }
 }

@@ -25,10 +25,17 @@ const codigoBarrasInput = ref('');
 const productoSeleccionado = ref('');
 const cantidadInput = ref(1);
 const costoInput = ref(0);
-const vencimientoInput = ref(''); 
+const vencimientoInput = ref('');
+const modoRapido = ref(false);
 
-// 🔥 CONTROL DEL MODAL DE LA CÁMARA
 const mostrarEscaner = ref(false);
+
+watch(productoSeleccionado, (id) => {
+    if (id) {
+        const prod = props.productos.find(p => p.id === id);
+        if (prod) costoInput.value = prod.precio_costo || 0;
+    }
+});
 
 watch(() => props.mostrar, (val) => {
     if (val) {
@@ -171,11 +178,26 @@ const guardarIngreso = () => {
                         <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                             <h3 class="font-black text-slate-700 uppercase tracking-widest mb-3 border-b pb-2 text-xs flex justify-between items-center">
                                 Agregar Productos
-                                <span class="text-sky-600 flex items-center gap-1 text-[10px] bg-sky-50 px-2 py-1 rounded-md">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" /></svg>
-                                    Lector Activo
-                                </span>
+                                <div class="flex items-center gap-2">
+                                    <label class="flex items-center gap-1.5 cursor-pointer">
+                                        <span class="text-[10px] font-bold text-slate-400" :class="{'text-sky-600': modoRapido}">Rápido</span>
+                                        <div class="relative">
+                                            <input type="checkbox" v-model="modoRapido" class="sr-only peer">
+                                            <div class="w-8 h-4 bg-slate-200 rounded-full peer-checked:bg-sky-500 transition-colors"></div>
+                                            <div class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow peer-checked:translate-x-4 transition-transform"></div>
+                                        </div>
+                                    </label>
+                                    <span class="text-sky-600 flex items-center gap-1 text-[10px] bg-sky-50 px-2 py-1 rounded-md">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" /></svg>
+                                        Lector Activo
+                                    </span>
+                                </div>
                             </h3>
+
+                            <div v-if="modoRapido" class="mb-3 bg-sky-50 border border-sky-200 text-sky-700 text-[11px] font-bold px-3 py-2 rounded-lg flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Modo rápido: el costo se toma automáticamente del precio de costo actual del producto.
+                            </div>
                             
                             <div class="grid grid-cols-12 gap-2 items-end mb-4">
                                 <div class="col-span-12 md:col-span-4 relative">
@@ -211,7 +233,11 @@ const guardarIngreso = () => {
                                 </div>
                                 <div class="col-span-4 md:col-span-3 mt-2">
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo U. ($)</label>
-                                    <input v-model="costoInput" type="number" step="0.01" min="0" class="w-full rounded-lg border-slate-200 text-sm font-bold text-rose-700 focus:ring-sky-500">
+                                    <input v-if="!modoRapido" v-model="costoInput" type="number" step="0.01" min="0" class="w-full rounded-lg border-slate-200 text-sm font-bold text-rose-700 focus:ring-sky-500">
+                                    <div v-else class="w-full rounded-lg bg-sky-50 border border-sky-200 text-sm font-bold text-sky-700 px-3 py-2 flex items-center justify-between">
+                                        <span>${{ costoInput.toFixed(2) }}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                    </div>
                                 </div>
                                 
                                 <div class="col-span-4 md:col-span-4 mt-2">

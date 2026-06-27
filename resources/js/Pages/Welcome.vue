@@ -6,12 +6,14 @@ import Swal from 'sweetalert2';
 
 import StoreLayout from '@/Layouts/StoreLayout.vue';
 import StoreNavbar from '@/Components/Tienda/StoreNavbar.vue';
-import CategoryCarousel from '@/Components/Tienda/CategoryCarousel.vue';
-import StoreHero from '@/Components/Tienda/StoreHero.vue';
-import StoreMap from '@/Components/Tienda/StoreMap.vue';
-import ProductGrid from '@/Components/Tienda/ProductGrid.vue';
-import ProductDetailModal from '@/Components/Tienda/ProductDetailModal.vue';
-import PromoSection from '@/Components/Tienda/PromoSection.vue';
+import HeroSection from '@/Components/Sections/HeroSection.vue';
+import CategoriesSection from '@/Components/Sections/CategoriesSection.vue';
+import ProductsSection from '@/Components/Sections/ProductsSection.vue';
+import PromotionsSection from '@/Components/Sections/PromotionsSection.vue';
+import FooterSection from '@/Components/Sections/FooterSection.vue';
+import WhatsAppSection from '@/Components/Sections/WhatsAppSection.vue';
+import CartItem from '@/Components/Commerce/CartItem.vue';
+import DeliveryForm from '@/Components/Commerce/DeliveryForm.vue';
 
 const props = defineProps({
     comercio: Object,
@@ -20,6 +22,7 @@ const props = defineProps({
     tienda_slug: String,
     consumidorLogueado: Object,
     geoapifyKey: String,
+    storeConfig: Object,
 });
 
 const page = usePage();
@@ -74,6 +77,13 @@ const parsearPrecio = (valor) => {
 const formatearDinero = (monto) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
 };
+
+const sectionsList = computed(() => {
+    const sections = props.storeConfig?.sections || {};
+    return Object.entries(sections)
+        .map(([id, config]) => ({ id, ...config }))
+        .sort((a, b) => (a.order || 99) - (b.order || 99));
+});
 
 const costoDeliveryExtra = computed(() => {
     if (formPedido.tipo_entrega === 'delivery' && props.comercio) {
@@ -135,8 +145,9 @@ const productosFiltrados = computed(() => {
 });
 
 const agregarAlCarrito = (producto) => {
-    if (!estaLogueado.value) {
-        window.location.href = '/tienda/' + props.tienda_slug + '/login';
+    if (producto.stock !== undefined && producto.stock <= 0) {
+        const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 2000 });
+        Toast.fire({ icon: 'error', title: `${producto.nombre} no tiene stock`, background: 'var(--bg-elevated)', color: 'var(--text-primary)' });
         return;
     }
     const precioLimpio = parsearPrecio(
@@ -155,18 +166,16 @@ const agregarAlCarrito = (producto) => {
     Toast.fire({ icon: 'success', title: `Agregado: ${producto.nombre}`, background: 'var(--bg-elevated)', color: 'var(--text-primary)' });
 };
 
-const cambiarCantidad = (index, delta) => {
-    carrito.value[index].cantidad += delta;
-    if (carrito.value[index].cantidad <= 0) {
-        carrito.value.splice(index, 1);
-        if (carrito.value.length === 0) mostrarCarrito.value = false;
+const handleCartQuantity = ({ index, delta, value }) => {
+    if (value !== undefined) {
+        carrito.value[index].cantidad = value;
+    } else {
+        carrito.value[index].cantidad += delta;
+        if (carrito.value[index].cantidad <= 0) {
+            carrito.value.splice(index, 1);
+            if (carrito.value.length === 0) mostrarCarrito.value = false;
+        }
     }
-    guardarCarritoMemoria();
-};
-
-const validarCantidadInput = (index, event) => {
-    let valor = parseInt(event.target.value);
-    carrito.value[index].cantidad = (isNaN(valor) || valor < 1) ? 1 : valor;
     guardarCarritoMemoria();
 };
 
@@ -360,7 +369,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <StoreLayout :titulo="`${comercio?.nombre || 'Catálogo'} | VendAR`">
+    <StoreLayout :titulo="`${comercio?.nombre || 'Catálogo'} | VendAR`" :comercio="comercio" :storeConfig="storeConfig">
         <StoreNavbar
             :comercio="comercio"
             :tienda_slug="tienda_slug"
@@ -377,62 +386,51 @@ onMounted(() => {
             @toggle-carrito="mostrarCarrito = !mostrarCarrito"
         />
 
-        <CategoryCarousel
-            :categorias="categorias"
-            :categoria-seleccionada="categoriaSeleccionada"
-            :product-counts="productCounts"
-            @update:categoria-seleccionada="categoriaSeleccionada = $event"
-        />
+        <template v-for="sec in sectionsList" :key="sec.id">
+            <HeroSection
+                v-if="sec.id === 'hero' && sec.enabled"
+                :section="sec"
+                :sucursales-backend="sucursalesBackend"
+                :sucursal-elegida="sucursalElegida"
+                :localizando="localizando"
+                :comercio="comercio"
+                :distancia-km="distanciaClienteKm"
+                :mostrar-mapa="mostrarMapa"
+                :geoapify-key="geoapifyKey"
+                :tipo-entrega="formPedido.tipo_entrega"
+                :coordenadas-gps="coordenadasGps"
+                @update:sucursal-elegida="sucursalElegida = $event"
+                @cargar-productos="cargarProductos()"
+                @usar-gps="usarGpsHero"
+                @close-mapa="mostrarMapa = false"
+                @update:distancia="handleMapDistance"
+                @update:coordenadas="handleMapCoords"
+                @update:direccion="handleMapAddress"
+                @sucursal-seleccionada="handleMapSucursal"
+                @scroll-to-promos="handleScrollToPromos"
+            />
 
-        <StoreHero
-            :sucursales-backend="sucursalesBackend"
-            :sucursal-elegida="sucursalElegida"
-            :localizando="localizando"
-            :comercio="comercio"
-            :distancia-km="distanciaClienteKm"
-            @update:sucursal-elegida="sucursalElegida = $event"
-            @cargar-productos="cargarProductos()"
-            @usar-gps="usarGpsHero"
-        />
+            <CategoriesSection
+                v-if="sec.id === 'categories' && sec.enabled"
+                :section="sec"
+                :categorias="categorias"
+                :categoria-seleccionada="categoriaSeleccionada"
+                :product-counts="productCounts"
+                @update:categoria-seleccionada="categoriaSeleccionada = $event"
+            />
 
-        <StoreMap
-            :show="mostrarMapa"
-            :sucursales-backend="sucursalesBackend"
-            :sucursal-elegida="sucursalElegida"
-            :geoapify-key="geoapifyKey"
-            :tipo-entrega="formPedido.tipo_entrega"
-            :coordenadas-gps="coordenadasGps"
-            @close="mostrarMapa = false"
-            @update:distancia="handleMapDistance"
-            @update:coordenadas="handleMapCoords"
-            @update:direccion="handleMapAddress"
-            @sucursal-seleccionada="handleMapSucursal"
-        />
+            <PromotionsSection
+                v-if="sec.id === 'promotions' && sec.enabled"
+                :section="sec"
+                :sucursal-id="sucursalElegida"
+                @agregar="agregarAlCarrito"
+                @detail="verDetalle"
+                @ver-todas="handleVerTodas"
+            />
 
-        <div v-if="sucursalElegida" class="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6">
-            <div class="border rounded-3xl p-6 sm:p-8 text-center transition-colors" :style="{ backgroundColor: 'color-mix(in srgb, var(--color-accent) 6%, transparent)', borderColor: 'color-mix(in srgb, var(--color-accent) 15%, transparent)' }">
-                <p class="text-2xl sm:text-3xl mb-3">🛒</p>
-                <h3 class="text-lg sm:text-xl font-black mb-1.5 transition-colors" :style="{ color: 'var(--text-primary)' }">Comprá online &mdash; Retirá en sucursal</h3>
-                <p class="text-sm mb-4 transition-colors" :style="{ color: 'var(--text-muted)' }">Miles de productos disponibles para vos</p>
-                <button
-                    @click="handleScrollToPromos"
-                    class="font-black text-xs uppercase tracking-widest py-3 px-8 rounded-xl border transition-all duration-200 active:scale-95"
-                    style="background: linear-gradient(135deg, #f7941e, #ff6b35); color: #fff; border-color: transparent; box-shadow: 0 4px 16px rgba(247, 148, 30, 0.3);"
-                >
-                    🏷️ Ver promociones
-                </button>
-            </div>
-        </div>
-
-        <PromoSection
-            :sucursal-id="sucursalElegida"
-            @agregar="agregarAlCarrito"
-            @detail="verDetalle"
-            @ver-todas="handleVerTodas"
-        />
-
-        <div id="productos-section">
-            <ProductGrid
+            <ProductsSection
+                v-if="sec.id === 'products'"
+                :section="sec"
                 :productos="filtroPromosOnly ? productosFiltrados : productos"
                 :cargando="cargando"
                 :sucursal-elegida="sucursalElegida"
@@ -442,19 +440,27 @@ onMounted(() => {
                 :total-paginas="totalPaginas"
                 :pagina-actual="paginaActual"
                 :filtro-promos-only="filtroPromosOnly"
+                :producto-seleccionado="productoSeleccionado"
+                :mostrar-modal-detalle="mostrarModalDetalle"
                 @agregar="agregarAlCarrito"
                 @detail="verDetalle"
                 @sort-change="cambiarOrden"
                 @page-change="cargarProductos($event)"
+                @close-modal="mostrarModalDetalle = false; productoSeleccionado = null"
+                @agregar-desde-modal="agregarDesdeModal"
             />
-        </div>
 
-        <ProductDetailModal
-            :producto="productoSeleccionado"
-            :visible="mostrarModalDetalle"
-            @close="mostrarModalDetalle = false; productoSeleccionado = null"
-            @agregar="agregarDesdeModal"
-        />
+            <FooterSection
+                v-if="sec.id === 'footer' && sec.enabled"
+                :section="sec"
+                :comercio="comercio"
+            />
+
+            <WhatsAppSection
+                v-if="sec.id === 'whatsapp' && sec.enabled"
+                :section="sec"
+            />
+        </template>
 
         <Transition name="backdrop">
             <div v-if="mostrarCarrito" class="fixed inset-0 z-50 flex justify-end" :style="{ backgroundColor: 'var(--overlay)', backdropFilter: 'blur(2px)' }" @click.self="mostrarCarrito = false">
@@ -472,52 +478,31 @@ onMounted(() => {
                         </div>
 
                         <div class="overflow-y-auto flex-grow p-4 space-y-2.5 custom-scrollbar">
-                            <div v-for="(item, index) in carrito" :key="item.id" class="flex items-center gap-3 border-2 p-3 rounded-xl shadow-sm transition-colors" :style="{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }">
-                                <div class="w-14 h-14 rounded-xl p-1.5 flex items-center justify-center shrink-0" :style="{ backgroundColor: 'var(--bg-image)' }">
-                                    <img :src="item.imagen_url || '/img/LogoVendar-Sidebar.png'" class="max-h-full object-contain">
-                                </div>
-                                <div class="flex-grow min-w-0">
-                                    <p class="text-xs font-bold truncate leading-tight transition-colors" :style="{ color: 'var(--text-primary)' }">{{ item.nombre }}</p>
-                                    <p class="text-sm font-black mt-0.5" :style="{ color: 'var(--color-accent)' }">{{ formatearDinero(item.precio * item.cantidad) }}</p>
-                                </div>
-                                <div class="flex items-center gap-1 border-2 rounded-xl p-0.5 shrink-0 transition-colors" :style="{ backgroundColor: 'var(--bg-page)', borderColor: 'var(--border-color)' }">
-                                    <button @click="cambiarCantidad(index, -1)" class="w-7 h-7 rounded-lg font-bold text-sm flex items-center justify-center transition-colors hover:bg-[var(--color-danger-hover)] hover:text-[var(--text-on-accent)]" :style="{ backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)' }">−</button>
-                                    <input type="number" :value="item.cantidad" @input="validarCantidadInput(index, $event)" class="w-9 bg-transparent border-none text-center text-xs font-black p-0 transition-colors" :style="{ color: 'var(--text-primary)' }">
-                                    <button @click="cambiarCantidad(index, 1)" class="btn-plus w-7 h-7 rounded-lg font-bold text-sm flex items-center justify-center transition-colors" :style="{ backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)' }">+</button>
-                                </div>
-                            </div>
+                            <CartItem
+                                v-for="(item, index) in carrito"
+                                :key="item.id"
+                                :item="item"
+                                :index="index"
+                                @update-quantity="handleCartQuantity"
+                            />
                         </div>
 
                         <div class="shrink-0 border-t p-5 space-y-4 overflow-y-auto max-h-[75vh] transition-colors" :style="{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }">
-                            <div>
-                                <p class="text-[10px] font-black tracking-widest uppercase mb-2 transition-colors" :style="{ color: 'var(--text-secondary)' }">Tipo de entrega</p>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <button @click="formPedido.tipo_entrega = 'local'" :style="formPedido.tipo_entrega === 'local' ? { backgroundColor: 'var(--color-accent)', color: '#fff', borderColor: 'var(--color-accent)' } : { backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }" class="py-2.5 border-2 rounded-xl text-[11px] font-black uppercase flex flex-col items-center gap-1 transition-all">
-                                        <span>🏬</span> Retiro en local
-                                    </button>
-                                    <button @click="formPedido.tipo_entrega = 'delivery'" :style="formPedido.tipo_entrega === 'delivery' ? { backgroundColor: 'var(--color-secondary)', color: '#fff', borderColor: 'var(--color-secondary)' } : { backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }" class="py-2.5 border-2 rounded-xl text-[11px] font-black uppercase flex flex-col items-center gap-1 transition-all">
-                                        <span>🛵</span> Delivery
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div v-if="formPedido.tipo_entrega === 'delivery'" class="space-y-2 p-3 rounded-xl" :style="{ backgroundColor: 'color-mix(in srgb, var(--color-secondary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-secondary) 20%, transparent)' }">
-                                <div class="flex items-center justify-between mb-1">
-                                    <button @click="usarGpsHero" type="button" class="btn-gps text-[10px] font-bold flex items-center gap-1 transition-colors" :style="{ color: 'var(--color-secondary)' }">
-                                        <span v-if="localizando" class="animate-spin">⟳</span>
-                                        <span v-else>📍</span>
-                                        Fijar mi ubicación GPS
-                                    </button>
-                                    <span v-if="distanciaClienteKm > 0" class="text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors" :style="{ color: 'var(--text-muted)', backgroundColor: 'var(--border-subtle)' }">A {{ distanciaClienteKm < 1 ? Math.round(distanciaClienteKm * 1000) + ' m' : distanciaClienteKm.toFixed(1) + ' km' }}</span>
-                                </div>
-                                <input v-model="formPedido.direccion_entrega" type="text" placeholder="Calle y número..." class="input-delivery w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)]" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
-                                <input v-model="formPedido.piso_depto" type="text" placeholder="Casa, Depto, Piso (Opcional)..." class="input-delivery w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)]" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
-                                <input v-model="formPedido.cliente_nombre" type="text" placeholder="Tu nombre..." class="input-delivery w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)]" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
-                                <input v-model="formPedido.telefono_contacto" type="text" placeholder="Teléfono de contacto..." class="input-delivery w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)]" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
-                                <input v-model="formPedido.cliente_email" type="email" placeholder="Correo electrónico (opcional)..." class="input-delivery w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)]" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
-                                <textarea v-model="formPedido.notas" placeholder="Observaciones (Ej: Tocar timbre fuerte, sin cebolla)..." class="input-delivery w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)] resize-none" rows="2" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }"></textarea>
-                                <p v-if="fueraDeRango" class="text-[10px] font-bold flex items-center gap-1 mt-1" :style="{ color: 'var(--color-danger)' }">⚠️ Estás fuera de la zona de cobertura (Max: {{ comercio.envio_radio_km }}km).</p>
-                            </div>
+                            <DeliveryForm
+                                :form-data="formPedido"
+                                :localizando="localizando"
+                                :distancia-cliente-km="distanciaClienteKm"
+                                :fuera-de-rango="fueraDeRango"
+                                :comercio="comercio"
+                                @update:tipo-entrega="formPedido.tipo_entrega = $event"
+                                @update:direccion="formPedido.direccion_entrega = $event"
+                                @update:piso="formPedido.piso_depto = $event"
+                                @update:nombre="formPedido.cliente_nombre = $event"
+                                @update:telefono="formPedido.telefono_contacto = $event"
+                                @update:email="formPedido.cliente_email = $event"
+                                @update:notas="formPedido.notas = $event"
+                                @usar-gps="usarGpsHero"
+                            />
 
                             <div>
                                 <p class="text-[10px] font-black tracking-widest uppercase mb-2 transition-colors" :style="{ color: 'var(--text-secondary)' }">Método de pago</p>
@@ -561,6 +546,16 @@ onMounted(() => {
                 </Transition>
             </div>
         </Transition>
+
+        <button
+            v-if="sucursalElegida"
+            @click="window.scrollTo({ top: 0, behavior: 'smooth' })"
+            class="fixed bottom-6 left-6 z-40 w-10 h-10 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border"
+            :style="{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-color)', color: 'var(--text-muted)' }"
+            aria-label="Volver arriba"
+        >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>
+        </button>
     </StoreLayout>
 </template>
 

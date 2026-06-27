@@ -25,13 +25,28 @@
                             <span v-if="hayFiltrosActivos" class="text-blue-500 font-medium"> · filtrado</span>
                         </p>
                     </div>
-                    <button @click="abrirNuevo"
-                        class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-blue-700 active:scale-95 shadow-sm shadow-blue-600/20">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        Nuevo producto
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button @click="exportar"
+                            class="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-emerald-700 active:scale-95 shadow-sm shadow-emerald-600/20">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            CSV
+                        </button>
+                        <button @click="exportarPdf"
+                            class="inline-flex items-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-red-700 active:scale-95 shadow-sm shadow-red-600/20">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                            PDF
+                        </button>
+                        <button @click="verImportar = true"
+                            class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-blue-700 active:scale-95 shadow-sm shadow-blue-600/20">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                            Importar CSV
+                        </button>
+                        <button @click="abrirNuevo"
+                            class="inline-flex items-center gap-2 bg-slate-800 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-slate-700 active:scale-95 shadow-sm shadow-slate-800/20">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Nuevo producto
+                        </button>
+                    </div>
                 </div>
 
                 <div class="bg-white border border-slate-200 rounded-xl px-5 py-4 shadow-sm flex flex-col md:flex-row md:items-center gap-3">
@@ -298,9 +313,11 @@
 
             </div>
         </div>
-
         <ModalProducto :mostrar="verModal" :producto="seleccionado" :categorias="categorias" :marcas="marcas" :proveedores="proveedores" @cerrar="cerrarModalGlobal" />
+
         <DetalleProducto :mostrar="verDetalle" :producto="seleccionado" @cerrar="verDetalle = false" />
+
+        <ModalImportar v-if="verImportar" @cerrar="verImportar = false" @completado="importarCompletado" />
 
         <div v-if="verStock && seleccionado" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
@@ -459,8 +476,9 @@
 
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import ModalProducto from './Componentes/ModalProducto.vue'; 
-import DetalleProducto from './Componentes/DetalleProducto.vue'; 
+import ModalProducto from './Componentes/ModalProducto.vue';
+import DetalleProducto from './Componentes/DetalleProducto.vue';
+import ModalImportar from './Componentes/ModalImportar.vue';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch, computed } from 'vue';
 import Swal from 'sweetalert2';
@@ -477,7 +495,8 @@ const props = defineProps({
 const page = usePage();
 const verModal = ref(false);
 const verDetalle = ref(false);
-const verStock = ref(false); 
+const verStock = ref(false);
+const verImportar = ref(false);
 const seleccionado = ref(null);
 
 const verAjuste = ref(false);
@@ -608,6 +627,19 @@ const abrirEditar = (p) => { seleccionado.value = p; cerrarMenu(); verModal.valu
 const abrirDetalle = (p) => { seleccionado.value = p; cerrarMenu(); verDetalle.value = true; };
 const abrirStock = (p) => { seleccionado.value = p; cerrarMenu(); verStock.value = true; };
 const cerrarModalGlobal = () => { verModal.value = false; seleccionado.value = null; };
+
+const exportar = () => {
+    window.open(route('productos.exportar'), '_blank');
+};
+
+const exportarPdf = () => {
+    window.open(route('productos.pdf'), '_blank');
+};
+
+const importarCompletado = () => {
+    verImportar.value = false;
+    window.location.reload();
+};
 
 const toggleEstado = (p) => {
     cerrarMenu();

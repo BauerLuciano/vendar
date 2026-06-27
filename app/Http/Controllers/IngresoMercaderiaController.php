@@ -72,7 +72,7 @@ class IngresoMercaderiaController extends Controller
             'items' => 'required|array|min:1',
             'items.*.producto_id' => 'required|exists:productos,id',
             'items.*.cantidad' => 'required|numeric|min:1',
-            'items.*.costo' => 'required|numeric|min:0',
+            'items.*.costo' => 'nullable|numeric|min:0',
             'items.*.fecha_vencimiento' => 'nullable|date',
         ]);
 
@@ -120,46 +120,91 @@ class IngresoMercaderiaController extends Controller
 
                 $producto = Producto::when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
                     ->findOrFail($item['producto_id']);
-                $costoNuevo = $item['costo'];
+
+                $costoNuevo = $item['costo'] ? (float) $item['costo'] : 0;
+                if ($costoNuevo <= 0) {
+                    $costoNuevo = (float) $producto->precio_costo;
+                }
                 $costoAnterior = $producto->precio_costo;
+                $precioVentaAnterior = $producto->precio_venta;
 
-                // DETECTAR INFLACIÓN Y RECALCULAR PRECIO DE VENTA
+                // Stock actual antes del ingreso
+                $pivot = $producto->sucursales()->where('sucursal_id', $request->sucursal_id)->first();
+                $cantidadAnterior = $pivot ? $pivot->pivot->cantidad_fisica : 0;
+                $stockTotal = $cantidadAnterior + $item['cantidad'];
+
+                // PPP: Precio de Promedio Ponderado
+                $nuevoPPP = $stockTotal > 0
+                    ? round(($cantidadAnterior * $costoAnterior + $item['cantidad'] * $costoNuevo) / $stockTotal, 2)
+                    : $costoNuevo;
+
+                $nuevoPrecioVenta = $precioVentaAnterior;
+
+                // Detectar inflación (costo de compra vs costo anterior registrado)
                 if ($costoNuevo > $costoAnterior) {
-                    $margen = $producto->porcentaje_ganancia 
-                        ? ($producto->porcentaje_ganancia / 100) 
-                        : (($producto->precio_venta / $costoAnterior) - 1);
+                    $margen = $producto->porcentaje_ganancia
+                        ? ($producto->porcentaje_ganancia / 100)
+                        : (($precioVentaAnterior / max($costoAnterior, 0.01)) - 1);
 
-                    $nuevoPrecioVenta = $costoNuevo * (1 + $margen);
+                    $nuevoPrecioVenta = round($nuevoPPP * (1 + max($margen, 0)), 2);
 
                     $alertasInflacion[] = [
                         'producto' => $producto->nombre,
                         'costo_viejo' => $costoAnterior,
                         'costo_nuevo' => $costoNuevo,
-                        'precio_viejo' => $producto->precio_venta,
-                        'precio_nuevo' => round($nuevoPrecioVenta, 2),
-                        'porcentaje' => round($margen * 100, 2)
+                        'precio_viejo' => $precioVentaAnterior,
+                        'precio_nuevo' => $nuevoPrecioVenta,
+                        'porcentaje' => round(($margen ?? 0) * 100, 2),
                     ];
+                }
 
+                // Actualizar producto si el PPP cambió
+                if ($nuevoPPP != $costoAnterior) {
                     $producto->update([
-                        'precio_costo' => $costoNuevo,
-                        'precio_venta' => round($nuevoPrecioVenta, 2)
+                        'precio_costo' => $nuevoPPP,
+                        'precio_venta' => $nuevoPrecioVenta,
+                    ]);
+
+                    DB::table('historico_costos')->insert([
+                        'producto_id'           => $item['producto_id'],
+                        'costo_anterior'        => $costoAnterior,
+                        'costo_nuevo'           => $nuevoPPP,
+                        'precio_venta_anterior' => $precioVentaAnterior,
+                        'precio_venta_nuevo'    => $nuevoPrecioVenta,
+                        'user_id'               => auth()->id(),
+                        'origen_tipo'           => 'Ingreso Manual',
+                        'origen_id'             => $ingreso->id,
+                        'created_at'            => now(),
+                        'updated_at'            => now(),
                     ]);
                 }
 
-                // Actualización de Stock (Igual que antes)
-                $pivot = $producto->sucursales()->where('sucursal_id', $request->sucursal_id)->first();
-                
+                // Actualización de Stock
                 if ($pivot) {
-                    $nuevaCantidad = $pivot->pivot->cantidad_fisica + $item['cantidad'];
+                    $nuevaCantidad = $cantidadAnterior + $item['cantidad'];
                     $producto->sucursales()->updateExistingPivot($request->sucursal_id, [
                         'cantidad_fisica' => $nuevaCantidad
                     ]);
                 } else {
+                    $nuevaCantidad = $item['cantidad'];
                     $producto->sucursales()->attach($request->sucursal_id, [
-                        'cantidad_fisica' => $item['cantidad'],
+                        'cantidad_fisica' => $nuevaCantidad,
                         'cantidad_reservada' => 0
                     ]);
                 }
+
+                DB::table('movimientos_stock')->insert([
+                    'producto_id'         => $item['producto_id'],
+                    'sucursal_id'         => $request->sucursal_id,
+                    'user_id'             => auth()->id(),
+                    'tipo_movimiento'     => 'Ingreso Manual',
+                    'cantidad_anterior'   => $cantidadAnterior,
+                    'cantidad_movimiento' => $item['cantidad'],
+                    'cantidad_actual'     => $nuevaCantidad,
+                    'motivo'              => $request->numero_remito ? "Remito: {$request->numero_remito}" : null,
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ]);
             }
         });
 

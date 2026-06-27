@@ -51,6 +51,7 @@ class DatabaseSeeder extends Seeder
             CajaSeeder::class,             // 2do: Crea las Cajas (ahora sí encuentra la sucursal)
             ConsumidorSeeder::class,       // 3ro: Crea el resto de los clientes
             GlobalAdminSeeder::class,      // 4to: Crea el Admin Global (si no lo creaste antes)
+            StoreConfigSeeder::class,      // 5to: Crea store_configs para todos los comercios
         ]);
     }
 }

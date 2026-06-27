@@ -580,10 +580,30 @@ class VentaController extends Controller
             }
 
             foreach ($venta->detalles as $detalle) {
+                $registroActual = DB::table('producto_sucursal')
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('producto_id', $detalle->producto_id)
+                    ->first();
+
+                $cantidadAnterior = $registroActual ? $registroActual->cantidad_fisica : 0;
+
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $detalle->producto_id)
                     ->increment('cantidad_fisica', $detalle->cantidad);
+
+                DB::table('movimientos_stock')->insert([
+                    'producto_id'         => $detalle->producto_id,
+                    'sucursal_id'         => $sucursalId,
+                    'user_id'             => auth()->id(),
+                    'tipo_movimiento'     => 'Cancelación Venta',
+                    'cantidad_anterior'   => $cantidadAnterior,
+                    'cantidad_movimiento' => $detalle->cantidad,
+                    'cantidad_actual'     => $cantidadAnterior + $detalle->cantidad,
+                    'motivo'              => "Venta #{$venta->id}: {$request->motivo}",
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ]);
             }
 
             $pagos = $venta->pagos_display;

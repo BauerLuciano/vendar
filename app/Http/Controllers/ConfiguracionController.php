@@ -8,6 +8,7 @@ use App\Models\Configuracion;
 use App\Models\Comercio;
 use App\Models\PaymentGateway;
 use App\Models\PaymentMethodConfiguration;
+use App\Models\StoreConfig;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Storage;
@@ -41,11 +42,15 @@ class ConfiguracionController extends Controller
                 'enabled' => $pmc->enabled,
             ]);
 
+        $storeConfig = StoreConfig::where('comercio_id', $comercio->id)
+            ->first()?->config ?? StoreConfig::defaultConfig();
+
         return Inertia::render('Configuracion/Index', [
             'configuraciones' => $configuraciones,
             'comercio' => $comercio,
             'paymentMethodConfigs' => $paymentMethodConfigs,
             'metodoPagoOptions' => MetodoPago::options(),
+            'storeConfig' => $storeConfig,
         ]);
     }
 

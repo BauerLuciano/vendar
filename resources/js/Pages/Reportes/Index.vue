@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
+import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { formatearMoneda } from '@/Utils/formatters.js';
 
@@ -10,10 +11,31 @@ const props = defineProps({
     top_productos: Array,
     ventas_recientes: Array,
     filtros: Object,
+    sucursales: Array,
 });
 
 const fechaDesde = ref(props.filtros.fecha_desde);
 const fechaHasta = ref(props.filtros.fecha_hasta);
+
+const tabActual = ref('ventas');
+const rotacion = ref([]);
+const totalInmovilizado = ref(0);
+const cargandoRotacion = ref(false);
+const filtroDias = ref(30);
+const filtroSucursalRotacion = ref('');
+
+const cargarRotacion = async () => {
+    cargandoRotacion.value = true;
+    try {
+        const params = { dias: filtroDias.value };
+        if (filtroSucursalRotacion.value) params.sucursal_id = filtroSucursalRotacion.value;
+        const res = await axios.get(route('reportes.rotacion'), { params });
+        rotacion.value = res.data.data;
+        totalInmovilizado.value = res.data.total_valor;
+    } finally {
+        cargandoRotacion.value = false;
+    }
+};
 
 const presets = [
     { label: 'Hoy', desde: () => new Date().toISOString().slice(0, 10), hasta: () => new Date().toISOString().slice(0, 10) },
@@ -56,12 +78,19 @@ const descargarPdf = () => {
                     <h1 class="text-2xl font-black text-slate-800 uppercase tracking-wide">Reportes de Ventas</h1>
                     <p class="text-sm text-slate-500 mt-1">Analizá el rendimiento de tu negocio</p>
                 </div>
-                <button @click="descargarPdf" class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 px-5 rounded-xl shadow transition-all text-sm uppercase tracking-wider">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                    Descargar PDF
-                </button>
+                <div class="flex items-center gap-2">
+                    <div class="bg-slate-100 rounded-xl p-1 flex">
+                        <button @click="tabActual = 'ventas'" :class="['px-4 py-2 text-sm font-bold rounded-lg transition-all uppercase', tabActual === 'ventas' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700']">Ventas</button>
+                        <button @click="tabActual = 'rotacion'; if (rotacion.length === 0) cargarRotacion()" :class="['px-4 py-2 text-sm font-bold rounded-lg transition-all uppercase', tabActual === 'rotacion' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700']">Rotación</button>
+                    </div>
+                    <button v-if="tabActual === 'ventas'" @click="descargarPdf" class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 px-5 rounded-xl shadow transition-all text-sm uppercase tracking-wider">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        Descargar PDF
+                    </button>
+                </div>
             </div>
 
+            <template v-if="tabActual === 'ventas'">
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
                 <div class="flex flex-wrap items-end gap-3">
                     <div>
@@ -177,6 +206,75 @@ const descargarPdf = () => {
                     <p v-else class="text-sm text-slate-400 text-center py-8">Sin ventas en el período seleccionado</p>
                 </div>
             </div>
+            </template>
+
+            <template v-if="tabActual === 'rotacion'">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
+                <div class="flex flex-wrap items-end gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Mín. Días Sin Venta</label>
+                        <input v-model.number="filtroDias" type="number" min="1" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 w-24">
+                    </div>
+                    <div v-if="sucursales?.length > 1">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Sucursal</label>
+                        <select v-model="filtroSucursalRotacion" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-700">
+                            <option value="">Todas</option>
+                            <option v-for="s in sucursales" :key="s.id" :value="s.id">{{ s.nombre }}</option>
+                        </select>
+                    </div>
+                    <button @click="cargarRotacion" class="bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 px-5 rounded-lg transition-all text-sm">Consultar</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                    <p class="text-xs font-black text-slate-400 uppercase tracking-wider">Productos con Baja Rotación</p>
+                    <p class="text-3xl font-black text-slate-800 mt-1">{{ rotacion.length }}</p>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                    <p class="text-xs font-black text-slate-400 uppercase tracking-wider">Valor Inmovilizado Total</p>
+                    <p class="text-3xl font-black text-slate-800 mt-1">{{ formatearMoneda(totalInmovilizado) }}</p>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                    <p class="text-xs font-black text-slate-400 uppercase tracking-wider">Días Mínimo</p>
+                    <p class="text-3xl font-black text-slate-800 mt-1">{{ filtroDias }} días</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="px-5 py-4 border-b border-slate-100">
+                    <h2 class="text-sm font-black text-slate-700 uppercase">Productos</h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table v-if="!cargandoRotacion && rotacion.length > 0" class="w-full text-sm">
+                        <thead>
+                            <tr class="text-xs font-bold text-slate-400 uppercase border-b border-slate-100 bg-slate-50/50">
+                                <th class="text-left px-5 py-3">Producto</th>
+                                <th class="text-right px-5 py-3">Stock</th>
+                                <th class="text-right px-5 py-3">P. Costo</th>
+                                <th class="text-right px-5 py-3">Valor Inmov.</th>
+                                <th class="text-right px-5 py-3">Última Venta</th>
+                                <th class="text-right px-5 py-3">Días Sin Venta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="p in rotacion" :key="p.id" class="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                                <td class="px-5 py-3 font-medium text-slate-700">{{ p.nombre }}</td>
+                                <td class="px-5 py-3 text-right text-slate-600">{{ p.stock }}</td>
+                                <td class="px-5 py-3 text-right text-slate-600">{{ formatearMoneda(p.precio_costo) }}</td>
+                                <td class="px-5 py-3 text-right font-semibold text-slate-800">{{ formatearMoneda(p.valor_inmovilizado) }}</td>
+                                <td class="px-5 py-3 text-right text-slate-400 text-xs">{{ p.ultima_venta ?? 'Nunca' }}</td>
+                                <td class="px-5 py-3 text-right">
+                                    <span :class="['text-xs font-bold px-2 py-1 rounded-full', p.dias_sin_venta >= 90 ? 'bg-red-100 text-red-700' : p.dias_sin_venta >= 60 ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700']">{{ p.dias_sin_venta >= 9999 ? '∞' : p.dias_sin_venta + 'd' }}</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-if="cargandoRotacion" class="text-center py-8 text-slate-400">Cargando...</div>
+                    <p v-else-if="rotacion.length === 0" class="text-sm text-slate-400 text-center py-8">No hay productos con baja rotación para los filtros seleccionados</p>
+                </div>
+            </div>
+            </template>
         </div>
     </AuthenticatedLayout>
 </template>

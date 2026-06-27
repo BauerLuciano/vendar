@@ -51,35 +51,77 @@ class HandleInertiaRequests extends Middleware
                         : ['pos' => true];
                 })() : ['pos' => true],
                 
-                // 🔔 CENTRO DE NOTIFICACIONES: Total + Top 5 Críticos
+                // 🔔 CENTRO DE NOTIFICACIONES: Stock crítico + Lotes por vencer
                 'alertas' => fn () => $request->user() ? (function() use ($request) {
-                    $query = DB::table('producto_sucursal')
+                    $sucursalId = session('sucursal_activa_id', $request->user()->branch_id);
+                    $esJefe = method_exists($request->user(), 'hasRole') && $request->user()->hasRole(['SuperAdmin', 'Administrador Global']);
+
+                    // Stock crítico
+                    $queryStock = DB::table('producto_sucursal')
                         ->join('productos', 'productos.id', '=', 'producto_sucursal.producto_id')
                         ->join('sucursales', 'sucursales.id', '=', 'producto_sucursal.sucursal_id')
                         ->where('productos.estado', true)
                         ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo');
-                        
-                    // Filtro por sucursal si no es jefe
-                    $sucursalId = session('sucursal_activa_id', $request->user()->branch_id);
-                    if (method_exists($request->user(), 'hasRole') && !$request->user()->hasRole(['SuperAdmin', 'Administrador Global']) && $sucursalId) {
-                        $query->where('producto_sucursal.sucursal_id', $sucursalId);
+
+                    if (!$esJefe && $sucursalId) {
+                        $queryStock->where('producto_sucursal.sucursal_id', $sucursalId);
                     }
 
-                    return [
-                        'total' => (int) $query->count(),
-                        'detalle' => $query->select(
-                                'productos.nombre as producto', 
-                                'sucursales.nombre as sucursal', 
-                                'producto_sucursal.cantidad_fisica', 
-                                'productos.stock_minimo', 
+                    $stockCritico = [
+                        'total' => (int) $queryStock->count(),
+                        'detalle' => $queryStock->select(
+                                'productos.nombre as producto',
+                                'sucursales.nombre as sucursal',
+                                'producto_sucursal.cantidad_fisica',
+                                'productos.stock_minimo',
                                 'productos.unidad_medida'
                             )
-                            // Ordenamos para que los que tienen stock negativo o cero salgan primero
                             ->orderBy('producto_sucursal.cantidad_fisica', 'asc')
                             ->take(5)
-                            ->get()
+                            ->get(),
                     ];
-                })() : ['total' => 0, 'detalle' => []],
+
+                    // Lotes próximos a vencer (próximos 30 días)
+                    $queryLotes = DB::table('lotes')
+                        ->join('productos', 'productos.id', '=', 'lotes.producto_id')
+                        ->join('sucursales', 'sucursales.id', '=', 'lotes.sucursal_id')
+                        ->where('lotes.stock_actual', '>', 0)
+                        ->where('productos.estado', true)
+                        ->where('lotes.fecha_vencimiento', '>=', now())
+                        ->where('lotes.fecha_vencimiento', '<=', now()->addDays(30));
+
+                    if (!$esJefe && $sucursalId) {
+                        $queryLotes->where('lotes.sucursal_id', $sucursalId);
+                    }
+
+                    $lotesData = $queryLotes->orderBy('lotes.fecha_vencimiento', 'asc')
+                        ->take(5)
+                        ->select(
+                            'productos.nombre as producto',
+                            'sucursales.nombre as sucursal',
+                            'lotes.fecha_vencimiento',
+                            'lotes.stock_actual'
+                        )
+                        ->get()
+                        ->map(fn ($l) => [
+                            'producto' => $l->producto,
+                            'sucursal' => $l->sucursal,
+                            'fecha_vencimiento' => $l->fecha_vencimiento,
+                            'stock_actual' => (float) $l->stock_actual,
+                            'dias_restantes' => now()->diffInDays(\Carbon\Carbon::parse($l->fecha_vencimiento), false),
+                        ]);
+
+                    $lotesPorVencer = [
+                        'total' => $lotesData->count(),
+                        'detalle' => $lotesData,
+                    ];
+
+                    return [
+                        'total' => $stockCritico['total'] + $lotesPorVencer['total'],
+                        'stock_critico' => $stockCritico,
+                        'lotes_por_vencer' => $lotesPorVencer,
+                    ];
+                })() : ['total' => 0, 'stock_critico' => ['total' => 0, 'detalle' => []], 'lotes_por_vencer' => ['total' => 0, 'detalle' => []]],
             ],
 
             'empresa' => fn () => Schema::hasTable('configuraciones') 

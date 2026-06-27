@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Validation\Rule;
 
 class ProductoController extends Controller
@@ -300,6 +301,240 @@ class ProductoController extends Controller
             'found' => false,
             'codigo_barras' => $codigo,
         ]);
+    }
+
+    public function exportar(Request $request)
+    {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $sucursalIds = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
+            : collect();
+
+        $productos = Producto::with(['categoria', 'marca', 'proveedor', 'sucursales'])
+            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $sucursales = $sucursalIds->isNotEmpty()
+            ? Sucursal::whereIn('id', $sucursalIds)->pluck('nombre', 'id')
+            : collect();
+
+        $user = auth()->user();
+
+        $headers = [
+            'nombre', 'codigo_barras', 'categoria', 'marca', 'proveedor',
+            'precio_costo', 'precio_venta', 'stock_minimo', 'unidad_medida',
+            'descripcion', 'es_retornable', 'estado', 'stock_total',
+        ];
+
+        foreach ($sucursales as $id => $nombre) {
+            $headers[] = 'stock_' . str_replace(' ', '_', $nombre);
+        }
+
+        $callback = function () use ($productos, $headers, $sucursales, $user) {
+            $file = fopen('php://output', 'w');
+
+            fprintf($file, "# Exportado por: %s\n", $user->name);
+            fprintf($file, "# Fecha: %s\n", now()->format('d/m/Y H:i'));
+            fprintf($file, "# Comercio: %s\n", $user->branch?->comercio?->nombre ?? 'N/A');
+            fprintf($file, "# Sucursales: %s\n", $sucursales->isEmpty() ? 'N/A' : $sucursales->implode(', '));
+            fprintf($file, "# Total productos: %d\n", $productos->count());
+            fputcsv($file, $headers);
+
+            foreach ($productos as $p) {
+                $row = [
+                    $p->nombre,
+                    $p->codigo_barras,
+                    $p->categoria?->nombreCategoria,
+                    $p->marca?->nombreMarca,
+                    $p->proveedor?->razon_social,
+                    $p->precio_costo,
+                    $p->precio_venta,
+                    $p->stock_minimo,
+                    $p->unidad_medida,
+                    $p->descripcion,
+                    $p->es_retornable ? '1' : '0',
+                    $p->estado ? '1' : '0',
+                    $p->sucursales->sum(fn ($s) => (float) $s->pivot->cantidad_fisica),
+                ];
+
+                foreach ($sucursales as $id => $nombre) {
+                    $suc = $p->sucursales->firstWhere('id', $id);
+                    $row[] = $suc ? (float) $suc->pivot->cantidad_fisica : 0;
+                }
+
+                fputcsv($file, $row);
+            }
+
+            fclose($file);
+        };
+
+        $nombre = 'productos_' . now()->format('Ymd_His') . '.csv';
+
+        return response()->stream($callback, 200, [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="' . $nombre . '"',
+        ]);
+    }
+
+    public function importar(Request $request)
+    {
+        $request->validate([
+            'archivo' => 'required|file|mimes:csv,txt|max:5120',
+        ]);
+
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $sucursalIds = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
+            : collect();
+
+        $file = $request->file('archivo');
+        $handle = fopen($file->getRealPath(), 'r');
+
+        $headers = null;
+        $creados = 0;
+        $actualizados = 0;
+        $errores = [];
+
+        DB::beginTransaction();
+        try {
+            while (($row = fgetcsv($handle)) !== false) {
+                if (empty($row) || empty($row[0])) continue;
+
+                $linea = trim($row[0]);
+                if (str_starts_with($linea, '#')) continue;
+
+                if ($headers === null) {
+                    $headers = $row;
+                    continue;
+                }
+
+                $data = array_combine($headers, $row);
+
+                $categoriaId = $this->buscarOCrearReferencia(
+                    'App\Models\Categoria', 'nombreCategoria', $data['categoria'] ?? null, ['estado' => true]
+                );
+                $marcaId = $this->buscarOCrearReferencia(
+                    'App\Models\Marca', 'nombreMarca', $data['marca'] ?? null, ['estado' => true]
+                );
+                $proveedorId = $this->buscarOCrearReferencia(
+                    'App\Models\Proveedor', 'razon_social', $data['proveedor'] ?? null, ['estado' => true]
+                );
+
+                $productoData = [
+                    'nombre' => $data['nombre'] ?? null,
+                    'codigo_barras' => $data['codigo_barras'] ?? null,
+                    'categoria_id' => $categoriaId,
+                    'marca_id' => $marcaId,
+                    'proveedor_id' => $proveedorId,
+                    'precio_costo' => $data['precio_costo'] ?? 0,
+                    'precio_venta' => $data['precio_venta'] ?? 0,
+                    'stock_minimo' => $data['stock_minimo'] ?? 0,
+                    'unidad_medida' => in_array($data['unidad_medida'] ?? '', ['Unidad', 'Kg', 'Gramos']) ? $data['unidad_medida'] : 'Unidad',
+                    'descripcion' => $data['descripcion'] ?? null,
+                    'es_retornable' => ($data['es_retornable'] ?? '0') === '1',
+                    'estado' => ($data['estado'] ?? '1') === '1',
+                ];
+
+                if (empty($productoData['nombre']) || empty($productoData['codigo_barras'])) {
+                    $errores[] = 'Línea ' . count($errores) . ': nombre y código de barras son requeridos';
+                    continue;
+                }
+
+                $existente = Producto::where('codigo_barras', $productoData['codigo_barras'])->first();
+
+                if ($existente) {
+                    $existente->update($productoData);
+                    $actualizados++;
+                } else {
+                    $producto = Producto::create($productoData);
+                    if ($sucursalIds->isNotEmpty()) {
+                        $primeraSucursal = $sucursalIds->first();
+                        $producto->sucursales()->attach($primeraSucursal, [
+                            'cantidad_fisica' => 0,
+                            'cantidad_reservada' => 0,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+                    $creados++;
+                }
+            }
+
+            DB::commit();
+            fclose($handle);
+
+            $mensaje = "Importación completada: {$creados} creados, {$actualizados} actualizados.";
+            if (!empty($errores)) {
+                $mensaje .= ' Errores: ' . implode(' | ', array_slice($errores, 0, 5));
+            }
+
+            return redirect()->back()->with('success', $mensaje);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            fclose($handle);
+            return redirect()->back()->with('error', 'Error al importar: ' . $e->getMessage());
+        }
+    }
+
+    public function pdf(Request $request)
+    {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $sucursalIds = $comercioId
+            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
+            : collect();
+
+        $productos = Producto::with(['categoria', 'marca', 'proveedor', 'sucursales'])
+            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+            ->orderBy('nombre')
+            ->get();
+
+        $config = DB::table('configuraciones')
+            ->whereIn('clave', ['nombre_empresa', 'logo_empresa', 'direccion_empresa', 'telefono_empresa', 'cuit'])
+            ->pluck('valor', 'clave')
+            ->toArray();
+
+        $logoBase64 = null;
+        if (!empty($config['logo_empresa'])) {
+            $pathLogo = storage_path('app/public/' . $config['logo_empresa']);
+            if (file_exists($pathLogo) && is_file($pathLogo)) {
+                $ext = pathinfo($pathLogo, PATHINFO_EXTENSION);
+                $logoBase64 = 'data:image/' . $ext . ';base64,' . base64_encode(file_get_contents($pathLogo));
+            }
+        }
+
+        $sucursales = $sucursalIds->isNotEmpty()
+            ? Sucursal::whereIn('id', $sucursalIds)->pluck('nombre', 'id')
+            : collect();
+
+        $user = auth()->user();
+
+        $pdf = Pdf::loadView('pdf.productos', [
+            'productos' => $productos,
+            'config' => $config,
+            'logo' => $logoBase64,
+            'sucursales' => $sucursales,
+            'usuario' => $user->name,
+            'comercio' => $user->branch?->comercio?->nombre ?? ($config['nombre_empresa'] ?? 'Mi Negocio'),
+            'fechaGeneracion' => now()->format('d/m/Y H:i'),
+        ]);
+
+        $pdf->setPaper('A4', 'landscape');
+
+        return $pdf->download('productos_' . now()->format('Ymd_His') . '.pdf');
+    }
+
+    private function buscarOCrearReferencia(string $modelo, string $columna, ?string $valor, array $extra = []): ?int
+    {
+        if (empty($valor)) return null;
+
+        $registro = $modelo::firstOrCreate(
+            [$columna => $valor],
+            $extra
+        );
+
+        return $registro->id;
     }
 
     public function generarPlu()

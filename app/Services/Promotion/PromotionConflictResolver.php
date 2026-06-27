@@ -32,8 +32,12 @@ class PromotionConflictResolver
                 $bestFinalPrice = $bestExclusive->finalPrice;
             }
 
+            $bestPromoModel = $bestApplied !== null
+                ? $exclusive->first(fn(Promotion $p) => $p->id === $bestApplied->promotion->id)
+                : null;
+
             return [
-                $bestApplied !== null ? collect([$bestApplied->promotion]) : collect(),
+                $bestPromoModel ? collect([$bestPromoModel]) : collect(),
                 $bestApplied,
             ];
         }

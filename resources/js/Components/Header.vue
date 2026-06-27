@@ -60,18 +60,14 @@
                     v-show="campanaAbierta" 
                     class="absolute right-0 mt-3 w-80 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.8)] border border-slate-700/60 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right flex flex-col"
                 >
-                    <div class="px-4 py-3 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
-                        <p class="text-xs uppercase tracking-widest font-black text-slate-300">Stock Crítico</p>
-                        <span class="bg-rose-500/20 text-rose-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ alertasInfo.total }} ítems</span>
-                    </div>
-
-                    <div class="max-h-[300px] overflow-y-auto custom-scrollbar">
-                        <div v-if="alertasInfo.total === 0" class="p-6 text-center">
-                            <p class="text-slate-400 text-sm font-bold">Todo en orden ✅</p>
+                    <div v-if="alertasInfo.stock_critico && alertasInfo.stock_critico.total > 0">
+                        <div class="px-4 py-3 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                            <p class="text-xs uppercase tracking-widest font-black text-slate-300">Stock Crítico</p>
+                            <span class="bg-rose-500/20 text-rose-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ alertasInfo.stock_critico.total }} ítems</span>
                         </div>
-                        
-                        <div v-else class="divide-y divide-slate-800/50">
-                            <div v-for="(alerta, index) in alertasInfo.detalle" :key="index" class="p-4 hover:bg-slate-800/30 transition-colors flex flex-col gap-1">
+
+                        <div class="divide-y divide-slate-800/50">
+                            <div v-for="(alerta, index) in alertasInfo.stock_critico.detalle" :key="'stock-' + index" class="p-4 hover:bg-slate-800/30 transition-colors flex flex-col gap-1">
                                 <div class="flex justify-between items-start">
                                     <p class="text-sm font-bold text-slate-200 leading-tight">{{ alerta.producto }}</p>
                                     <span :class="Number(alerta.cantidad_fisica) <= 0 ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'" class="text-[10px] font-black px-2 py-0.5 rounded-md ml-2 whitespace-nowrap">
@@ -87,12 +83,39 @@
                         </div>
                     </div>
 
+                    <div v-if="alertasInfo.lotes_por_vencer && alertasInfo.lotes_por_vencer.total > 0">
+                        <div class="px-4 py-3 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                            <p class="text-xs uppercase tracking-widest font-black text-slate-300">Próximos a vencer</p>
+                            <span class="bg-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ alertasInfo.lotes_por_vencer.total }} lotes</span>
+                        </div>
+
+                        <div class="divide-y divide-slate-800/50">
+                            <div v-for="(lote, index) in alertasInfo.lotes_por_vencer.detalle" :key="'lote-' + index" class="p-4 hover:bg-slate-800/30 transition-colors flex flex-col gap-1">
+                                <div class="flex justify-between items-start">
+                                    <p class="text-sm font-bold text-slate-200 leading-tight">{{ lote.producto }}</p>
+                                    <span :class="lote.dias_restantes <= 7 ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'" class="text-[10px] font-black px-2 py-0.5 rounded-md ml-2 whitespace-nowrap">
+                                        {{ lote.dias_restantes <= 7 ? 'URGENTE' : lote.dias_restantes <= 15 ? 'PRONTO' : 'PRÓXIMO' }}
+                                    </span>
+                                </div>
+                                <p class="text-[11px] text-slate-500 font-medium italic">📍 {{ lote.sucursal }}</p>
+                                <p class="text-[11px] font-mono text-slate-400 mt-1">
+                                    Vence: <span :class="lote.dias_restantes <= 7 ? 'text-rose-400 font-bold' : 'text-slate-400'">{{ lote.fecha_vencimiento }}</span> 
+                                    ({{ lote.dias_restantes }} días) · Stock: {{ lote.stock_actual }} u.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="alertasInfo.total === 0" class="p-6 text-center">
+                        <p class="text-slate-400 text-sm font-bold">Todo en orden ✅</p>
+                    </div>
+
                     <div v-if="alertasInfo.total > 0" class="p-3 bg-slate-800/80 border-t border-slate-700 flex gap-2">
-                        <Link :href="route('transferencias.index')" @click="campanaAbierta = false" class="flex-1 text-center bg-slate-700 hover:bg-slate-600 text-white text-[10px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all">
-                            Logística
+                        <Link v-if="alertasInfo.lotes_por_vencer && alertasInfo.lotes_por_vencer.total > 0" :href="route('lotes.index')" @click="campanaAbierta = false" class="flex-1 text-center bg-slate-700 hover:bg-slate-600 text-white text-[10px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all">
+                            Ver Lotes
                         </Link>
                         <Link :href="route('dashboard')" @click="campanaAbierta = false" class="flex-1 text-center bg-sky-600 hover:bg-sky-50 text-white text-[10px] font-bold uppercase tracking-widest py-2.5 rounded-lg shadow-md transition-all">
-                            Ver Todo
+                            Dashboard
                         </Link>
                     </div>
                 </div>

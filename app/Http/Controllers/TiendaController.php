@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Categoria;
 use App\Models\Comercio;
 use App\Models\Producto;
+use App\Models\StoreConfig;
 use App\Models\Sucursal;
 use App\Services\Promotion\PromotionEngineService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
 class TiendaController extends Controller
@@ -47,6 +49,10 @@ class TiendaController extends Controller
                 'nombre' => $c->nombreCategoria,
             ]);
 
+        $storeConfig = Cache::remember("store_config_{$comercio->id}", 3600, function () use ($comercio) {
+            return optional($comercio->storeConfig)->config ?? StoreConfig::defaultConfig();
+        });
+
         return Inertia::render('Welcome', [
             'comercio'             => $comercio,
             'sucursalesBackend'    => $sucursales,
@@ -60,6 +66,7 @@ class TiendaController extends Controller
                 'telefono' => $consumidor->telefono,
             ] : null,
             'geoapifyKey'          => config('services.geoapify.key'),
+            'storeConfig'          => $storeConfig,
         ]);
     }
 
@@ -163,7 +170,7 @@ class TiendaController extends Controller
                 'total'        => $productos->total(),
             ],
             'counts_por_categoria' => $countsPorCategoria,
-        ]);
+        ])->header('Cache-Control', 'public, max-age=30');
     }
 
     public function promociones($sucursal_id)
@@ -179,7 +186,12 @@ class TiendaController extends Controller
             ->with('categoria')
             ->with('globalProduct')
             ->where('productos.estado', true)
-            ->limit(20)
+            ->wherePivot('cantidad_fisica', '>', 0)
+            ->where(function ($q) {
+                $q->whereNull('producto_sucursal.cantidad_reservada')
+                  ->orWhereColumn('producto_sucursal.cantidad_fisica', '>', 'producto_sucursal.cantidad_reservada');
+            })
+            ->limit(50)
             ->get();
 
         $results = $this->engine->forProducts($productos, $comercioId);
@@ -191,10 +203,14 @@ class TiendaController extends Controller
             if ($promo === null) continue;
 
             $prod = $r['producto'];
+            $pivot = $prod->pivot;
+            $stockDisponible = max(0, ($pivot?->cantidad_fisica ?? 0) - ($pivot?->cantidad_reservada ?? 0));
+
             $mapped->push([
                 'id'                => $prod->id,
                 'nombre'            => $prod->nombre,
                 'precio'            => (float) $prod->precio_venta,
+                'stock'             => $stockDisponible,
                 'imagen_url'        => $prod->url_imagen,
                 'categoria'         => $prod->categoria?->nombreCategoria,
                 'promotion' => [
@@ -211,6 +227,7 @@ class TiendaController extends Controller
             ]);
         }
 
-        return response()->json(['data' => $mapped->values()->all()]);
+        return response()->json(['data' => $mapped->values()->all()])
+            ->header('Cache-Control', 'public, max-age=30');
     }
 }

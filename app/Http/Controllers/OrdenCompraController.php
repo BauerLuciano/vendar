@@ -6,9 +6,10 @@ use App\Models\OrdenCompra;
 use App\Models\OrdenCompraDetalle;
 use App\Models\Sucursal;
 use App\Models\Proveedor;
-use App\Models\IngresoMercaderia; 
-use App\Models\IngresoDetalle;    
-use App\Models\Producto;          
+use App\Models\IngresoMercaderia;
+use App\Models\IngresoDetalle;
+use App\Models\Producto;
+use App\Models\Lote;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -185,26 +186,78 @@ class OrdenCompraController extends Controller
                     'producto_id'           => $detalle->producto_id,
                     'cantidad_recibida'     => $detalle->cantidad_pedida,
                     'costo_unitario'        => $detalle->costo_unitario_estimado,
+                    'fecha_vencimiento'     => $detalle->fecha_vencimiento,
                 ]);
 
-                $producto = $detalle->producto;
-                $precioAnterior = $producto->precio_costo;
-                $nuevoPrecio = $detalle->costo_unitario_estimado;
+                if ($detalle->fecha_vencimiento) {
+                    Lote::create([
+                        'producto_id'        => $detalle->producto_id,
+                        'sucursal_id'        => $ordenCompra->sucursal_id,
+                        'fecha_vencimiento'  => $detalle->fecha_vencimiento,
+                        'stock_inicial'      => $detalle->cantidad_pedida,
+                        'stock_actual'       => $detalle->cantidad_pedida,
+                        'estado_liquidacion' => false,
+                    ]);
+                }
 
-                if ($nuevoPrecio != $precioAnterior) {
-                    if ($nuevoPrecio > $precioAnterior && $precioAnterior > 0) {
-                        $alertasInflacion[] = [
-                            'producto' => $producto->nombre,
-                            'costo_viejo' => $precioAnterior,
-                            'costo_nuevo' => $nuevoPrecio,
-                            'porcentaje' => number_format((($nuevoPrecio - $precioAnterior) / $precioAnterior) * 100, 2)
-                        ];
-                    }
-                    $producto->update(['precio_costo' => $nuevoPrecio]);
+                $producto = $detalle->producto;
+                $costoAnterior = $producto->precio_costo;
+                $costoNuevo = $detalle->costo_unitario_estimado;
+                $precioVentaAnterior = $producto->precio_venta;
+
+                // Stock actual antes del ingreso
+                $pivot = $producto->sucursales()->where('sucursal_id', $ordenCompra->sucursal_id)->first();
+                $cantidadAnterior = $pivot?->pivot->cantidad_fisica ?? 0;
+                $stockTotal = $cantidadAnterior + $detalle->cantidad_pedida;
+
+                // PPP: Precio de Promedio Ponderado
+                $nuevoPPP = $stockTotal > 0
+                    ? round(($cantidadAnterior * $costoAnterior + $detalle->cantidad_pedida * $costoNuevo) / $stockTotal, 2)
+                    : $costoNuevo;
+
+                // Alerta de inflación (costo de compra vs costo anterior)
+                if ($costoNuevo > $costoAnterior && $costoAnterior > 0) {
+                    $alertasInflacion[] = [
+                        'producto'    => $producto->nombre,
+                        'costo_viejo' => $costoAnterior,
+                        'costo_nuevo' => $costoNuevo,
+                        'porcentaje'  => number_format((($costoNuevo - $costoAnterior) / $costoAnterior) * 100, 2),
+                    ];
+                }
+
+                // Actualizar producto si el PPP cambió
+                if ($nuevoPPP != $costoAnterior) {
+                    $producto->update(['precio_costo' => $nuevoPPP]);
+
+                    DB::table('historico_costos')->insert([
+                        'producto_id'           => $detalle->producto_id,
+                        'costo_anterior'        => $costoAnterior,
+                        'costo_nuevo'           => $nuevoPPP,
+                        'precio_venta_anterior' => $precioVentaAnterior,
+                        'precio_venta_nuevo'    => $precioVentaAnterior,
+                        'user_id'               => auth()->id(),
+                        'origen_tipo'           => 'Recepción OC',
+                        'origen_id'             => $ordenCompra->id,
+                        'created_at'            => now(),
+                        'updated_at'            => now(),
+                    ]);
                 }
 
                 $producto->sucursales()->updateExistingPivot($ordenCompra->sucursal_id, [
                     'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad_pedida)
+                ]);
+
+                DB::table('movimientos_stock')->insert([
+                    'producto_id'         => $detalle->producto_id,
+                    'sucursal_id'         => $ordenCompra->sucursal_id,
+                    'user_id'             => auth()->id(),
+                    'tipo_movimiento'     => 'Ingreso OC',
+                    'cantidad_anterior'   => $cantidadAnterior,
+                    'cantidad_movimiento' => $detalle->cantidad_pedida,
+                    'cantidad_actual'     => $cantidadAnterior + $detalle->cantidad_pedida,
+                    'motivo'              => "OC #{$ordenCompra->id}",
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
                 ]);
             }
 

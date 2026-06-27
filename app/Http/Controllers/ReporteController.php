@@ -46,6 +46,83 @@ class ReporteController extends Controller
                 'fecha_desde' => $fechaDesde,
                 'fecha_hasta' => $fechaHasta,
             ],
+            'sucursales' => DB::table('sucursales')
+                ->where('comercio_id', $comercioId)
+                ->where('estado', true)
+                ->select('id', 'nombre')
+                ->get(),
+        ]);
+    }
+
+    public function rotacion(Request $request)
+    {
+        $comercioId = $this->getComercioId($request);
+        $sucursalesIds = $this->getSucursalesIds($comercioId);
+
+        if (empty($sucursalesIds)) {
+            return response()->json(['data' => [], 'total_valor' => 0]);
+        }
+
+        $diasMin = max(1, (int) $request->input('dias', 30));
+        $sucursalFiltro = $request->input('sucursal_id');
+        $sucursalesQuery = $sucursalFiltro
+            ? array_intersect($sucursalesIds, [$sucursalFiltro])
+            : $sucursalesIds;
+
+        if (empty($sucursalesQuery)) {
+            return response()->json(['data' => [], 'total_valor' => 0]);
+        }
+
+        $productos = DB::table('productos')
+            ->join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
+            ->leftJoin('detalle_ventas', 'productos.id', '=', 'detalle_ventas.producto_id')
+            ->leftJoin('ventas', function ($join) {
+                $join->on('detalle_ventas.venta_id', '=', 'ventas.id')
+                    ->where('ventas.estado', 'Completada');
+            })
+            ->whereIn('producto_sucursal.sucursal_id', $sucursalesQuery)
+            ->where('productos.estado', true)
+            ->where('producto_sucursal.cantidad_fisica', '>', 0)
+            ->selectRaw('
+                productos.id,
+                productos.nombre,
+                productos.precio_costo,
+                productos.precio_venta,
+                producto_sucursal.cantidad_fisica,
+                producto_sucursal.sucursal_id,
+                ROUND(producto_sucursal.cantidad_fisica * productos.precio_costo, 2) as valor_inmovilizado,
+                MAX(ventas.created_at) as ultima_venta
+            ')
+            ->groupBy(
+                'productos.id', 'productos.nombre', 'productos.precio_costo',
+                'productos.precio_venta', 'producto_sucursal.cantidad_fisica',
+                'producto_sucursal.sucursal_id'
+            )
+            ->get()
+            ->map(function ($p) {
+                $ultimaVenta = $p->ultima_venta ? \Carbon\Carbon::parse($p->ultima_venta) : null;
+                $dias = $ultimaVenta ? now()->diffInDays($ultimaVenta) : null;
+
+                return [
+                    'id' => $p->id,
+                    'nombre' => $p->nombre,
+                    'precio_costo' => (float) $p->precio_costo,
+                    'precio_venta' => (float) $p->precio_venta,
+                    'stock' => (float) $p->cantidad_fisica,
+                    'valor_inmovilizado' => (float) $p->valor_inmovilizado,
+                    'ultima_venta' => $ultimaVenta?->toDateString(),
+                    'dias_sin_venta' => $dias ?? 9999,
+                    'sucursal_id' => $p->sucursal_id,
+                ];
+            })
+            ->filter(fn ($p) => $p['dias_sin_venta'] >= $diasMin)
+            ->sortByDesc('dias_sin_venta')
+            ->values()
+            ->toArray();
+
+        return response()->json([
+            'data' => $productos,
+            'total_valor' => array_sum(array_column($productos, 'valor_inmovilizado')),
         ]);
     }
 
