@@ -21,7 +21,8 @@ class DatabaseSeeder extends Seeder
             ['email' => 'luciano@gmail.com'],
             [
                 'name' => 'Luciano',
-                'password' => Hash::make('123456'), 
+                'password' => Hash::make('123456'),
+                'is_active' => true,
             ]
         );
         // ¡Le asignamos el rol!
@@ -33,7 +34,8 @@ class DatabaseSeeder extends Seeder
             ['email' => 'test@example.com'],
             [
                 'name' => 'Test User',
-                'password' => Hash::make('password'), 
+                'password' => Hash::make('password'),
+                'is_active' => true,
             ]
         );
         // A este lo hacemos Cajero para que puedan probar cómo se bloquea el menú
