@@ -52,6 +52,8 @@ class QATestDataSeeder extends Seeder
         $this->crearOrdenesCompra();
         $this->crearTransferenciasSugeridas();
 
+        $this->sincronizarSecuencias();
+
         Model::reguard();
     }
 
@@ -799,6 +801,26 @@ class QATestDataSeeder extends Seeder
                 'costo_unitario_estimado' => 420,
                 'subtotal_estimado' => 2100,
             ]);
+        }
+    }
+
+    private function sincronizarSecuencias(): void
+    {
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            return;
+        }
+
+        $tablesConExplicitIds = [
+            'comercios', 'sucursales', 'categorias', 'marcas', 'proveedores',
+            'consumidores', 'productos', 'lotes', 'cajas', 'turno_cajas',
+            'ventas', 'pedido_webs', 'orden_compras', 'transferencia_sugeridas',
+        ];
+
+        foreach ($tablesConExplicitIds as $table) {
+            if (DB::table($table)->count() === 0) continue;
+            DB::statement(
+                "SELECT setval(pg_get_serial_sequence('{$table}', 'id'), coalesce(max(id),0) + 1, false) FROM \"{$table}\";"
+            );
         }
     }
 

@@ -73,7 +73,7 @@ class CajaDiariaController extends Controller
             ->first();
 
         if (!$turnoAbierto) {
-            return response()->json(['message' => 'No hay sesión abierta'], 404);
+            return response()->json(['message' => 'No hay sesión abierta', 'sesion_activa' => false]);
         }
 
         return response()->json([

@@ -46,6 +46,7 @@ class FixDatosMaestrosSeeder extends Seeder
         if (DB::connection()->getDriverName() === 'pgsql') {
             DB::statement("SELECT setval(pg_get_serial_sequence('sucursales', 'id'), coalesce(max(id),0) + 1, false) FROM sucursales;");
             DB::statement("SELECT setval(pg_get_serial_sequence('consumidores', 'id'), coalesce(max(id),0) + 1, false) FROM consumidores;");
+            DB::statement("SELECT setval(pg_get_serial_sequence('turno_cajas', 'id'), coalesce(max(id),0) + 1, false) FROM turno_cajas;");
         }
     }
 }

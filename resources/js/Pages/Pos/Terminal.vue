@@ -211,10 +211,9 @@ const buscandoProductos = ref(false);
 const productosIniciales = computed(() => props.productos || []);
 const totalProductos = computed(() => props.totalProductos || props.productos?.length || 0);
 
+// Show search results only when user types, not the full grid
 const productosFiltrados = computed(() => {
-    if (buscar.value.length < 2) {
-        return productosIniciales.value;
-    }
+    if (buscar.value.length < 1) return [];
     if (productosBusqueda.value.length > 0) return productosBusqueda.value;
     return productosIniciales.value.filter(p =>
         p.nombre.toLowerCase().includes(buscar.value.toLowerCase()) ||
@@ -225,13 +224,13 @@ const productosFiltrados = computed(() => {
 let timeoutBusqueda = null;
 function onBuscarInput() {
     if (timeoutBusqueda) clearTimeout(timeoutBusqueda);
-    if (buscar.value.length < 2) {
+    if (buscar.value.length >= 2) {
+        timeoutBusqueda = setTimeout(() => {
+            buscarProductosAjax(buscar.value);
+        }, 300);
+    } else {
         productosBusqueda.value = [];
-        return;
     }
-    timeoutBusqueda = setTimeout(() => {
-        buscarProductosAjax(buscar.value);
-    }, 300);
 }
 
 async function buscarProductosAjax(q) {
@@ -411,6 +410,8 @@ const procesarBusquedaEnter = async () => {
         || (await buscarExacto(query));
     if (exactMatch) {
         clickEnProducto(exactMatch);
+    } else if (productosFiltrados.value.length === 1) {
+        clickEnProducto(productosFiltrados.value[0]);
     } else {
         mostrarFlash('error', 'Producto no encontrado');
         buscar.value = '';
@@ -429,7 +430,7 @@ async function buscarExacto(q) {
     return null;
 }
 
-// 🔥 FUNCIÓN QUE RECIBE EL CÓDIGO DE LA CÁMARA
+// ─── Feedback visual y sonoro ────────────────────────────────────
 const flashFeedback = ref(null);
 let flashTimeout = null;
 
@@ -437,6 +438,36 @@ const mostrarFlash = (tipo, mensaje) => {
     flashFeedback.value = { tipo, mensaje };
     if (flashTimeout) clearTimeout(flashTimeout);
     flashTimeout = setTimeout(() => { flashFeedback.value = null; }, 2000);
+};
+
+const productAddedFeedback = ref(null);
+let productAddedTimeout = null;
+
+function hacerSonidoBeep() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = 1200;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {}
+}
+
+function mostrarProductoAgregado(producto, cantidad) {
+    productAddedFeedback.value = { nombre: producto.nombre, cantidad };
+    if (productAddedTimeout) clearTimeout(productAddedTimeout);
+    productAddedTimeout = setTimeout(() => { productAddedFeedback.value = null; }, 900);
+}
+
+const cantidadEnCarrito = (productId) => {
+    const item = carrito.value.find(i => i.id === productId);
+    return item ? item.cantidad : 0;
 };
 
 const manejarCodigoEscaneado = (codigo) => {
@@ -519,6 +550,8 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
         });
     }
 
+    hacerSonidoBeep();
+    mostrarProductoAgregado(producto, nuevaCantidad);
     mostrarFlash('success', `${producto.nombre} agregado`);
 };
 
@@ -691,6 +724,7 @@ const teclaDeMetodo = (metodo) => {
 
 const handleKeydown = (e) => {
     const key = e.key;
+
     if (key.startsWith('F') && atajosDisponibles.value[key]) {
         e.preventDefault();
         togglePago(atajosDisponibles.value[key]);
@@ -703,6 +737,24 @@ const handleKeydown = (e) => {
     }
     if (key === 'Escape') {
         montoRecibido.value = null;
+        return;
+    }
+
+    if (e.ctrlKey && key === 'z') {
+        e.preventDefault();
+        if (carrito.value.length > 0) {
+            const removed = carrito.value.pop();
+            mostrarFlash('removed', `Eliminado: ${removed.nombre}`);
+        }
+        return;
+    }
+
+    if (key === 'Backspace' && buscar.value.length === 0 && document.activeElement === inputBusqueda.value) {
+        e.preventDefault();
+        if (carrito.value.length > 0) {
+            const removed = carrito.value.pop();
+            mostrarFlash('removed', `Eliminado: ${removed.nombre}`);
+        }
         return;
     }
 };
@@ -720,55 +772,41 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <Head title="Terminal POS - Kiosco" />
+    <Head title="Terminal POS - VendAR" />
 
     <AuthenticatedLayout>
-        <div class="py-6 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen" @click="mostrarDropdownClientes = false">
-            
-            <div class="mb-6 flex justify-between items-end">
-                <div>
-                    <div class="flex items-center gap-3 mb-2">
-                        <span class="bg-indigo-100 text-indigo-800 text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest border border-indigo-200 shadow-sm">
-                            {{ turno.caja.nombre }}
-                        </span>
-                        <span class="text-xs font-bold text-slate-500">
-                            Sucursal: {{ turno.caja.sucursal.nombre }}
-                        </span>
-                    </div>
-                    <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                        Punto de Venta
-                    </h1>
-                </div>
-            </div>
+        <div class="py-4 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen" @click="mostrarDropdownClientes = false">
 
-            <div class="grid grid-cols-12 gap-6">
-                <div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
-                    
-                    <div class="bg-white rounded-2xl shadow-md border border-slate-200 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/20 transition-all overflow-hidden">
+            <div class="grid grid-cols-12 gap-4 lg:gap-6">
+
+                <!-- ─── COLUMNA IZQUIERDA: Búsqueda + Resultados ─── -->
+                <div class="col-span-12 lg:col-span-7 flex flex-col gap-3">
+
+                    <!-- Buscador protagonista -->
+                    <div class="bg-white rounded-2xl shadow-md border-2 border-slate-200 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/20 transition-all overflow-hidden">
                         <div class="relative flex items-center">
-                            <span class="absolute left-4 text-slate-400">
+                            <span class="absolute left-5 text-slate-400">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                             </span>
-                            <input 
+                            <input
                                 ref="inputBusqueda"
                                 v-model="buscar"
                                 @input="onBuscarInput"
                                 @keyup.enter="procesarBusquedaEnter"
-                                type="text" 
+                                type="text"
                                 placeholder="Escaneá código o buscá por nombre..."
-                                class="w-full pl-14 pr-40 py-4 bg-transparent border-none focus:ring-0 text-lg font-bold text-slate-800 placeholder-slate-400"
+                                class="w-full pl-14 pr-36 h-14 bg-transparent border-none focus:ring-0 text-xl font-bold text-slate-800 placeholder-slate-400"
                                 autofocus
                             />
                             <div v-if="buscandoProductos" class="absolute right-36 top-1/2 -translate-y-1/2">
                                 <svg class="animate-spin h-5 w-5 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             </div>
                             <div class="absolute right-3 flex items-center gap-2">
-                                <div class="hidden sm:block px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
+                                <span class="hidden sm:block px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
                                     ENTER ↵
-                                </div>
-                                <button 
-                                    @click="mostrarEscaner = true" 
+                                </span>
+                                <button
+                                    @click="mostrarEscaner = true"
                                     class="bg-sky-100 text-sky-600 p-2 rounded-xl hover:bg-sky-500 hover:text-white transition-all shadow-sm border border-sky-200 flex items-center gap-1 group"
                                     title="Escanear con Cámara"
                                 >
@@ -778,122 +816,146 @@ onUnmounted(() => {
                         </div>
                     </div>
 
-                    <div v-if="flashFeedback" class="fixed top-20 right-4 z-50 animate-in fade-in slide-in-from-right-2 duration-200">
+                    <!-- Producto agregado (feedback animado) -->
+                    <div v-if="productAddedFeedback" class="fixed top-24 left-1/2 -translate-x-1/2 z-50 animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-200">
+                        <div class="px-5 py-3 bg-emerald-50 border-2 border-emerald-300 rounded-2xl shadow-xl flex items-center gap-3">
+                            <div class="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
+                            </div>
+                            <div>
+                                <div class="font-bold text-emerald-800 text-sm">{{ productAddedFeedback.nombre }}</div>
+                                <div class="text-xs text-emerald-600 font-bold">Cantidad: ×{{ productAddedFeedback.cantidad }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Flash feedback (error / removed) -->
+                    <div v-if="flashFeedback && flashFeedback.tipo !== 'success'" class="fixed top-20 right-4 z-50">
                         <div class="px-4 py-2.5 rounded-xl shadow-lg border text-sm font-bold flex items-center gap-2"
-                            :class="flashFeedback.tipo === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'">
-                            <svg v-if="flashFeedback.tipo === 'success'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            :class="flashFeedback.tipo === 'removed' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-rose-50 border-rose-200 text-rose-700'">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             {{ flashFeedback.mensaje }}
                         </div>
                     </div>
 
-                            <div v-if="totalProductos > productosIniciales.length" class="text-[10px] font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                Mostrando los primeros {{ productosIniciales.length }} de {{ totalProductos }} productos. Usá la búsqueda para encontrar más.
-                            </div>
-                            <div v-if="frecuentes && frecuentes.length > 0 && buscar.length < 2" class="mb-4">
-                                <div class="flex items-center gap-2 mb-3">
-                                    <span class="text-sm font-black text-amber-700 uppercase tracking-widest">⭐ Más vendidos</span>
-                                </div>
-                                <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-thin">
-                                    <div v-for="p in frecuentes" :key="'freq-' + p.id"
-                                        @click="clickEnProducto(p)"
-                                        class="shrink-0 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 hover:border-amber-400 rounded-xl px-4 py-3 cursor-pointer hover:shadow-md transition-all min-w-[140px]"
-                                    >
-                                        <div class="text-xs font-bold text-amber-800 truncate max-w-[120px]">{{ p.nombre }}</div>
-                                        <div class="text-sm font-black text-amber-900 mt-1">
-                                            ${{ Number(p.precio_rebajado || p.precio_venta).toLocaleString() }}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div v-if="productosFiltrados.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        <div 
-                            v-for="p in productosFiltrados" :key="p.id"
-                            @click="clickEnProducto(p)"
-                            class="bg-white p-4 rounded-2xl shadow-md border border-slate-200 hover:border-sky-500 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden"
-                        >
-                            <div v-if="p.en_liquidacion" class="absolute top-0 left-0 px-2 py-1 bg-rose-500 text-white rounded-br-xl text-[10px] font-black uppercase tracking-widest shadow-md z-10 animate-pulse">
-                                {{ p.porcentaje_descuento }}% OFF 📉
-                            </div>
-
-                            <div class="absolute top-0 right-0 px-2 py-1 rounded-bl-xl text-[10px] font-black uppercase tracking-widest" :class="p.stock_actual <= 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'">
-                                Stock: {{ p.stock_actual }}
-                            </div>
-
-                            <div class="flex items-center gap-4 mt-2">
-                                <div class="w-16 h-16 bg-slate-50 rounded-xl overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
-                                    <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
-                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{{ p.codigo_barras || 'SIN CÓDIGO' }}</p>
-                                    <p class="font-bold text-slate-800 leading-tight group-hover:text-sky-600 transition-colors line-clamp-2">{{ p.nombre }}</p>
-                                    
-                                    <div class="mt-1 flex items-baseline gap-2">
-                                        <p v-if="p.en_liquidacion" class="text-rose-600 font-black text-lg">${{ p.precio_rebajado }}</p>
-                                        <p :class="p.en_liquidacion ? 'text-slate-400 line-through text-xs' : 'text-sky-600 font-black text-lg'">${{ p.precio_venta }}</p>
-                                        <span v-if="p.unidad_medida === 'Kg'" class="text-xs text-slate-400">/kg</span>
-                                    </div>
-                                </div>
-                            </div>
+                    <!-- Productos frecuentes (solo cuando no hay búsqueda) -->
+                    <div v-if="buscar.length < 1 && frecuentes && frecuentes.length > 0">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-xs font-black text-slate-500 uppercase tracking-widest">Más vendidos</span>
                         </div>
-                        <div v-if="carrito.length > 0" class="flex justify-center">
-                            <button @click="guardarCarrito" :disabled="guardandoCarrito"
-                                class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all disabled:opacity-50"
+                        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                            <div
+                                v-for="p in frecuentes" :key="'freq-' + p.id"
+                                @click="clickEnProducto(p)"
+                                class="bg-amber-50 border border-amber-200 hover:border-amber-400 hover:shadow-md rounded-xl px-3 py-2.5 cursor-pointer transition-all"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                                {{ guardandoCarrito ? 'Guardando...' : carrito.length + ' ítem' + (carrito.length > 1 ? 's' : '') + ' — Guardar' }}
-                            </button>
+                                <div class="text-sm font-bold text-amber-800 truncate">{{ p.nombre }}</div>
+                                <div class="text-base font-black text-amber-900 mt-0.5">
+                                    ${{ Number(p.precio_rebajado || p.precio_venta).toLocaleString() }}
+                                </div>
+                            </div>
                         </div>
                     </div>
+
+                    <!-- Resultados de búsqueda (solo cuando se escribe) -->
+                    <div v-if="buscar.length >= 1 && productosFiltrados.length > 0"
+                         class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                        <div
+                            v-for="p in productosFiltrados" :key="p.id"
+                            @click="clickEnProducto(p)"
+                            class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-500 hover:shadow-md transition-all cursor-pointer relative group"
+                        >
+                            <div v-if="p.en_liquidacion" class="absolute -top-1 -left-1 px-1.5 py-0.5 bg-rose-500 text-white rounded-lg text-[9px] font-black z-10 leading-none">
+                                -{{ p.porcentaje_descuento }}%
+                            </div>
+
+                            <div v-if="p.stock_actual <= 0" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full z-10"></div>
+                            <div v-else-if="p.stock_actual <= (p.stock_minimo || 5)" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full z-10"></div>
+
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-9 h-9 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
+                                    <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
+                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <p class="font-bold text-slate-800 text-xs leading-tight truncate">{{ p.nombre }}</p>
+                                    <div class="flex items-baseline gap-1 mt-0.5">
+                                        <p v-if="p.en_liquidacion" class="text-rose-600 font-black text-sm">${{ p.precio_rebajado }}</p>
+                                        <p :class="p.en_liquidacion ? 'text-slate-400 line-through text-[10px]' : 'text-slate-800 font-black text-sm'">${{ p.precio_venta }}</p>
+                                        <span v-if="p.unidad_medida === 'Kg'" class="text-[9px] text-slate-400">/kg</span>
+                                    </div>
+                                </div>
+                                <div v-if="cantidadEnCarrito(p.id)" class="shrink-0 bg-sky-100 text-sky-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                                    {{ cantidadEnCarrito(p.id) }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sin resultados -->
+                    <div v-if="buscar.length >= 1 && productosFiltrados.length === 0 && !buscandoProductos"
+                         class="flex flex-col items-center justify-center py-16 text-slate-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <p class="font-bold text-base">Sin resultados</p>
+                        <p class="text-sm">Probá con otro término de búsqueda</p>
+                    </div>
+
+                    <!-- Estado inicial (sin búsqueda, sin frecuentes) -->
+                    <div v-if="buscar.length < 1 && (!frecuentes || frecuentes.length === 0)"
+                         class="flex flex-col items-center justify-center py-16 text-slate-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                        <p class="font-bold text-lg">Escanéá o buscá un producto</p>
+                    </div>
+
                 </div>
 
-                <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 flex flex-col h-[calc(100vh-140px)] sticky top-6 border border-slate-200 overflow-hidden">
-                        
-                        <div class="p-5 border-b border-slate-200 bg-slate-50">
+                <!-- ─── COLUMNA DERECHA: Cliente → Carrito → Pagos → Total → Cobrar ─── -->
+                <div class="col-span-12 lg:col-span-5">
+                    <div class="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 flex flex-col h-[calc(100vh-100px)] sticky top-4 border border-slate-200 overflow-hidden">
+
+                        <!-- 1. CLIENTE -->
+                        <div class="px-4 pt-3 pb-3 border-b border-slate-200 bg-slate-50/50">
                             <div class="relative w-full" @click.stop>
-                                <div 
+                                <div
                                     @click="mostrarDropdownClientes = !mostrarDropdownClientes"
-                                    class="bg-white px-4 py-3 rounded-xl text-sm font-bold text-slate-700 cursor-pointer flex justify-between items-center border border-slate-200 hover:border-sky-400 transition-all shadow-sm"
+                                    class="bg-white px-3 py-2 rounded-xl text-sm font-bold text-slate-700 cursor-pointer flex justify-between items-center border border-slate-200 hover:border-sky-400 transition-all shadow-sm"
                                 >
                                     <span class="truncate flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-sky-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-500 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
                                         {{ clienteActivoObj ? clienteActivoObj.nombre + ' ' + clienteActivoObj.apellido : 'Consumidor Final' }}
                                     </span>
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                                 </div>
-                                
-                                <div v-if="mostrarDropdownClientes" class="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 shadow-xl rounded-2xl z-50 overflow-hidden">
-                                    <div class="p-4 border-b border-slate-100 bg-slate-50 relative">
-                                        <span class="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+
+                                <div v-if="mostrarDropdownClientes" class="absolute right-0 top-full mt-2 w-72 bg-white border border-slate-200 shadow-xl rounded-2xl z-50 overflow-hidden">
+                                    <div class="p-3 border-b border-slate-100 bg-slate-50 relative">
+                                        <span class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                         </span>
-                                        <input 
-                                            v-model="busquedaCliente" 
+                                        <input
+                                            v-model="busquedaCliente"
                                             @input="onBuscarClienteInput"
-                                            type="text" 
-                                            placeholder="Buscá por nombre o documento..." 
-                                            class="w-full pl-10 text-sm font-medium border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 py-2.5"
+                                            type="text"
+                                            placeholder="Buscá por nombre o documento..."
+                                            class="w-full pl-9 text-sm font-medium border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 py-2"
                                             autofocus
                                         >
-                                        <div v-if="buscandoClientes" class="absolute right-4 top-1/2 -translate-y-1/2">
-                                            <svg class="animate-spin h-4 w-4 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        <div v-if="buscandoClientes" class="absolute right-3 top-1/2 -translate-y-1/2">
+                                            <svg class="animate-spin h-3.5 w-3.5 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                         </div>
                                     </div>
-                                    <ul class="max-h-64 overflow-y-auto">
-                                        <li 
-                                            @click="seleccionarCliente(null)" 
-                                            class="px-4 py-3 text-sm font-bold text-slate-600 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50 flex items-center gap-2"
+                                    <ul class="max-h-56 overflow-y-auto">
+                                        <li
+                                            @click="seleccionarCliente(null)"
+                                            class="px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50 flex items-center gap-2"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                                             Consumidor Final
                                         </li>
-                                        <li 
+                                        <li
                                             v-for="c in clientesFiltradosSelect" :key="c.id"
                                             @click="seleccionarCliente(c)"
-                                            class="px-4 py-3 text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50"
+                                            class="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50"
                                         >
                                             <div class="flex justify-between items-center">
                                                 <span>{{ c.nombre }} {{ c.apellido }}</span>
@@ -905,320 +967,207 @@ onUnmounted(() => {
                             </div>
                         </div>
 
-                        <div class="border-b border-slate-200">
-                            <button @click="mostrarMovimientos = !mostrarMovimientos; if (mostrarMovimientos) fetchPendientes()"
-                                class="w-full flex items-center justify-between px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                        <!-- 2. CARRITO (compacto, flex-1) -->
+                        <div class="flex-1 overflow-y-auto px-3 py-2 space-y-1">
+                            <div v-if="carrito.length === 0" class="h-full flex flex-col items-center justify-center text-slate-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                                <p class="font-bold text-sm">Carrito vacío</p>
+                            </div>
+
+                            <div v-for="(item, index) in carrito" :key="item.id"
+                                class="flex items-center gap-1.5 px-2 py-1.5 bg-white border border-slate-100 rounded-xl hover:border-sky-200 transition-all group"
                             >
-                                <div class="flex items-center gap-2">
-                                    <span class="text-emerald-600 font-black text-xs">${{ resumenCaja.saldo.toLocaleString() }}</span>
-                                    <span v-if="ventasPendientes.length > 0" class="bg-amber-100 text-amber-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">{{ ventasPendientes.length }} pend.</span>
-                                    <span v-if="!cargandoMovimientos" class="text-[10px] text-slate-400 font-mono">{{ movimientosTurno.length }} mov.</span>
-                                    <svg v-if="cargandoMovimientos" class="animate-spin h-3 w-3 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                </div>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform text-slate-400" :class="mostrarMovimientos ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-                            </button>
-                            <div v-if="mostrarMovimientos" class="border-t border-slate-100">
-                                <div class="flex border-b border-slate-100">
-                                    <button @click="tabCajaPend = 'caja'" class="flex-1 py-2 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabCajaPend === 'caja' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
-                                        Movimientos
-                                    </button>
-                                    <button @click="tabCajaPend = 'pendientes'" class="flex-1 py-2 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabCajaPend === 'pendientes' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
-                                        Pendientes
-                                    </button>
-                                </div>
-                                <div v-if="tabCajaPend === 'caja'">
-                                    <div v-if="movimientosTurno.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
-                                        No hay movimientos en este turno
-                                    </div>
-                                    <div v-else class="max-h-40 overflow-y-auto">
-                                        <div v-for="m in movimientosTurno" :key="m.id"
-                                            class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
-                                        >
-                                            <div class="flex items-center gap-2 min-w-0">
-                                                <span class="shrink-0 w-1.5 h-1.5 rounded-full" :class="m.tipo === 'INGRESO' ? 'bg-emerald-400' : 'bg-red-400'"></span>
-                                                <span class="truncate font-medium text-slate-700">{{ m.concepto }}</span>
-                                                <span class="shrink-0 text-[10px] text-slate-400 font-mono">{{ m.created_at }}</span>
-                                            </div>
-                                            <div class="flex items-center gap-2 shrink-0">
-                                                <span class="text-[10px] text-slate-400 hidden sm:inline">{{ m.metodo_pago_display }}</span>
-                                                <span class="font-black font-mono tabular-nums" :class="m.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-red-500'">
-                                                    {{ m.tipo === 'INGRESO' ? '+' : '-' }}${{ m.monto.toLocaleString() }}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center justify-between px-4 py-1.5 bg-slate-50 text-[10px] font-bold border-t border-slate-200">
-                                        <span class="text-slate-500">I: <span class="text-emerald-600">${{ resumenCaja.ingresos.toLocaleString() }}</span></span>
-                                        <span class="text-slate-500">E: <span class="text-red-500">${{ resumenCaja.egresos.toLocaleString() }}</span></span>
-                                        <span class="text-slate-500">S: <span class="text-emerald-600">${{ resumenCaja.saldo.toLocaleString() }}</span></span>
-                                    </div>
-                                </div>
-                                <div v-if="tabCajaPend === 'pendientes'">
-                                    <div class="flex border-b border-slate-100">
-                                        <button @click="tabPendientes = 'carritos'" class="flex-1 py-1.5 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabPendientes === 'carritos' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
-                                            Carritos ({{ ventasPendientes.length }})
-                                        </button>
-                                        <button @click="tabPendientes = 'pagos'; fetchVentasPendientesPago()" class="flex-1 py-1.5 text-center text-[10px] font-black uppercase tracking-wider transition-colors" :class="tabPendientes === 'pagos' ? 'text-sky-700 border-b-2 border-sky-500 bg-sky-50/50' : 'text-slate-400 hover:text-slate-600'">
-                                            Pagos ({{ ventasPendientesPago.length }})
-                                        </button>
-                                    </div>
-
-                                    <div v-if="tabPendientes === 'carritos'">
-                                        <div v-if="ventasPendientes.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
-                                            No hay carritos guardados
-                                        </div>
-                                        <div v-else class="max-h-40 overflow-y-auto">
-                                            <div v-for="p in ventasPendientes" :key="p.id"
-                                                class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
-                                            >
-                                                <div>
-                                                    <span class="font-bold text-slate-700">{{ p.items_count }} prod.</span>
-                                                    <span class="text-slate-400 ml-2">${{ Number(p.total).toLocaleString() }}</span>
-                                                    <span class="text-slate-400 ml-2 font-mono">{{ p.created_at }}</span>
-                                                </div>
-                                                <div class="flex gap-1">
-                                                    <button @click="restaurarPendiente(p)" :disabled="restaurandoCarrito"
-                                                        class="px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                                    >
-                                                        {{ restaurandoCarrito ? '...' : 'Abrir' }}
-                                                    </button>
-                                                    <button @click="eliminarPendiente(p)"
-                                                        class="px-2 py-0.5 text-slate-400 hover:text-rose-500 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div v-if="tabPendientes === 'pagos'">
-                                        <div v-if="ventasPendientesPago.length === 0" class="px-5 py-4 text-center text-xs text-slate-400">
-                                            No hay pagos pendientes
-                                        </div>
-                                        <div v-else class="max-h-40 overflow-y-auto">
-                                            <div v-for="p in ventasPendientesPago" :key="p.id"
-                                                class="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-slate-50 border-b border-slate-50 last:border-0"
-                                            >
-                                                <div>
-                                                    <span class="font-bold text-slate-700">{{ p.items_count }} prod.</span>
-                                                    <span class="text-slate-400 ml-2">${{ Number(p.total).toLocaleString() }}</span>
-                                                    <span class="text-slate-400 ml-2 font-mono">{{ p.created_at }}</span>
-                                                    <span v-if="p.consumidor" class="text-slate-400 ml-2">· {{ p.consumidor }}</span>
-                                                </div>
-                                                <button @click="confirmarVentaId = p.id; confirmarDisplayInfo = p.pagos?.map(pg => ({ metodo_pago: pg.metodo_pago, monto: pg.monto, label: pg.metodo_pago })) || []; confirmarPagoModal = true"
-                                                    class="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                                >
-                                                    Cobrar
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="px-5 pt-4 pb-2 bg-slate-50 flex flex-col gap-3">
-                            <div class="grid grid-cols-4 gap-1.5">
-                                <button
-                                    v-for="m in METODOS_DISPONIBLES" :key="m.value"
-                                    @click="togglePago(m.value)"
-                                    :title="m.label"
-                                    class="flex flex-col items-center justify-center gap-1 py-2 rounded-xl border-2 transition-all shadow-sm"
-                                    :class="pagos.some(p => p.metodo_pago === m.value)
-                                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-indigo-100'
-                                        : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
-                                >
-                                    <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                    <svg v-else-if="m.value === 'DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
-                                    <svg v-else-if="m.value === 'CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
-                                    <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                                    <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
-                                    <svg v-else-if="m.value === 'MERCADO_PAGO'" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 12c0 2 1 3.5 3 3.5s3-1.5 3-3.5-1-3.5-3-3.5-3 1.5-3 3.5z" fill="white"/></svg>
-                                    <span class="text-[9px] font-bold leading-tight text-center">{{ m.label }}</span>
-                                    <span v-if="teclaDeMetodo(m.value)" class="text-[8px] font-mono font-black text-slate-400 bg-slate-100 px-1 rounded border border-slate-200 leading-tight">{{ teclaDeMetodo(m.value) }}</span>
-                                </button>
-                            </div>
-
-                            <div v-for="(pago, idx) in pagos" :key="idx" class="flex items-center gap-2">
-                                <span class="text-xs font-black uppercase tracking-wider text-slate-500 min-w-[70px]">{{ METODOS_DISPONIBLES.find(m => m.value === pago.metodo_pago)?.label || pago.metodo_pago }}</span>
-                                <template v-if="esUnicoEfectivo">
-                                    <div class="flex-1 text-right text-sm font-bold text-slate-400">${{ totalVenta.toFixed(2) }}</div>
-                                </template>
-                                <template v-else>
-                                    <div class="relative flex-1">
-                                        <span class="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">$</span>
-                                        <input
-                                            v-model.number="pago.monto"
-                                            type="number"
-                                            min="0"
-                                            step="0.01"
-                                            placeholder="0.00"
-                                            class="w-full pl-6 pr-2 py-1.5 border-2 border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-0 transition-colors"
-                                            @focus="$event.target.select()"
-                                        >
-                                    </div>
-                                    <button
-                                        v-if="pagos.length > 1"
-                                        @click="removerPago(idx)"
-                                        class="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                <div class="flex items-center bg-slate-50 rounded-lg border border-slate-200 shrink-0">
+                                    <button @click="decrementarCantidad(index)" type="button" class="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-rose-500 font-bold text-base leading-none">−</button>
+                                    <input
+                                        type="number"
+                                        v-model.number="item.cantidad"
+                                        min="0"
+                                        @blur="validarCantidad(index)"
+                                        @keydown="prevenirNegativo($event)"
+                                        class="w-9 text-center bg-transparent border-none text-xs font-black p-0 focus:ring-0 text-sky-700 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&]:[appearance:textfield]"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                </template>
-                            </div>
-
-                            <div v-if="esUnicoEfectivo && totalVenta > 0" class="flex items-center gap-2">
-                                <div class="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                                    <div class="h-full rounded-full transition-all duration-300"
-                                        :class="esPagoCompleto ? 'bg-emerald-500' : 'bg-indigo-500'"
-                                        :style="{ width: Math.min(100, ((Number(montoRecibido) || 0) / totalVenta * 100)) + '%' }">
-                                    </div>
+                                    <button @click="incrementarCantidad(index)" type="button" class="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-emerald-500 font-bold text-base leading-none">+</button>
                                 </div>
-                                <span class="text-xs font-bold" :class="esPagoCompleto ? 'text-emerald-600' : 'text-slate-500'">
-                                    <template v-if="montoRecibido !== null && montoRecibido !== ''">${{ Number(montoRecibido).toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
-                                    <template v-else>Falta monto recibido</template>
-                                </span>
-                            </div>
 
-                            <div v-else-if="totalVenta > 0" class="flex items-center gap-2">
-                                <div class="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                                    <div class="h-full bg-indigo-500 rounded-full transition-all duration-300"
-                                        :class="esPagoCompleto ? 'bg-emerald-500' : ''"
-                                        :style="{ width: Math.min(100, (totalAsignado / totalVenta * 100)) + '%' }">
-                                    </div>
+                                <div class="min-w-0 flex-1">
+                                    <span class="font-bold text-slate-800 text-sm block truncate">{{ item.nombre }}</span>
                                 </div>
-                                <span class="text-xs font-bold" :class="esPagoCompleto ? 'text-emerald-600' : 'text-slate-500'">
-                                    <template v-if="esPagoCompleto">Completado</template>
-                                    <template v-else>${{ totalAsignado.toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
-                                </span>
+
+                                <span class="font-black text-slate-800 text-sm shrink-0 tabular-nums">${{ (item.cantidad * item.precio_venta).toFixed(2) }}</span>
+
+                                <button @click="eliminarDelCarrito(index)" class="shrink-0 w-6 h-6 flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all text-sm">✕</button>
                             </div>
 
-                            <div v-if="restante > 0.01 && pagos.length > 0 && pagos.length < 6" class="flex justify-end">
-                                <button @click="autoCompletarRestante" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider">
-                                    Asignar restante (${{ restante.toFixed(2) }}) al último
+                            <!-- Guardar carrito (sutil, solo cuando hay items) -->
+                            <div v-if="carrito.length > 0" class="flex justify-center pt-1">
+                                <button @click="guardarCarrito" :disabled="guardandoCarrito"
+                                    class="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all uppercase tracking-wider disabled:opacity-50"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                    {{ guardandoCarrito ? 'Guardando...' : 'Guardar carrito' }}
                                 </button>
-                            </div>
-
-                            <div v-if="tieneCuentaCorriente && clienteActivoObj" class="p-3 rounded-xl border flex items-center justify-between transition-colors" :class="bloqueoPorSaldo ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
-                                <div>
-                                    <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Crédito Disponible</p>
-                                    <p class="font-bold text-sm">${{ disponibleCliente.toFixed(2) }}</p>
-                                </div>
-                            </div>
-                            <div v-else-if="tieneCuentaCorriente && !clienteActivoObj" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
-                                <span class="text-xs font-bold">Tenés que elegir un cliente para fiarle.</span>
-                            </div>
-                            </div>
-
-                        <MpQrPanel
-                            :show="mostrarMpQr"
-                            :display-data="mpDisplayData"
-                            @close="togglePago('MERCADO_PAGO')"
-                        />
-
-                         <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 z-10">
-                            <div v-if="carrito.length === 0" class="h-full flex flex-col items-center justify-center text-slate-300 opacity-70">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-                                <p class="font-bold text-lg">Carrito vacío</p>
-                            </div>
-
-                            <div v-for="(item, index) in carrito" :key="item.id" class="flex flex-col p-3 bg-white border border-slate-200 rounded-2xl shadow-sm relative group hover:border-sky-200 transition-all">
-                                <div class="flex justify-between items-start mb-2">
-                                    <div class="pr-6">
-                                        <span class="font-bold text-slate-800 text-sm block">{{ item.nombre }}</span>
-                                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                            ${{ item.precio_venta }} 
-                                            <span v-if="item.en_liquidacion" class="text-rose-500 font-bold ml-1">(-{{ item.porcentaje_descuento }}% OFF)</span>
-                                            · Stock: {{ item.stock_actual }}
-                                        </span>
-                                    </div>
-                                    <button @click="eliminarDelCarrito(index)" class="absolute top-3 right-3 text-slate-300 hover:text-rose-500 transition-colors">✕</button>
-                                </div>
-                                
-                                <div class="flex justify-between items-end mt-1">
-                                    <div class="flex items-center bg-slate-50 rounded-xl p-1 border border-slate-200">
-                                        <button @click="decrementarCantidad(index)" type="button" class="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm">−</button>
-                                        <div class="flex flex-col items-center justify-center px-1">
-                                            <input 
-                                                type="number"
-                                                v-model.number="item.cantidad" 
-                                                min="0"
-                                                @blur="validarCantidad(index)"
-                                                @keydown="prevenirNegativo($event)"
-                                                class="w-16 text-center bg-transparent border-none text-sm font-black p-0 focus:ring-0 text-sky-700 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&]:[appearance:textfield]"
-                                            >
-                                        </div>
-                                        <button @click="incrementarCantidad(index)" type="button" class="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm">+</button>
-                                    </div>
-                                    
-                                    <div class="text-right">
-                                        <span class="font-black text-slate-800 text-lg">${{ (item.cantidad * item.precio_venta).toFixed(2) }}</span>
-                                    </div>
-                                </div>
                             </div>
                         </div>
 
-                        <div class="p-5 bg-white border-t border-slate-200 z-20">
-                            <div class="flex justify-between items-baseline mb-4">
-                                <span class="text-slate-500 font-black uppercase tracking-widest text-xs">Total</span>
-                                <span class="text-3xl font-black text-slate-900 tracking-tight" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
+                        <!-- Información de crédito (cuenta corriente) -->
+                        <div v-if="tieneCuentaCorriente && clienteActivoObj" class="px-4 py-1.5 border-t border-slate-100 bg-slate-50/50">
+                            <div class="flex items-center justify-between text-xs" :class="bloqueoPorSaldo ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'">
+                                <span>Crédito disponible</span>
+                                <span>${{ disponibleCliente.toFixed(2) }}</span>
+                            </div>
+                        </div>
+                        <div v-else-if="tieneCuentaCorriente && !clienteActivoObj" class="px-4 py-1.5 border-t border-slate-100 bg-amber-50/50 text-xs font-bold text-amber-600">
+                            Seleccioná un cliente para fiarle
+                        </div>
+
+                        <!-- 3. TOTAL + PAGOS + COBRAR (siempre visibles) -->
+                        <div class="border-t border-slate-200 bg-white">
+
+                            <!-- Métodos de pago -->
+                            <div class="px-4 pt-3 pb-2">
+                                <div class="grid grid-cols-3 gap-1.5">
+                                    <button
+                                        v-for="m in METODOS_DISPONIBLES" :key="m.value"
+                                        @click="togglePago(m.value)"
+                                        :title="m.label"
+                                        class="flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl border-2 transition-all shadow-sm min-h-[52px]"
+                                        :class="pagos.some(p => p.metodo_pago === m.value)
+                                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-indigo-100'
+                                            : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
+                                    >
+                                        <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                        <svg v-else-if="m.value === 'DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
+                                        <svg v-else-if="m.value === 'CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                        <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                                        <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                                        <svg v-else-if="m.value === 'MERCADO_PAGO'" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 12c0 2 1 3.5 3 3.5s3-1.5 3-3.5-1-3.5-3-3.5-3 1.5-3 3.5z" fill="white"/></svg>
+                                        <span class="text-[10px] font-bold leading-tight text-center">{{ m.label }}</span>
+                                        <span v-if="teclaDeMetodo(m.value)" class="text-[8px] font-mono font-black text-slate-400 bg-slate-100 px-1 rounded border border-slate-200 leading-tight">{{ teclaDeMetodo(m.value) }}</span>
+                                    </button>
+                                </div>
                             </div>
 
-                            <div v-if="esUnicoEfectivo && totalVenta > 0" class="mb-4 space-y-3">
-                                <div>
-                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Recibido ($)</label>
-                                    <div class="relative">
-                                        <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
+                            <!-- Montos por método (pago combinado) -->
+                            <div class="px-4 pb-2 space-y-1">
+                                <div v-for="(pago, idx) in pagos" :key="idx" class="flex items-center gap-2">
+                                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 min-w-[60px] shrink-0">{{ METODOS_DISPONIBLES.find(m => m.value === pago.metodo_pago)?.label || pago.metodo_pago }}</span>
+                                    <template v-if="esUnicoEfectivo">
+                                        <div class="flex-1 text-right text-sm font-bold text-slate-500">${{ totalVenta.toFixed(2) }}</div>
+                                    </template>
+                                    <template v-else>
+                                        <div class="relative flex-1">
+                                            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">$</span>
+                                            <input
+                                                v-model.number="pago.monto"
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                placeholder="0.00"
+                                                class="w-full pl-5 pr-2 py-1.5 border-2 border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-0 transition-colors"
+                                                @focus="$event.target.select()"
+                                            >
+                                        </div>
+                                        <button
+                                            v-if="pagos.length > 1"
+                                            @click="removerPago(idx)"
+                                            class="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Recibido + Vuelto (solo efectivo único) -->
+                            <div v-if="esUnicoEfectivo && totalVenta > 0" class="px-4 pb-2 space-y-1.5">
+                                <div class="flex items-center gap-2">
+                                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest shrink-0">Recibido</label>
+                                    <div class="relative flex-1">
+                                        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-sm">$</span>
                                         <input
                                             v-model.number="montoRecibido"
                                             type="number"
                                             min="0"
                                             step="0.01"
-                                            class="w-full pl-8 pr-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-emerald-500 focus:ring-0 transition-colors text-lg"
+                                            class="w-full pl-7 pr-3 py-2 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-emerald-500 focus:ring-0 transition-colors text-lg"
                                             placeholder="0.00"
                                         >
                                     </div>
                                 </div>
 
-                                <div v-if="vuelto !== null" class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-3 flex justify-between items-center">
-                                    <span class="text-emerald-700 font-black text-sm uppercase tracking-widest">Vuelto</span>
-                                    <span class="text-emerald-600 font-black text-2xl">${{ vuelto.toFixed(2) }}</span>
-                                </div>
-
-                                <div v-if="sugerencias.length > 0 && montoRecibido === null" class="flex flex-wrap gap-1.5">
+                                <div v-if="sugerencias.length > 0 && montoRecibido === null" class="flex flex-wrap gap-1">
                                     <button
                                         v-for="sug in sugerencias" :key="sug"
                                         @click="montoRecibido = sug"
-                                        class="px-3 py-1.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 border border-slate-200 hover:border-sky-300 rounded-lg text-xs font-bold text-slate-600 transition-all"
+                                        class="px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 border border-slate-200 hover:border-sky-300 rounded-lg text-[10px] font-bold text-slate-600 transition-all"
                                     >
-                                        ${{ sug.toFixed(2) }}
+                                        ${{ sug.toFixed(0) }}
                                     </button>
+                                </div>
+
+                                <div v-if="vuelto !== null" class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 flex justify-between items-center">
+                                    <span class="text-emerald-700 font-black text-xs uppercase tracking-widest">Vuelto</span>
+                                    <span class="text-emerald-600 font-black text-2xl">${{ vuelto.toFixed(2) }}</span>
                                 </div>
                             </div>
 
-                            <button 
-                                @click="finalizarVenta"
-                                :disabled="!puedeCobrar"
-                                class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-3.5 rounded-xl shadow-lg uppercase tracking-widest active:scale-95 transition-all text-sm"
-                            >
-                                <template v-if="bloqueoPorSaldo">SALDO INSUFICIENTE</template>
-                                <template v-else-if="esUnicoEfectivo && (montoRecibido === null || montoRecibido === '')">Ingresá el monto recibido</template>
-                                <template v-else-if="esUnicoEfectivo && Number(montoRecibido) < totalVenta">Faltan ${{ (totalVenta - Number(montoRecibido)).toFixed(2) }}</template>
-                                <template v-else-if="!esPagoCompleto">Asigná el total (${{ restante.toFixed(2) }})</template>
-                                <template v-else>Cobrar ${{ totalVenta.toFixed(2) }}</template>
-                                <span class="ml-2 text-[9px] font-mono font-black text-slate-500 bg-white/20 px-1.5 py-0.5 rounded border border-white/20">F9</span>
-                            </button>
+                            <!-- Barra de progreso del pago -->
+                            <div v-if="totalVenta > 0" class="px-4 pb-1">
+                                <div class="flex items-center gap-2">
+                                    <div class="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full transition-all duration-300"
+                                            :class="esPagoCompleto ? 'bg-emerald-500' : 'bg-indigo-500'"
+                                            :style="{ width: Math.min(100, esUnicoEfectivo ? ((Number(montoRecibido) || 0) / totalVenta * 100) : (totalAsignado / totalVenta * 100)) + '%' }">
+                                        </div>
+                                    </div>
+                                    <span class="text-[10px] font-bold" :class="esPagoCompleto ? 'text-emerald-600' : 'text-slate-500'">
+                                        <template v-if="esPagoCompleto">Completado</template>
+                                        <template v-else-if="esUnicoEfectivo && montoRecibido !== null && montoRecibido !== ''">${{ Number(montoRecibido).toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
+                                        <template v-else-if="!esUnicoEfectivo">${{ totalAsignado.toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Auto-completar restante -->
+                            <div v-if="restante > 0.01 && pagos.length > 0 && pagos.length < 6 && !esUnicoEfectivo" class="px-4 pb-1 flex justify-end">
+                                <button @click="autoCompletarRestante" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider">
+                                    Asignar restante (${{ restante.toFixed(2) }})
+                                </button>
+                            </div>
+
+                            <!-- TOTAL + COBRAR -->
+                            <div class="px-4 pt-2 pb-3 border-t border-slate-200 mt-1">
+                                <div class="flex items-end justify-between mb-2">
+                                    <span class="text-xs font-black text-slate-500 uppercase tracking-widest">Total</span>
+                                    <span class="text-3xl font-black text-slate-900 tracking-tight tabular-nums" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
+                                </div>
+                                <button
+                                    @click="finalizarVenta"
+                                    :disabled="!puedeCobrar"
+                                    class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-3.5 rounded-xl shadow-lg uppercase tracking-widest active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                >
+                                    <template v-if="bloqueoPorSaldo">SALDO INSUFICIENTE</template>
+                                    <template v-else-if="esUnicoEfectivo && (montoRecibido === null || montoRecibido === '')">Ingresá el monto recibido</template>
+                                    <template v-else-if="esUnicoEfectivo && Number(montoRecibido) < totalVenta">Faltan ${{ (totalVenta - Number(montoRecibido)).toFixed(2) }}</template>
+                                    <template v-else-if="!esPagoCompleto">Asigná el total (${{ restante.toFixed(2) }})</template>
+                                    <template v-else>Cobrar ${{ totalVenta.toFixed(2) }}</template>
+                                    <span class="text-[9px] font-mono font-black text-slate-500 bg-white/20 px-1.5 py-0.5 rounded border border-white/20">F9</span>
+                                </button>
+                            </div>
+
                         </div>
+
                     </div>
                 </div>
+
             </div>
         </div>
 
-        <LectorCamara 
-            v-if="mostrarEscaner" 
-            @escaneado="manejarCodigoEscaneado" 
-            @cerrar="mostrarEscaner = false" 
+        <LectorCamara
+            v-if="mostrarEscaner"
+            @escaneado="manejarCodigoEscaneado"
+            @cerrar="mostrarEscaner = false"
         />
 
         <ConfirmarPagoModal
@@ -1228,6 +1177,13 @@ onUnmounted(() => {
             @close="onPagoCancelado"
             @confirmed="onPagoConfirmado"
         />
-        
+
+        <MpQrPanel
+            :show="mostrarMpQr"
+            :display-data="mpDisplayData"
+            @close="togglePago('MERCADO_PAGO')"
+        />
+
     </AuthenticatedLayout>
 </template>
+
