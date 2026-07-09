@@ -183,6 +183,12 @@ class VentaController extends Controller
             DB::beginTransaction();
 
             foreach ($items as $item) {
+                $productoActivo = Producto::where('id', $item['id'])->where('estado', true)->exists();
+                if (!$productoActivo) {
+                    $nombre = $item['nombre'] ?? "Producto ID: {$item['id']}";
+                    throw new \Exception("El producto {$nombre} no está activo y no puede venderse.");
+                }
+
                 $stockActual = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
                     ->where('sucursal_id', $sucursalId)

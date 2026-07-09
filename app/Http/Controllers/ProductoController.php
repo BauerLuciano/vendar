@@ -55,6 +55,7 @@ class ProductoController extends Controller
             'precio_costo'        => 'required|numeric|min:0',
             'precio_venta'        => 'required|numeric|min:0',
             'stock_minimo'        => 'required|numeric|min:0',
+            'stock_objetivo'     => 'nullable|integer|min:0',
             'stock_inicial'       => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
@@ -150,6 +151,7 @@ class ProductoController extends Controller
             'precio_costo'        => 'required|numeric|min:0',
             'precio_venta'        => 'required|numeric|min:0',
             'stock_minimo'        => 'required|numeric|min:0',
+            'stock_objetivo'     => 'nullable|integer|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
             'imagen_url'          => 'nullable|url',
@@ -247,15 +249,28 @@ class ProductoController extends Controller
         }
     }
 
-    public function auditoria(Producto $producto)
+    public function auditoria(Request $request, Producto $producto)
     {
-        $movimientos = DB::table('movimientos_stock')
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+            abort(403, 'Este producto no pertenece a tu comercio.');
+        }
+
+        $query = DB::table('movimientos_stock')
             ->join('users', 'movimientos_stock.user_id', '=', 'users.id')
             ->join('sucursales', 'movimientos_stock.sucursal_id', '=', 'sucursales.id')
             ->where('producto_id', $producto->id)
             ->select('movimientos_stock.*', 'users.name as usuario', 'sucursales.nombre as sucursal')
-            ->orderBy('movimientos_stock.created_at', 'desc')
-            ->get();
+            ->orderBy('movimientos_stock.created_at', 'desc');
+
+        if ($request->filled('fecha_desde')) {
+            $query->where('movimientos_stock.created_at', '>=', $request->fecha_desde . ' 00:00:00');
+        }
+        if ($request->filled('fecha_hasta')) {
+            $query->where('movimientos_stock.created_at', '<=', $request->fecha_hasta . ' 23:59:59');
+        }
+
+        $movimientos = $query->paginate(15);
 
         return response()->json($movimientos);
     }
@@ -269,6 +284,7 @@ class ProductoController extends Controller
             $comercioId = auth()->user()->branch?->comercio_id;
 
             $tenantProduct = Producto::where('codigo_barras', $codigo)
+                ->where('estado', true)
                 ->whereHas('sucursales', fn($q) => $q->where('comercio_id', $comercioId))
                 ->first();
 

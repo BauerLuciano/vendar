@@ -208,7 +208,7 @@ Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
 // ------------------------------------------------------------------
 // MÓDULO: AUDITORÍA
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'role:SuperAdmin'])->group(function () {
+Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos/{producto}/auditoria', [ProductoController::class, 'auditoria'])->name('productos.auditoria');
     Route::get('/auditoria', [App\Http\Controllers\AuditoriaController::class, 'index'])->name('auditoria.index');
 });

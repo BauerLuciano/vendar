@@ -34,6 +34,7 @@ const formulario = useForm({
     precio_venta: '',
     stock_minimo: 0,         
     stock_minimo_visual: 0,  
+    stock_objetivo: '',
     stock_inicial: 0,
     stock_inicial_visual: 0, 
     unidad_peso_visual: 'Kg',
@@ -56,6 +57,7 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.precio_costo = nuevoValor.precio_costo;
         formulario.precio_venta = nuevoValor.precio_venta;
         formulario.stock_minimo = nuevoValor.stock_minimo;
+        formulario.stock_objetivo = nuevoValor.stock_objetivo || '';
         formulario.descripcion = nuevoValor.descripcion || '';
         formulario.imagen_url = null;
         imagenPreview.value = nuevoValor.url_imagen;
@@ -403,7 +405,7 @@ const guardar = () => {
                             </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                            <div class="col-span-1 sm:col-span-4">
+                            <div class="col-span-1 sm:col-span-3">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Alerta Stock Mín.</label>
                                 <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
                                     <input v-model="formulario.stock_minimo_visual" type="number" step="0.001" min="0" class="w-full border-none bg-transparent px-3 py-2 text-sm focus:ring-0 text-slate-800">
@@ -415,7 +417,16 @@ const guardar = () => {
                                 </div>
                             </div>
 
-                            <div v-if="!formulario.id" class="col-span-1 sm:col-span-8">
+                            <div class="col-span-1 sm:col-span-3">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Stock Objetivo</label>
+                                <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
+                                    <input v-model="formulario.stock_objetivo" type="number" step="1" min="0" placeholder="Opcional" class="w-full border-none bg-transparent px-3 py-2 text-sm focus:ring-0 text-slate-800">
+                                    <span class="border-l border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 uppercase">Ud</span>
+                                </div>
+                                <p class="text-[9px] text-slate-400 mt-1">Cantidad ideal a mantener. Si vacío se usa fórmula actual.</p>
+                            </div>
+
+                            <div v-if="!formulario.id" class="col-span-1 sm:col-span-6">
                                 <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
                                     <div class="flex-1">
                                         <span class="block text-xs font-bold text-amber-800">Stock Físico Inicial</span>

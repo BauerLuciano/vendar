@@ -36,6 +36,7 @@ class ReposicionController extends Controller
                 'productos.codigo_barras',
                 'productos.proveedor_id', // El proveedor por defecto
                 'productos.stock_minimo', 
+                'productos.stock_objetivo', 
                 'productos.precio_costo',
                 'producto_sucursal.cantidad_fisica'
             )->get();

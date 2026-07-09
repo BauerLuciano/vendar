@@ -421,6 +421,29 @@
                     </div>
                     <button @click="verAuditoria = false" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 text-lg leading-none">✕</button>
                 </div>
+                <div class="px-6 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3 shrink-0">
+                    <div>
+                        <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1">Desde</label>
+                        <input type="date" v-model="kardexFiltros.fecha_desde" :max="kardexFiltros.fecha_hasta"
+                            class="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1">Hasta</label>
+                        <input type="date" v-model="kardexFiltros.fecha_hasta" :min="kardexFiltros.fecha_desde"
+                            class="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <button @click="kardexPagina = 1; cargarKardex()"
+                        class="mt-5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors">
+                        Filtrar
+                    </button>
+                    <button v-if="kardexFiltros.fecha_desde || kardexFiltros.fecha_hasta" @click="kardexFiltros.fecha_desde = ''; kardexFiltros.fecha_hasta = ''; kardexPagina = 1; cargarKardex()"
+                        class="mt-5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors">
+                        Limpiar
+                    </button>
+                    <span v-if="kardexPaginacion.total > 0" class="mt-5 ml-auto text-[10px] font-medium text-slate-400">
+                        {{ kardexPaginacion.total }} movimientos
+                    </span>
+                </div>
                 <div class="overflow-y-auto flex-1 custom-scrollbar">
                     <table class="w-full text-left">
                         <thead class="sticky top-0 z-10">
@@ -460,6 +483,25 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <div v-if="kardexPaginacion.last_page > 1" class="px-6 py-3 border-t border-slate-100 flex items-center justify-between shrink-0">
+                    <span class="text-xs text-slate-400 font-medium">
+                        Página {{ kardexPaginacion.current_page }} de {{ kardexPaginacion.last_page }}
+                    </span>
+                    <div class="flex gap-1">
+                        <button @click="kardexCambiarPagina(kardexPaginacion.current_page - 1)"
+                            :disabled="kardexPaginacion.current_page <= 1"
+                            class="px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors"
+                            :class="kardexPaginacion.current_page <= 1 ? 'text-slate-300 border-slate-100 cursor-not-allowed' : 'text-slate-600 border-slate-200 hover:bg-slate-50'">
+                            ← Anterior
+                        </button>
+                        <button @click="kardexCambiarPagina(kardexPaginacion.current_page + 1)"
+                            :disabled="kardexPaginacion.current_page >= kardexPaginacion.last_page"
+                            class="px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors"
+                            :class="kardexPaginacion.current_page >= kardexPaginacion.last_page ? 'text-slate-300 border-slate-100 cursor-not-allowed' : 'text-slate-600 border-slate-200 hover:bg-slate-50'">
+                            Siguiente →
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -502,6 +544,9 @@ const seleccionado = ref(null);
 const verAjuste = ref(false);
 const verAuditoria = ref(false);
 const movimientos = ref([]);
+const kardexPagina = ref(1);
+const kardexFiltros = ref({ fecha_desde: '', fecha_hasta: '' });
+const kardexPaginacion = ref({ current_page: 1, last_page: 1, from: 0, to: 0, total: 0 });
 
 const menuAbierto = ref(null);
 
@@ -609,12 +654,34 @@ const abrirAuditoria = async (p) => {
     cerrarMenu();
     verAuditoria.value = true;
     movimientos.value = [];
+    kardexPagina.value = 1;
+    kardexFiltros.value = { fecha_desde: '', fecha_hasta: '' };
+    await cargarKardex();
+};
+
+const cargarKardex = async () => {
+    if (!seleccionado.value) return;
     try {
-        const respuesta = await axios.get(route('productos.auditoria', p.id));
-        movimientos.value = respuesta.data;
+        const params = { page: kardexPagina.value };
+        if (kardexFiltros.value.fecha_desde) params.fecha_desde = kardexFiltros.value.fecha_desde;
+        if (kardexFiltros.value.fecha_hasta) params.fecha_hasta = kardexFiltros.value.fecha_hasta;
+        const respuesta = await axios.get(route('productos.auditoria', seleccionado.value.id), { params });
+        movimientos.value = respuesta.data.data;
+        kardexPaginacion.value = {
+            current_page: respuesta.data.current_page,
+            last_page: respuesta.data.last_page,
+            from: respuesta.data.from,
+            to: respuesta.data.to,
+            total: respuesta.data.total,
+        };
     } catch (error) {
         Swal.fire('Error', 'No se pudo cargar el historial', 'error');
     }
+};
+
+const kardexCambiarPagina = (page) => {
+    kardexPagina.value = page;
+    cargarKardex();
 };
 
 const formatearCantidad = (cantidad) => {

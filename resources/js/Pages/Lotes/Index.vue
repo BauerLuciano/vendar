@@ -1,10 +1,12 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
 const props = defineProps({
-    lotes: Object
+    lotes: Object,
+    sucursales: Array,
+    filtroSucursal: [String, Number, null]
 });
 
 const formatearFecha = (fecha) => {
@@ -24,6 +26,14 @@ const esUrgente = (fecha) => {
 const formatearCantidad = (cantidad) => {
     return Number(cantidad); 
 };
+
+const filtrarSucursal = (e) => {
+    const valor = e.target.value;
+    router.get(route('lotes.index'), valor ? { sucursal_id: valor } : {}, {
+        preserveState: true,
+        replace: true,
+    });
+};
 </script>
 
 <template>
@@ -36,6 +46,15 @@ const formatearCantidad = (cantidad) => {
                 <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Control de Vencimientos</h1>
                 <div class="h-1 w-16 bg-sky-500 mt-2"></div>
                 <p class="text-sm text-slate-500 mt-2 font-medium">Monitoreá la mercadería próxima a caducar y su estado de liquidación.</p>
+            </div>
+
+            <div v-if="sucursales && sucursales.length > 1" class="mb-6">
+                <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1.5">Sucursal</label>
+                <select @change="filtrarSucursal"
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[200px]">
+                    <option value="">Todas las sucursales</option>
+                    <option v-for="s in sucursales" :key="s.id" :value="s.id" :selected="s.id == filtroSucursal">{{ s.nombre }}</option>
+                </select>
             </div>
 
             <div class="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">

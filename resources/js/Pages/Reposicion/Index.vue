@@ -16,8 +16,12 @@ const seleccionados = ref([]);
 // Cuando carga la página, preparamos la lista con las recomendaciones matemáticas
 onMounted(() => {
     seleccionados.value = props.faltantes.map(prod => {
-        // La matemática: Pedir lo necesario para tener el doble del mínimo
-        let sugerido = (prod.stock_minimo * 2) - prod.cantidad_fisica;
+        let sugerido;
+        if (prod.stock_objetivo != null && prod.stock_objetivo > 0) {
+            sugerido = prod.stock_objetivo - prod.cantidad_fisica;
+        } else {
+            sugerido = (prod.stock_minimo * 2) - prod.cantidad_fisica;
+        }
         if (sugerido <= 0) sugerido = 1;
 
         return {
@@ -27,6 +31,7 @@ onMounted(() => {
             codigo_barras: prod.codigo_barras,
             cantidad_fisica: prod.cantidad_fisica,
             stock_minimo: prod.stock_minimo,
+            stock_objetivo: prod.stock_objetivo,
             // Valores interactivos (El usuario los puede cambiar en la tabla)
             seleccionado: false,
             proveedor_id: prod.proveedor_id || '', // Pre-seleccionamos el default

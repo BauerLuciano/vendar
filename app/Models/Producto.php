@@ -24,6 +24,7 @@ class Producto extends Model
         'precio_costo',
         'precio_venta',
         'stock_minimo',
+        'stock_objetivo',
         'imagen',
         'estado',
     ];
@@ -34,6 +35,7 @@ class Producto extends Model
         'precio_costo' => 'decimal:2',
         'precio_venta' => 'decimal:2',
         'stock_minimo' => 'decimal:3',
+        'stock_objetivo' => 'integer',
     ];
 
     protected $appends = ['url_imagen', 'sku'];

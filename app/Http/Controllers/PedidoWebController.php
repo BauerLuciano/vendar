@@ -50,6 +50,11 @@ class PedidoWebController extends Controller
 
         try {
             foreach ($request->items as $item) {
+                $productoActivo = \App\Models\Producto::where('id', $item['id'])->where('estado', true)->exists();
+                if (!$productoActivo) {
+                    throw new \Exception("El producto con ID {$item['id']} no está activo.");
+                }
+
                 $productoStock = DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $item['id'])
