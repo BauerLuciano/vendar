@@ -224,7 +224,10 @@ class ProductoController extends Controller
             }
 
             $producto->sucursales()->syncWithoutDetaching([
-                $validados['sucursal_id'] => ['cantidad_fisica' => $cantidadActual]
+                $validados['sucursal_id'] => [
+                    'cantidad_fisica'    => $cantidadActual,
+                    'cantidad_reservada' => $sucursalPivot ? $sucursalPivot->pivot->cantidad_reservada : 0,
+                ]
             ]);
 
             DB::table('movimientos_stock')->insert([

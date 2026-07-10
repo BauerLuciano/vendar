@@ -8,6 +8,7 @@ use App\Models\Comercio;
 use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ViumiWebhookController extends Controller
@@ -48,6 +49,7 @@ class ViumiWebhookController extends Controller
         }
 
         $pedido->pasarela_payment_id = $payload->gatewayTransactionId;
+        $estadoPagoAnterior = $pedido->estado_pago;
 
         match ($payload->status) {
             PaymentStatus::APPROVED => $pedido->estado_pago = 'pagado',
@@ -56,6 +58,28 @@ class ViumiWebhookController extends Controller
         };
 
         $pedido->save();
+
+        if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
+            && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+            foreach ($pedido->items as $item) {
+                $ps = DB::table('producto_sucursal')
+                    ->where('sucursal_id', $pedido->sucursal_id)
+                    ->where('producto_id', $item->producto_id)
+                    ->lockForUpdate()
+                    ->first();
+                if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                    DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->decrement('cantidad_reservada', $item->cantidad);
+                } elseif ($ps) {
+                    DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->update(['cantidad_reservada' => 0]);
+                }
+            }
+        }
 
         $this->paymentRecorder->recordWebhook($pedido, 'viumi', $payload);
 

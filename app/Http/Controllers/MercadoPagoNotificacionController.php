@@ -62,6 +62,7 @@ class MercadoPagoNotificacionController extends Controller
         }
 
         $pedido->pasarela_payment_id = $paymentId;
+        $estadoPagoAnterior = $pedido->estado_pago;
 
         if ($status->status === PaymentStatus::APPROVED) {
             $pedido->estado_pago = 'pagado';
@@ -70,6 +71,28 @@ class MercadoPagoNotificacionController extends Controller
         }
 
         $pedido->save();
+
+        if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
+            && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+            foreach ($pedido->items as $item) {
+                $ps = DB::table('producto_sucursal')
+                    ->where('sucursal_id', $pedido->sucursal_id)
+                    ->where('producto_id', $item->producto_id)
+                    ->lockForUpdate()
+                    ->first();
+                if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                    DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->decrement('cantidad_reservada', $item->cantidad);
+                } elseif ($ps) {
+                    DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->update(['cantidad_reservada' => 0]);
+                }
+            }
+        }
 
         $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
             gatewayTransactionId: $status->gatewayTransactionId,

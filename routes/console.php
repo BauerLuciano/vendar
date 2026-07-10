@@ -4,6 +4,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Jobs\AnalizarStockParaTransferencias;
+use App\Jobs\ExpirarPedidosPendientes;
 use App\Jobs\GenerarOrdenesCompraSugeridas; 
 
 Artisan::command('inspire', function () {
@@ -24,3 +25,6 @@ Schedule::command('inventario:liquidar-lotes')->dailyAt('00:30')->withoutOverlap
 
 // Evalúa promociones automáticas (stock, vencimientos, etc.)
 Schedule::command('promotions:evaluate')->dailyAt('02:00')->withoutOverlapping();
+
+// Expirar pedidos web no pagados (cada 15 minutos)
+Schedule::job(new ExpirarPedidosPendientes)->everyFifteenMinutes()->withoutOverlapping();

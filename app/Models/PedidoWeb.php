@@ -17,6 +17,7 @@ class PedidoWeb extends Model
     protected $fillable = [
         'comercio_id',
         'sucursal_id',
+        'consumidor_id',
         'tipo_entrega',
         'cliente_nombre',
         'cliente_telefono',

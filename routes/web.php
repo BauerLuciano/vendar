@@ -84,7 +84,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // Ruta para pedidos web: acepta admin (User) y consumidores
 Route::post('/api/pedidos-web', [PedidoWebController::class, 'store'])
-    ->middleware('auth:web,consumidor')
+    ->middleware(['auth:web,consumidor', 'throttle:pedidos-web'])
     ->name('pedidos.web.store');
 
 // ==========================================
@@ -350,7 +350,8 @@ Route::get('/tienda/{slug}/panel', function ($slug) {
 
     $pedidos = \App\Models\PedidoWeb::where('comercio_id', $comercio->id)
         ->where(function ($q) use ($consumidor) {
-            $q->where('cliente_telefono', $consumidor->telefono)
+            $q->where('consumidor_id', $consumidor->id)
+              ->orWhere('cliente_telefono', $consumidor->telefono)
               ->orWhere('cliente_nombre', $consumidor->nombre . ' ' . $consumidor->apellido);
         })
         ->orderBy('created_at', 'desc')

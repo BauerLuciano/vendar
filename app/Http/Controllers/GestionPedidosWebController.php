@@ -84,10 +84,22 @@ class GestionPedidosWebController extends Controller
                     }
                 } else {
                     foreach ($pedido->items as $item) {
-                        DB::table('producto_sucursal')
+                        $ps = DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
                             ->where('producto_id', $item->producto_id)
-                            ->decrement('cantidad_reservada', $item->cantidad);
+                            ->lockForUpdate()
+                            ->first();
+                        if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                            DB::table('producto_sucursal')
+                                ->where('sucursal_id', $pedido->sucursal_id)
+                                ->where('producto_id', $item->producto_id)
+                                ->decrement('cantidad_reservada', $item->cantidad);
+                        } elseif ($ps) {
+                            DB::table('producto_sucursal')
+                                ->where('sucursal_id', $pedido->sucursal_id)
+                                ->where('producto_id', $item->producto_id)
+                                ->update(['cantidad_reservada' => 0]);
+                        }
                     }
                 }
             }
@@ -106,12 +118,47 @@ class GestionPedidosWebController extends Controller
             ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
             : collect();
 
-        $pedido = PedidoWeb::where('id', $id)
-            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
-            ->firstOrFail();
-        $pedido->estado_pago = $request->estado_pago;
-        $pedido->save();
+        return DB::transaction(function () use ($request, $id, $sucursalIds) {
+            $pedido = PedidoWeb::lockForUpdate()->with('items')
+                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
+                ->findOrFail($id);
 
-        return redirect()->back();
+            $estadoPagoAnterior = $pedido->estado_pago;
+            $pedido->estado_pago = $request->estado_pago;
+            $pedido->save();
+
+            if ($request->estado_pago === 'reembolsado' && $estadoPagoAnterior === 'pagado') {
+                $this->liberarStockReservado($pedido);
+            }
+
+            return redirect()->back();
+        });
+    }
+
+    private function liberarStockReservado(PedidoWeb $pedido): void
+    {
+        if (in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+            return;
+        }
+
+        foreach ($pedido->items as $item) {
+            $ps = DB::table('producto_sucursal')
+                ->where('sucursal_id', $pedido->sucursal_id)
+                ->where('producto_id', $item->producto_id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                DB::table('producto_sucursal')
+                    ->where('sucursal_id', $pedido->sucursal_id)
+                    ->where('producto_id', $item->producto_id)
+                    ->decrement('cantidad_reservada', $item->cantidad);
+            } elseif ($ps) {
+                DB::table('producto_sucursal')
+                    ->where('sucursal_id', $pedido->sucursal_id)
+                    ->where('producto_id', $item->producto_id)
+                    ->update(['cantidad_reservada' => 0]);
+            }
+        }
     }
 }
