@@ -44,8 +44,12 @@ class ProductoController extends Controller
 
     public function store(Request $request, ProductLookupService $lookup)
     {
+        $request->merge([
+            'nombre' => trim((string) $request->nombre),
+        ]);
+
         $validados = $request->validate([
-            'nombre'              => 'required|string|min:4|max:255',
+            'nombre'              => 'required|string|min:4|max:255|regex:/\S/',
             'codigo_barras'       => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
             'categoria_id'        => 'required|exists:categorias,id',
             'marca_id'            => 'required|exists:marcas,id',
@@ -64,6 +68,7 @@ class ProductoController extends Controller
             'imagen_url'          => 'nullable|url',
         ], [
             'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
+            'nombre.regex' => 'El nombre no puede estar compuesto solo por espacios.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'codigo_barras.min' => 'El código debe tener al menos 2 números.',
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
@@ -144,8 +149,12 @@ class ProductoController extends Controller
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
 
+        $request->merge([
+            'nombre' => trim((string) $request->nombre),
+        ]);
+
         $validados = $request->validate([
-            'nombre'              => 'required|string|min:4|max:255',
+            'nombre'              => 'required|string|min:4|max:255|regex:/\S/',
             'codigo_barras'       => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
             'categoria_id'        => 'required|exists:categorias,id',
             'marca_id'            => 'required|exists:marcas,id',
@@ -163,6 +172,7 @@ class ProductoController extends Controller
             'imagen_url'          => 'nullable|url',
         ], [
             'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
+            'nombre.regex' => 'El nombre no puede estar compuesto solo por espacios.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
