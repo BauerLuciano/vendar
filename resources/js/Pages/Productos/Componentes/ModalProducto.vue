@@ -1,6 +1,6 @@
 <script setup>
-import { useForm, usePage } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { useForm } from '@inertiajs/vue3';
+import { ref, watch, computed } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import LectorCamara from '@/Components/LectorCamara.vue';
@@ -13,13 +13,12 @@ const props = defineProps({
     proveedores: Array
 });
 
-const page = usePage();
 const emit = defineEmits(['cerrar']);
 const imagenPreview = ref(null);
 
-const formatearDinero = (monto) => {
-    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
-};
+const OPCIONES_UNIDAD_COMPRA = ['Caja', 'Pack', 'Bolsa', 'Fardo', 'Pallet', 'Otro'];
+
+const DEFAULTS_CANTIDAD_COMPRA = { Caja: 12, Pack: 6, Bolsa: 25, Fardo: 24, Pallet: 100 };
 
 const formulario = useForm({
     id: null,
@@ -29,22 +28,46 @@ const formulario = useForm({
     marca_id: '',
     proveedor_id: '',
     unidad_medida: 'Unidad',
+    unidad_compra: null,
+    cantidad_por_compra: null,
     es_retornable: false,
     precio_costo: '',
     precio_venta: '',
-    stock_minimo: 0,         
-    stock_minimo_visual: 0,  
+    stock_minimo: 0,
+    stock_minimo_visual: 0,
     stock_objetivo: '',
+    stock_objetivo_visual: '',
     stock_inicial: 0,
-    stock_inicial_visual: 0, 
+    stock_inicial_visual: 0,
     unidad_peso_visual: 'Kg',
     descripcion: '',
     imagen: null,
     imagen_url: null,
 });
 
+const sufijoStock = computed(() => {
+    if (formulario.unidad_medida === 'Kg') {
+        return formulario.unidad_peso_visual === 'Gramos' ? 'Gr' : 'Kg';
+    }
+    return 'Ud';
+});
+
+const unidadCompraTexto = computed(() => {
+    if (formulario.unidad_compra === 'Otro') return 'unidades';
+    return formulario.unidad_compra ? formulario.unidad_compra.toLowerCase() + 's' : 'unidades';
+});
+
+const equivalenciaBultos = computed(() => {
+    const objetivo = parseFloat(formulario.stock_objetivo);
+    const cantidad = parseFloat(formulario.cantidad_por_compra);
+    if (!objetivo || !cantidad || cantidad < 1) return null;
+    const bultos = Math.ceil(objetivo / cantidad);
+    return { bultos, porBulto: cantidad, unidad: unidadCompraTexto.value };
+});
+
 watch(() => props.producto, (nuevoValor) => {
     formulario.clearErrors();
+    productosSimilares.value = [];
     if (nuevoValor) {
         formulario.id = nuevoValor.id;
         formulario.nombre = nuevoValor.nombre;
@@ -53,6 +76,8 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.marca_id = nuevoValor.marca_id;
         formulario.proveedor_id = nuevoValor.proveedor_id || '';
         formulario.unidad_medida = nuevoValor.unidad_medida;
+        formulario.unidad_compra = nuevoValor.unidad_compra || null;
+        formulario.cantidad_por_compra = nuevoValor.cantidad_por_compra || null;
         formulario.es_retornable = Boolean(nuevoValor.es_retornable);
         formulario.precio_costo = nuevoValor.precio_costo;
         formulario.precio_venta = nuevoValor.precio_venta;
@@ -62,12 +87,31 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.imagen_url = null;
         imagenPreview.value = nuevoValor.url_imagen;
 
-        if (nuevoValor.unidad_medida === 'Kg' && nuevoValor.stock_minimo > 0 && nuevoValor.stock_minimo < 1) {
-            formulario.stock_minimo_visual = nuevoValor.stock_minimo * 1000;
-            formulario.unidad_peso_visual = 'Gramos';
+        if (nuevoValor.unidad_medida === 'Kg') {
+            if (nuevoValor.stock_minimo > 0 && nuevoValor.stock_minimo < 1) {
+                formulario.stock_minimo_visual = Math.round(nuevoValor.stock_minimo * 1000);
+                formulario.unidad_peso_visual = 'Gramos';
+            } else {
+                formulario.stock_minimo_visual = nuevoValor.stock_minimo;
+                formulario.unidad_peso_visual = 'Kg';
+            }
         } else {
             formulario.stock_minimo_visual = nuevoValor.stock_minimo;
-            formulario.unidad_peso_visual = 'Kg';
+        }
+
+        if (nuevoValor.unidad_medida === 'Kg') {
+            const obj = parseFloat(nuevoValor.stock_objetivo);
+            if (obj > 0 && obj < 1) {
+                formulario.stock_objetivo_visual = Math.round(obj * 1000);
+                formulario.unidad_peso_visual = 'Gramos';
+            } else {
+                formulario.stock_objetivo_visual = nuevoValor.stock_objetivo || '';
+                if (nuevoValor.stock_objetivo) {
+                    formulario.unidad_peso_visual = 'Kg';
+                }
+            }
+        } else {
+            formulario.stock_objetivo_visual = nuevoValor.stock_objetivo || '';
         }
     } else {
         formulario.reset();
@@ -75,11 +119,46 @@ watch(() => props.producto, (nuevoValor) => {
     }
 }, { immediate: true });
 
+const productosSimilares = ref([]);
+let buscarSimilaresTimer = null;
+
+const tieneCoincidenciaExacta = computed(() => {
+    if (!productosSimilares.value.length) return false;
+    const termino = formulario.nombre?.trim().toLowerCase();
+    if (!termino) return false;
+    return productosSimilares.value.some(p => p.nombre.toLowerCase().trim() === termino);
+});
+
+watch(() => formulario.unidad_compra, (valor) => {
+    if (valor && valor !== 'Otro' && (formulario.cantidad_por_compra === null || formulario.cantidad_por_compra === '' || formulario.cantidad_por_compra === undefined)) {
+        formulario.cantidad_por_compra = DEFAULTS_CANTIDAD_COMPRA[valor] ?? null;
+    }
+});
+
+watch(() => formulario.nombre, (valor) => {
+    clearTimeout(buscarSimilaresTimer);
+    if (!valor || valor.trim().length < 4) {
+        productosSimilares.value = [];
+        return;
+    }
+    const termino = valor.trim();
+    buscarSimilaresTimer = setTimeout(async () => {
+        try {
+            const res = await axios.get(route('productos.buscar-similares'), {
+                params: { q: termino }
+            });
+            productosSimilares.value = res.data.filter(p => p.id !== formulario.id);
+        } catch (e) {
+            productosSimilares.value = [];
+        }
+    }, 250);
+});
+
 const alSeleccionarImagen = (e) => {
     const archivo = e.target.files[0];
     if (archivo) {
         formulario.imagen = archivo;
-        formulario.imagen_url = null; // Priorizamos la foto subida por el usuario
+        formulario.imagen_url = null;
         imagenPreview.value = URL.createObjectURL(archivo);
     }
 };
@@ -140,7 +219,6 @@ async function buscarCodigo(codigo) {
         });
         clearTimeout(timeoutId);
 
-        // Si ya existe en nuestra base de datos local
         if (res.data.found) {
             const p = res.data.producto;
             const result = await Swal.fire({
@@ -165,7 +243,6 @@ async function buscarCodigo(codigo) {
             return;
         }
 
-        // Si se encontró en la API externa (OpenFoodFacts)
         const apiData = res.data.api_data;
         if (apiData && (apiData.nombre || apiData.title)) {
             const confirmar = await Swal.fire({
@@ -197,7 +274,6 @@ async function buscarCodigo(codigo) {
 
             if (!confirmar.isConfirmed) return;
 
-            // Autocompletar el formulario
             formulario.nombre = apiData.nombre || apiData.title || formulario.nombre;
 
             if (apiData.marca) {
@@ -219,7 +295,6 @@ async function buscarCodigo(codigo) {
 
             formulario.descripcion = apiData.descripcion || formulario.descripcion;
             
-            // MAGIA ACÁ: Guardamos la URL para enviársela a Laravel
             if (apiData.imagen) {
                 imagenPreview.value = apiData.imagen;
                 formulario.imagen_url = apiData.imagen;
@@ -260,9 +335,11 @@ const guardar = () => {
     if (formulario.unidad_medida === 'Kg' && formulario.unidad_peso_visual === 'Gramos') {
         formulario.stock_minimo = formulario.stock_minimo_visual / 1000;
         formulario.stock_inicial = formulario.stock_inicial_visual / 1000;
+        formulario.stock_objetivo = formulario.stock_objetivo_visual ? formulario.stock_objetivo_visual / 1000 : '';
     } else {
         formulario.stock_minimo = formulario.stock_minimo_visual;
         formulario.stock_inicial = formulario.stock_inicial_visual;
+        formulario.stock_objetivo = formulario.stock_objetivo_visual;
     }
 
     const esEdicion = !!formulario.id;
@@ -318,6 +395,24 @@ const guardar = () => {
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nombre del Producto *</label>
                                 <input v-model="formulario.nombre" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500 ring-rose-100': formulario.errors.nombre}" placeholder="Ej: Coca Cola 2.25L Retornable" required>
                                 <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.nombre }}</p>
+
+                                <div v-if="productosSimilares.length" class="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
+                                    <p v-if="tieneCoincidenciaExacta" class="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded-md px-2.5 py-1.5 mb-2 flex items-center gap-1.5">
+                                        <svg class="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                        Ya existe un producto con ese nombre.
+                                    </p>
+                                    <p class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1.5">Productos similares encontrados</p>
+                                    <ul class="space-y-1.5">
+                                        <li v-for="p in productosSimilares" :key="p.id" class="bg-white/60 border border-amber-100 rounded-md px-2.5 py-1.5">
+                                            <p class="text-xs font-bold text-slate-800 leading-tight">{{ p.nombre }}</p>
+                                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                                <span v-if="p.marca_nombre" class="text-[9px] text-slate-500">Marca: {{ p.marca_nombre }}</span>
+                                                <span class="text-[9px] text-slate-400 font-mono">{{ p.codigo_barras }}</span>
+                                                <span class="text-[9px] text-slate-400">{{ p.unidad_medida }}</span>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
                             </div>
 
                             <div class="col-span-1 sm:col-span-1 lg:col-span-6">
@@ -389,26 +484,26 @@ const guardar = () => {
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Precio Costo ($)</label>
-                                <input v-model="formulario.precio_costo" type="number" step="0.01" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-rose-700 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
+                                <input v-model="formulario.precio_costo" type="number" step="0.01" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-rose-700 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Precio Venta ($)</label>
-                                <input v-model="formulario.precio_venta" type="number" step="0.01" class="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-sm text-emerald-800 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
+                                <input v-model="formulario.precio_venta" type="number" step="0.01" min="0" class="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-sm text-emerald-800 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
                             </div>
                         </div>
                     </div>
 
-                        <div class="space-y-3">
-                            <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
-                                <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Stock y extras</span>
-                            </div>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
+                            <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Stock</span>
+                        </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                            <div class="col-span-1 sm:col-span-3">
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Alerta Stock Mín.</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Stock Mínimo</label>
                                 <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
-                                    <input v-model="formulario.stock_minimo_visual" type="number" step="0.001" min="0" class="w-full border-none bg-transparent px-3 py-2 text-sm focus:ring-0 text-slate-800">
+                                    <input v-model="formulario.stock_minimo_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" class="w-full border-none bg-transparent px-3 py-2 text-sm focus:ring-0 text-slate-800">
                                     <select v-if="formulario.unidad_medida === 'Kg'" v-model="formulario.unidad_peso_visual" class="border-y-0 border-r-0 border-l border-slate-200 bg-slate-100 px-2 py-2 focus:ring-0 text-xs font-bold text-sky-700">
                                         <option value="Kg">Kg</option>
                                         <option value="Gramos">Gr</option>
@@ -417,56 +512,111 @@ const guardar = () => {
                                 </div>
                             </div>
 
-                            <div class="col-span-1 sm:col-span-3">
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Stock Objetivo</label>
-                                <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
-                                    <input v-model="formulario.stock_objetivo" type="number" step="1" min="0" placeholder="Opcional" class="w-full border-none bg-transparent px-3 py-2 text-sm focus:ring-0 text-slate-800">
-                                    <span class="border-l border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 uppercase">Ud</span>
-                                </div>
-                                <p class="text-[9px] text-slate-400 mt-1">Cantidad ideal a mantener. Si vacío se usa fórmula actual.</p>
-                            </div>
-
-                            <div v-if="!formulario.id" class="col-span-1 sm:col-span-6">
+                            <div v-if="!formulario.id" class="sm:col-span-2">
                                 <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
                                     <div class="flex-1">
                                         <span class="block text-xs font-bold text-amber-800">Stock Físico Inicial</span>
                                         <span class="block text-[10px] text-amber-600">Cantidad actual en estantería.</span>
                                     </div>
                                     <div class="w-full sm:w-48 flex items-center border border-amber-200 rounded-lg overflow-hidden bg-white shadow-sm focus-within:ring-2 focus-within:ring-amber-500 transition-all">
-                                        <input v-model="formulario.stock_inicial_visual" type="number" step="0.001" min="0" class="w-full border-none bg-transparent px-3 py-1.5 text-sm focus:ring-0 text-slate-800 font-bold">
+                                        <input v-model="formulario.stock_inicial_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" class="w-full border-none bg-transparent px-3 py-1.5 text-sm focus:ring-0 text-slate-800 font-bold">
                                         <span class="bg-amber-100 px-3 py-1.5 text-[10px] font-black text-amber-700 uppercase">
-                                            {{ formulario.unidad_medida === 'Kg' ? (formulario.unidad_peso_visual === 'Gramos' ? 'GR' : 'KG') : 'UD' }}
+                                            {{ sufijoStock }}
                                         </span>
                                     </div>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="flex items-center p-2.5 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors" :class="{'bg-sky-50 border-sky-200': formulario.es_retornable}">
-                                    <input type="checkbox" v-model="formulario.es_retornable" class="w-4 h-4 text-sky-600 rounded border-slate-300">
-                                    <span class="ml-3 text-xs font-bold text-slate-700">Envase Retornable</span>
-                                </label>
-                            </div>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
+                            <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Reposición / Stock Objetivo</span>
+                        </div>
 
-                            <div>
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Descripción / Notas</label>
-                                <textarea v-model="formulario.descripcion" rows="2" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors resize-none" placeholder="Anotaciones internas..."></textarea>
-                            </div>
-
-                            <div>
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Foto</label>
-                                <div class="h-20 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors flex items-center justify-center relative overflow-hidden group cursor-pointer" @click="$refs.fileInput.click()">
-                                    <img v-if="imagenPreview" :src="imagenPreview" class="absolute inset-0 w-full h-full object-cover z-10">
-                                    <div v-else class="text-center">
-                                        <svg class="mx-auto h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Subir</span>
+                        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="sm:col-span-1">
+                                    <label class="block text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Stock Objetivo</label>
+                                    <div class="flex items-center border border-amber-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-amber-500 bg-white transition-all">
+                                        <input v-model="formulario.stock_objetivo_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" placeholder="Opcional" class="w-full border-none bg-transparent px-3 py-2 text-sm focus:ring-0 text-slate-800">
+                                        <select v-if="formulario.unidad_medida === 'Kg'" v-model="formulario.unidad_peso_visual" class="border-y-0 border-r-0 border-l border-amber-200 bg-amber-100 px-2 py-2 focus:ring-0 text-xs font-bold text-amber-700">
+                                            <option value="Kg">Kg</option>
+                                            <option value="Gramos">Gr</option>
+                                        </select>
+                                        <span v-else class="border-l border-amber-200 bg-amber-100 px-3 py-2 text-xs font-bold text-amber-700 uppercase">Ud</span>
                                     </div>
-                                    <input ref="fileInput" type="file" @input="alSeleccionarImagen" class="hidden" accept="image/*">
                                 </div>
-                                <p v-if="formulario.errors.imagen" class="text-rose-500 text-[10px] mt-0.5 font-bold text-center">{{ formulario.errors.imagen }}</p>
+
+                                <div class="sm:col-span-2 flex items-end">
+                                    <div v-if="equivalenciaBultos" class="flex items-center gap-2 text-sm">
+                                        <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                        <span class="text-amber-800 font-medium">
+                                            ≈ {{ equivalenciaBultos.bultos }} {{ equivalenciaBultos.unidad }}
+                                            <span class="text-amber-600 text-xs">({{ equivalenciaBultos.porBulto }} unidades por {{ formulario.unidad_compra === 'Otro' ? 'unidad' : formulario.unidad_compra?.toLowerCase() }})</span>
+                                        </span>
+                                    </div>
+                                    <p v-else class="text-[10px] text-amber-600">Completá la sección "Presentación de Compra" para ver la equivalencia.</p>
+                                </div>
                             </div>
+
+                            <p class="text-[10px] text-amber-600 mt-2">Cantidad ideal a mantener en stock. Si vacío se usa fórmula actual.</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2 border-b border-slate-200 pb-1.5">
+                            <svg class="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Presentación de Compra</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                            <div class="col-span-1 sm:col-span-4">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Unidad de Compra</label>
+                                <select v-model="formulario.unidad_compra" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                                    <option :value="null">Sin configurar</option>
+                                    <option v-for="opcion in OPCIONES_UNIDAD_COMPRA" :key="opcion" :value="opcion">{{ opcion }}</option>
+                                </select>
+                            </div>
+
+                            <div v-if="formulario.unidad_compra === 'Otro'" class="col-span-1 sm:col-span-4">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Especifique</label>
+                                <input v-model="formulario.unidad_compra" type="text" placeholder="Ej: Tarro, Botella..." class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                            </div>
+
+                            <div class="col-span-1 sm:col-span-4">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Cantidad por Compra</label>
+                                <input v-model="formulario.cantidad_por_compra" type="number" step="0.01" min="1" placeholder="Ej: 12" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.cantidad_por_compra}">
+                                <p v-if="formulario.errors.cantidad_por_compra" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.cantidad_por_compra }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="flex items-center p-2.5 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors" :class="{'bg-sky-50 border-sky-200': formulario.es_retornable}">
+                                <input type="checkbox" v-model="formulario.es_retornable" class="w-4 h-4 text-sky-600 rounded border-slate-300">
+                                <span class="ml-3 text-xs font-bold text-slate-700">Envase Retornable</span>
+                            </label>
+                        </div>
+
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Descripción / Notas</label>
+                            <textarea v-model="formulario.descripcion" rows="2" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors resize-none" placeholder="Anotaciones internas..."></textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Foto</label>
+                            <div class="h-20 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors flex items-center justify-center relative overflow-hidden group cursor-pointer" @click="$refs.fileInput.click()">
+                                <img v-if="imagenPreview" :src="imagenPreview" class="absolute inset-0 w-full h-full object-cover z-10">
+                                <div v-else class="text-center">
+                                    <svg class="mx-auto h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Subir</span>
+                                </div>
+                                <input ref="fileInput" type="file" @input="alSeleccionarImagen" class="hidden" accept="image/*">
+                            </div>
+                            <p v-if="formulario.errors.imagen" class="text-rose-500 text-[10px] mt-0.5 font-bold text-center">{{ formulario.errors.imagen }}</p>
                         </div>
                     </div>
 

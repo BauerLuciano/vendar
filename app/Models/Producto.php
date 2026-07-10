@@ -20,6 +20,8 @@ class Producto extends Model
         'codigo_barras',
         'descripcion',
         'unidad_medida',
+        'unidad_compra',
+        'cantidad_por_compra',
         'es_retornable',
         'precio_costo',
         'precio_venta',
@@ -36,6 +38,7 @@ class Producto extends Model
         'precio_venta' => 'decimal:2',
         'stock_minimo' => 'decimal:3',
         'stock_objetivo' => 'integer',
+        'cantidad_por_compra' => 'decimal:2',
     ];
 
     protected $appends = ['url_imagen', 'sku'];

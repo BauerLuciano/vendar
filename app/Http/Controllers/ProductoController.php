@@ -45,25 +45,29 @@ class ProductoController extends Controller
     public function store(Request $request, ProductLookupService $lookup)
     {
         $validados = $request->validate([
-            'nombre'              => 'required|string|max:255',
+            'nombre'              => 'required|string|min:4|max:255',
             'codigo_barras'       => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
             'categoria_id'        => 'required|exists:categorias,id',
             'marca_id'            => 'required|exists:marcas,id',
             'proveedor_id'        => 'required|exists:proveedores,id',
             'unidad_medida'       => 'required|in:Unidad,Kg',
+            'unidad_compra'       => 'nullable|string|max:50',
+            'cantidad_por_compra' => 'nullable|numeric|min:1',
             'es_retornable'       => 'boolean',
             'precio_costo'        => 'required|numeric|min:0',
             'precio_venta'        => 'required|numeric|min:0',
             'stock_minimo'        => 'required|numeric|min:0',
-            'stock_objetivo'     => 'nullable|integer|min:0',
+            'stock_objetivo'     => 'nullable|numeric|min:0',
             'stock_inicial'       => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
             'imagen_url'          => 'nullable|url',
         ], [
+            'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'codigo_barras.min' => 'El código debe tener al menos 2 números.',
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
+            'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
 
         DB::beginTransaction();
@@ -141,22 +145,26 @@ class ProductoController extends Controller
         }
 
         $validados = $request->validate([
-            'nombre'              => 'required|string|max:255',
+            'nombre'              => 'required|string|min:4|max:255',
             'codigo_barras'       => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
             'categoria_id'        => 'required|exists:categorias,id',
             'marca_id'            => 'required|exists:marcas,id',
             'proveedor_id'        => 'required|exists:proveedores,id',
             'unidad_medida'       => 'required|in:Unidad,Kg',
+            'unidad_compra'       => 'nullable|string|max:50',
+            'cantidad_por_compra' => 'nullable|numeric|min:1',
             'es_retornable'       => 'boolean',
             'precio_costo'        => 'required|numeric|min:0',
             'precio_venta'        => 'required|numeric|min:0',
             'stock_minimo'        => 'required|numeric|min:0',
-            'stock_objetivo'     => 'nullable|integer|min:0',
+            'stock_objetivo'     => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
             'imagen_url'          => 'nullable|url',
         ], [
+            'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
+            'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
 
         if ($request->hasFile('imagen')) {
@@ -322,6 +330,40 @@ class ProductoController extends Controller
         ]);
     }
 
+    public function buscarSimilares(Request $request)
+    {
+        $request->validate(['q' => 'required|string|min:4']);
+
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $termino = trim($request->q);
+
+        $productos = Producto::with('marca')
+            ->where('nombre', 'ILIKE', '%' . $termino . '%')
+            ->where('estado', true)
+            ->when($comercioId, fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->where('comercio_id', $comercioId)))
+            ->select('id', 'nombre', 'codigo_barras', 'unidad_medida', 'estado', 'marca_id')
+            ->limit(8)
+            ->get()
+            ->map(fn ($p) => [
+                'id' => $p->id,
+                'nombre' => $p->nombre,
+                'codigo_barras' => $p->codigo_barras,
+                'unidad_medida' => $p->unidad_medida,
+                'estado' => $p->estado,
+                'marca_nombre' => $p->marca?->nombreMarca,
+            ])
+            ->sortBy(function ($p) use ($termino) {
+                $nombreLower = mb_strtolower($p['nombre']);
+                $terminoLower = mb_strtolower($termino);
+                if ($nombreLower === $terminoLower) return 0;
+                if (str_starts_with($nombreLower, $terminoLower)) return 1;
+                return 2;
+            })
+            ->values();
+
+        return response()->json($productos);
+    }
+
     public function exportar(Request $request)
     {
         $comercioId = auth()->user()->branch?->comercio_id;
@@ -450,6 +492,8 @@ class ProductoController extends Controller
                     'precio_venta' => $data['precio_venta'] ?? 0,
                     'stock_minimo' => $data['stock_minimo'] ?? 0,
                     'unidad_medida' => in_array($data['unidad_medida'] ?? '', ['Unidad', 'Kg', 'Gramos']) ? $data['unidad_medida'] : 'Unidad',
+                    'unidad_compra' => !empty($data['unidad_compra']) ? $data['unidad_compra'] : null,
+                    'cantidad_por_compra' => !empty($data['cantidad_por_compra']) && is_numeric($data['cantidad_por_compra']) ? $data['cantidad_por_compra'] : null,
                     'descripcion' => $data['descripcion'] ?? null,
                     'es_retornable' => ($data['es_retornable'] ?? '0') === '1',
                     'estado' => ($data['estado'] ?? '1') === '1',
