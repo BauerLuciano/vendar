@@ -43,7 +43,7 @@ class PosController extends Controller
                 ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
                 ->count();
 
-            $productos = $this->cargarProductosSucursal($sucursalId, 50);
+            $productos = $this->cargarProductosSucursal($sucursalId, 300);
             $productosFrecuentes = $this->cargarProductosFrecuentes($sucursalId);
 
             $clientesActivos = Consumidor::with('cuentaCorriente')

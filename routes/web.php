@@ -84,7 +84,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // Ruta para pedidos web: acepta admin (User) y consumidores
 Route::post('/api/pedidos-web', [PedidoWebController::class, 'store'])
-    ->middleware('auth:web,consumidor')
+    ->middleware(['auth:web,consumidor', 'throttle:pedidos-web'])
     ->name('pedidos.web.store');
 
 // ==========================================
@@ -223,6 +223,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
     Route::get('/productos/buscar-por-codigo/{codigo}', [ProductoController::class, 'buscarPorCodigo'])->name('productos.buscar-codigo');
+    Route::get('/productos/buscar-similares', [ProductoController::class, 'buscarSimilares'])->name('productos.buscar-similares');
     Route::post('/productos/{producto}/ajuste-stock', [ProductoController::class, 'ajustarStock'])->name('productos.ajustar');
     Route::get('/productos/exportar', [ProductoController::class, 'exportar'])->name('productos.exportar');
     Route::get('/productos/pdf', [ProductoController::class, 'pdf'])->name('productos.pdf');
@@ -350,7 +351,8 @@ Route::get('/tienda/{slug}/panel', function ($slug) {
 
     $pedidos = \App\Models\PedidoWeb::where('comercio_id', $comercio->id)
         ->where(function ($q) use ($consumidor) {
-            $q->where('cliente_telefono', $consumidor->telefono)
+            $q->where('consumidor_id', $consumidor->id)
+              ->orWhere('cliente_telefono', $consumidor->telefono)
               ->orWhere('cliente_nombre', $consumidor->nombre . ' ' . $consumidor->apellido);
         })
         ->orderBy('created_at', 'desc')

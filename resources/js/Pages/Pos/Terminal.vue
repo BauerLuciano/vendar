@@ -388,6 +388,7 @@ function autoCompletarRestante() {
 }
 
 const procesarBusquedaEnter = async () => {
+    if (timeoutBusqueda) clearTimeout(timeoutBusqueda);
     const query = buscar.value.trim();
     if (!query) return;
 
@@ -443,9 +444,15 @@ const mostrarFlash = (tipo, mensaje) => {
 const productAddedFeedback = ref(null);
 let productAddedTimeout = null;
 
+let audioCtx = null;
 function hacerSonidoBeep() {
     try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);

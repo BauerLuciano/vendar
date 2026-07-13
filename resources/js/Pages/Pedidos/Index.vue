@@ -81,9 +81,10 @@ const pedidosFiltrados = computed(() => {
 const contarEstado = (key) => props.pedidos?.filter(p => p.estado_pedido === key).length ?? 0;
 
 // ─── Métricas ─────────────────────────────────────────────────────────────────
+const hoy = new Date().toISOString().slice(0, 10);
 const totalPedidos   = computed(() => props.pedidos?.length ?? 0);
 const pendientesPago = computed(() => props.pedidos?.filter(p => p.estado_pago === 'pendiente').length ?? 0);
-const facturadoHoy   = computed(() => props.pedidos?.reduce((acc, p) => acc + Number(p.total), 0) ?? 0);
+const facturadoHoy   = computed(() => props.pedidos?.filter(p => p.created_at?.startsWith(hoy)).reduce((acc, p) => acc + Number(p.total), 0) ?? 0);
 
 // ─── Detalle expandido ────────────────────────────────────────────────────────
 const pedidoExpandido = ref(null);
