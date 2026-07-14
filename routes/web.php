@@ -219,15 +219,15 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos', [ProductoController::class, 'index'])->name('productos.index');
     Route::post('/productos', [ProductoController::class, 'store'])->name('productos.store');
-    Route::post('/productos/{producto}', [ProductoController::class, 'update'])->name('productos.update');
-    Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
+    Route::post('/productos/importar', [ProductoController::class, 'importar'])->name('productos.importar');
+    Route::get('/productos/exportar', [ProductoController::class, 'exportar'])->name('productos.exportar');
+    Route::get('/productos/pdf', [ProductoController::class, 'pdf'])->name('productos.pdf');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
     Route::get('/productos/buscar-por-codigo/{codigo}', [ProductoController::class, 'buscarPorCodigo'])->name('productos.buscar-codigo');
     Route::get('/productos/buscar-similares', [ProductoController::class, 'buscarSimilares'])->name('productos.buscar-similares');
+    Route::post('/productos/{producto}', [ProductoController::class, 'update'])->name('productos.update');
+    Route::patch('/productos/{producto}/status', [ProductoController::class, 'status'])->name('productos.status');
     Route::post('/productos/{producto}/ajuste-stock', [ProductoController::class, 'ajustarStock'])->name('productos.ajustar');
-    Route::get('/productos/exportar', [ProductoController::class, 'exportar'])->name('productos.exportar');
-    Route::get('/productos/pdf', [ProductoController::class, 'pdf'])->name('productos.pdf');
-    Route::post('/productos/importar', [ProductoController::class, 'importar'])->name('productos.importar');
 
     // ------------------------------------------------------------------
     // PROMOCIONES

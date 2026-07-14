@@ -15,9 +15,16 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Validation\Rule;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 
 class ProductoController extends Controller
 {
@@ -38,7 +45,7 @@ class ProductoController extends Controller
             'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
             'sucursales' => $sucursalIds->isNotEmpty()
                 ? Sucursal::whereIn('id', $sucursalIds)->get()
-                : Sucursal::all(),
+                : collect(),
         ]);
     }
 
@@ -75,17 +82,41 @@ class ProductoController extends Controller
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
 
+        if ($validados['precio_costo'] >= $validados['precio_venta']) {
+            return back()->withErrors([
+                'precio_venta' => 'El precio de venta debe ser mayor al precio de costo.',
+            ])->withInput();
+        }
+
         DB::beginTransaction();
         try {
             if ($request->hasFile('imagen')) {
                 $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
             } elseif (!empty($validados['imagen_url'])) {
                 try {
-                    $imageContents = Http::get($validados['imagen_url'])->body();
-                    if ($imageContents) {
-                        $filename = 'productos/' . uniqid('prod_api_') . '.jpg';
-                        Storage::disk('public')->put($filename, $imageContents);
-                        $validados['imagen'] = $filename;
+                    $imageUrl = filter_var($validados['imagen_url'], FILTER_VALIDATE_URL);
+                    $host = $imageUrl ? parse_url($imageUrl, PHP_URL_HOST) : null;
+                    $ip = $host ? gethostbyname($host) : null;
+
+                    $blocked = !$imageUrl
+                        || parse_url($imageUrl, PHP_URL_SCHEME) !== 'https'
+                        || !$ip
+                        || in_array($ip, ['127.0.0.1', '::1'])
+                        || str_starts_with($ip, '10.')
+                        || str_starts_with($ip, '172.')
+                        || str_starts_with($ip, '192.168.')
+                        || str_starts_with($ip, '169.254.')
+                        || $host === 'localhost';
+
+                    if ($blocked) {
+                        Log::warning("Blocked imagen_url download (SSRF): {$validados['imagen_url']}");
+                    } else {
+                        $imageContents = Http::timeout(10)->get($validados['imagen_url'])->body();
+                        if ($imageContents) {
+                            $filename = 'productos/' . Str::uuid() . '.jpg';
+                            Storage::disk('public')->put($filename, $imageContents);
+                            $validados['imagen'] = $filename;
+                        }
                     }
                 } catch (\Exception $e) {
                     Log::warning("No se pudo descargar la imagen externa del producto: " . $e->getMessage());
@@ -176,6 +207,12 @@ class ProductoController extends Controller
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
+
+        if ($validados['precio_costo'] >= $validados['precio_venta']) {
+            return back()->withErrors([
+                'precio_venta' => 'El precio de venta debe ser mayor al precio de costo.',
+            ])->withInput();
+        }
 
         if ($request->hasFile('imagen')) {
             if ($producto->imagen) {
@@ -290,6 +327,9 @@ class ProductoController extends Controller
         if ($request->filled('fecha_hasta')) {
             $query->where('movimientos_stock.created_at', '<=', $request->fecha_hasta . ' 23:59:59');
         }
+        if ($request->filled('sucursal_id')) {
+            $query->where('movimientos_stock.sucursal_id', $request->sucursal_id);
+        }
 
         $movimientos = $query->paginate(15);
 
@@ -386,72 +426,120 @@ class ProductoController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        $sucursales = $sucursalIds->isNotEmpty()
-            ? Sucursal::whereIn('id', $sucursalIds)->pluck('nombre', 'id')
-            : collect();
-
         $user = auth()->user();
+        $comercioNombre = $user->branch?->comercio?->nombre ?? 'Productos';
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Productos');
+
+        $sheet->mergeCells('A1:N1');
+        $sheet->setCellValue('A1', $comercioNombre);
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+        $sheet->mergeCells('A2:N2');
+        $sheet->setCellValue('A2', 'Exportado por: ' . $user->name . ' | Fecha: ' . now()->format('d/m/Y H:i') . ' | Total: ' . $productos->count() . ' productos');
+        $sheet->getStyle('A2')->getFont()->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('666666'));
+        $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
         $headers = [
-            'nombre', 'codigo_barras', 'categoria', 'marca', 'proveedor',
-            'precio_costo', 'precio_venta', 'stock_minimo', 'unidad_medida',
-            'descripcion', 'es_retornable', 'estado', 'stock_total',
+            'Nombre', 'Código de Barras', 'Categoría', 'Marca', 'Proveedor',
+            'Precio Costo', 'Precio Venta', 'Stock Mínimo', 'Unidad',
+            'Unidad Compra', 'Cant. por Compra', 'Descripción', 'Retornable', 'Estado',
         ];
 
-        foreach ($sucursales as $id => $nombre) {
-            $headers[] = 'stock_' . str_replace(' ', '_', $nombre);
+        $headerRow = 4;
+        foreach ($headers as $col => $header) {
+            $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col + 1) . $headerRow;
+            $sheet->setCellValue($ref, $header);
+            $sheet->getStyle($ref)->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFFFFF'));
+            $fill = $sheet->getStyle($ref)->getFill();
+            $fill->setFillType(Fill::FILL_SOLID)->setStartColor(new \PhpOffice\PhpSpreadsheet\Style\Color('1E40AF'));
+            $sheet->getStyle($ref)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet->getStyle($ref)->getBorders()->getBottom()->setBorderStyle(Border::BORDER_THIN);
         }
 
-        $callback = function () use ($productos, $headers, $sucursales, $user) {
-            $file = fopen('php://output', 'w');
+        $dataRow = $headerRow + 1;
+        foreach ($productos as $p) {
+            $row = [
+                $p->nombre,
+                $p->codigo_barras,
+                $p->categoria?->nombreCategoria ?? '',
+                $p->marca?->nombreMarca ?? '',
+                $p->proveedor?->razon_social ?? '',
+                $p->precio_costo ? (float) $p->precio_costo : '',
+                $p->precio_venta ? (float) $p->precio_venta : '',
+                $p->stock_minimo ? (int) $p->stock_minimo : '',
+                $p->unidad_medida ?? '',
+                $p->unidad_compra ?? '',
+                $p->cantidad_por_compra ?? '',
+                $p->descripcion ?? '',
+                $p->es_retornable ? 'Sí' : 'No',
+                $p->estado ? 'Activo' : 'Inactivo',
+            ];
 
-            fprintf($file, "# Exportado por: %s\n", $user->name);
-            fprintf($file, "# Fecha: %s\n", now()->format('d/m/Y H:i'));
-            fprintf($file, "# Comercio: %s\n", $user->branch?->comercio?->nombre ?? 'N/A');
-            fprintf($file, "# Sucursales: %s\n", $sucursales->isEmpty() ? 'N/A' : $sucursales->implode(', '));
-            fprintf($file, "# Total productos: %d\n", $productos->count());
-            fputcsv($file, $headers);
+            foreach ($row as $col => $value) {
+                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col + 1) . $dataRow;
+                $sheet->setCellValue($ref, $value);
+                $borders = $sheet->getStyle($ref)->getBorders();
+                $borders->getTop()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
+                $borders->getBottom()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
+                $borders->getLeft()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
+                $borders->getRight()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
 
-            foreach ($productos as $p) {
-                $row = [
-                    $p->nombre,
-                    $p->codigo_barras,
-                    $p->categoria?->nombreCategoria,
-                    $p->marca?->nombreMarca,
-                    $p->proveedor?->razon_social,
-                    $p->precio_costo,
-                    $p->precio_venta,
-                    $p->stock_minimo,
-                    $p->unidad_medida,
-                    $p->descripcion,
-                    $p->es_retornable ? '1' : '0',
-                    $p->estado ? '1' : '0',
-                    $p->sucursales->sum(fn ($s) => (float) $s->pivot->cantidad_fisica),
-                ];
-
-                foreach ($sucursales as $id => $nombre) {
-                    $suc = $p->sucursales->firstWhere('id', $id);
-                    $row[] = $suc ? (float) $suc->pivot->cantidad_fisica : 0;
+                if ($col === 5 || $col === 6) {
+                    $sheet->getStyle($ref)->getNumberFormat()->setFormatCode('#,##0.00');
                 }
-
-                fputcsv($file, $row);
             }
 
-            fclose($file);
-        };
+            if (($dataRow - $headerRow) % 2 === 0) {
+                foreach (range(1, count($headers)) as $col) {
+                    $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $dataRow;
+                    $sheet->getStyle($ref)->getFill()
+                        ->setFillType(Fill::FILL_SOLID)->setStartColor(new \PhpOffice\PhpSpreadsheet\Style\Color('F3F4F6'));
+                }
+            }
 
-        $nombre = 'productos_' . now()->format('Ymd_His') . '.csv';
+            $dataRow++;
+        }
 
-        return response()->stream($callback, 200, [
-            'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $nombre . '"',
-        ]);
+        foreach (range(1, count($headers)) as $col) {
+            $maxLen = strlen($headers[$col - 1]);
+            for ($r = $headerRow + 1; $r < $dataRow; $r++) {
+                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $r;
+                $val = $sheet->getCell($ref)->getValue();
+                $maxLen = max($maxLen, strlen((string) $val));
+            }
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col))->setWidth(min($maxLen + 4, 40));
+        }
+
+        $sheet->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);
+        $sheet->getPageSetup()->setFitToPage(true);
+        $sheet->getPageSetup()->setFitToWidth(1);
+        $sheet->getPageSetup()->setFitToHeight(0);
+
+        $nombre = 'productos_' . now()->format('Ymd_His') . '.xlsx';
+        $tempPath = storage_path('app/' . $nombre);
+        $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
+        $writer->save($tempPath);
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet);
+
+        return response()->download($tempPath, $nombre, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
 
     public function importar(Request $request)
     {
         $request->validate([
-            'archivo' => 'required|file|mimes:csv,txt|max:5120',
+            'archivo' => 'required|file|mimes:csv,txt,xlsx,xls|max:5120',
+        ], [
+            'archivo.required' => 'Debés seleccionar un archivo para importar.',
+            'archivo.file' => 'El archivo no es válido.',
+            'archivo.mimes' => 'El formato no es compatible. Usá CSV o Excel (.xlsx, .xls).',
+            'archivo.max' => 'El archivo supera el tamaño máximo de 5 MB.',
         ]);
 
         $comercioId = auth()->user()->branch?->comercio_id;
@@ -460,36 +548,89 @@ class ProductoController extends Controller
             : collect();
 
         $file = $request->file('archivo');
-        $handle = fopen($file->getRealPath(), 'r');
+        $ext = strtolower($file->getClientOriginalExtension());
+
+        $rows = [];
+        if (in_array($ext, ['xlsx', 'xls'])) {
+            $spreadsheet = IOFactory::load($file->getRealPath());
+            $sheet = $spreadsheet->getActiveSheet();
+            foreach ($sheet->getRowIterator() as $row) {
+                $rowData = [];
+                foreach ($row->getCellIterator() as $cell) {
+                    $rowData[] = $cell->getValue();
+                }
+                $rows[] = $rowData;
+            }
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet);
+        } else {
+            $handle = fopen($file->getRealPath(), 'r');
+            while (($row = fgetcsv($handle)) !== false) {
+                $rows[] = $row;
+            }
+            fclose($handle);
+        }
 
         $headers = null;
         $creados = 0;
         $actualizados = 0;
         $errores = [];
 
+        $headerMap = [
+            'nombre' => 'nombre', 'código de barras' => 'codigo_barras', 'codigo_barras' => 'codigo_barras',
+            'categoría' => 'categoria', 'categoria' => 'categoria',
+            'marca' => 'marca', 'proveedor' => 'proveedor',
+            'precio costo' => 'precio_costo', 'precio_costo' => 'precio_costo',
+            'precio venta' => 'precio_venta', 'precio_venta' => 'precio_venta',
+            'stock mínimo' => 'stock_minimo', 'stock_minimo' => 'stock_minimo', 'stock minimo' => 'stock_minimo',
+            'unidad' => 'unidad_medida', 'unidad_medida' => 'unidad_medida',
+            'unidad compra' => 'unidad_compra', 'unidad_compra' => 'unidad_compra',
+            'cant. por compra' => 'cantidad_por_compra', 'cantidad_por_compra' => 'cantidad_por_compra', 'cantidad por compra' => 'cantidad_por_compra',
+            'descripción' => 'descripcion', 'descripcion' => 'descripcion',
+            'retornable' => 'es_retornable', 'es_retornable' => 'es_retornable',
+            'estado' => 'estado',
+        ];
+
         DB::beginTransaction();
         try {
-            while (($row = fgetcsv($handle)) !== false) {
+            foreach ($rows as $row) {
                 if (empty($row) || empty($row[0])) continue;
 
-                $linea = trim($row[0]);
+                $linea = trim((string) $row[0]);
                 if (str_starts_with($linea, '#')) continue;
 
                 if ($headers === null) {
-                    $headers = $row;
+                    $rawHeaders = array_map(fn ($h) => trim(mb_strtolower((string) $h)), $row);
+                    $mappedHeaders = array_map(fn ($h) => $headerMap[$h] ?? $h, $rawHeaders);
+
+                    if (!in_array('nombre', $mappedHeaders) || !in_array('codigo_barras', $mappedHeaders)) {
+                        continue;
+                    }
+
+                    $headers = $mappedHeaders;
                     continue;
                 }
 
-                $data = array_combine($headers, $row);
+                $trimmedRow = array_map(fn ($v) => is_string($v) ? trim($v) : $v, $row);
+
+                if (count($trimmedRow) < count($headers)) {
+                    $trimmedRow = array_pad($trimmedRow, count($headers), '');
+                } elseif (count($trimmedRow) > count($headers)) {
+                    $trimmedRow = array_slice($trimmedRow, 0, count($headers));
+                }
+
+                $allData = array_combine($headers, $trimmedRow);
+
+                $data = $allData;
 
                 $categoriaId = $this->buscarOCrearReferencia(
-                    'App\Models\Categoria', 'nombreCategoria', $data['categoria'] ?? null, ['estado' => true]
+                    'App\Models\Categoria', 'nombreCategoria', $data['categoria'] ?? null, ['estado' => true], $comercioId
                 );
                 $marcaId = $this->buscarOCrearReferencia(
-                    'App\Models\Marca', 'nombreMarca', $data['marca'] ?? null, ['estado' => true]
+                    'App\Models\Marca', 'nombreMarca', $data['marca'] ?? null, ['estado' => true], $comercioId
                 );
                 $proveedorId = $this->buscarOCrearReferencia(
-                    'App\Models\Proveedor', 'razon_social', $data['proveedor'] ?? null, ['estado' => true]
+                    'App\Models\Proveedor', 'razon_social', $data['proveedor'] ?? null, ['estado' => true], $comercioId
                 );
 
                 $productoData = [
@@ -498,15 +639,15 @@ class ProductoController extends Controller
                     'categoria_id' => $categoriaId,
                     'marca_id' => $marcaId,
                     'proveedor_id' => $proveedorId,
-                    'precio_costo' => $data['precio_costo'] ?? 0,
-                    'precio_venta' => $data['precio_venta'] ?? 0,
-                    'stock_minimo' => $data['stock_minimo'] ?? 0,
-                    'unidad_medida' => in_array($data['unidad_medida'] ?? '', ['Unidad', 'Kg', 'Gramos']) ? $data['unidad_medida'] : 'Unidad',
+                    'precio_costo' => is_numeric($data['precio_costo'] ?? null) ? $data['precio_costo'] : 0,
+                    'precio_venta' => is_numeric($data['precio_venta'] ?? null) ? $data['precio_venta'] : 0,
+                    'stock_minimo' => is_numeric($data['stock_minimo'] ?? null) ? $data['stock_minimo'] : 0,
+                    'unidad_medida' => in_array(strtolower($data['unidad_medida'] ?? ''), ['unidad', 'kg', 'gramos']) ? ucfirst($data['unidad_medida']) : 'Unidad',
                     'unidad_compra' => !empty($data['unidad_compra']) ? $data['unidad_compra'] : null,
                     'cantidad_por_compra' => !empty($data['cantidad_por_compra']) && is_numeric($data['cantidad_por_compra']) ? $data['cantidad_por_compra'] : null,
                     'descripcion' => $data['descripcion'] ?? null,
-                    'es_retornable' => ($data['es_retornable'] ?? '0') === '1',
-                    'estado' => ($data['estado'] ?? '1') === '1',
+                    'es_retornable' => in_array(strtolower(trim($data['es_retornable'] ?? '0')), ['1', 'sí', 'si']),
+                    'estado' => in_array(strtolower(trim($data['estado'] ?? '1')), ['1', 'activo']),
                 ];
 
                 if (empty($productoData['nombre']) || empty($productoData['codigo_barras'])) {
@@ -514,7 +655,16 @@ class ProductoController extends Controller
                     continue;
                 }
 
-                $existente = Producto::where('codigo_barras', $productoData['codigo_barras'])->first();
+                $pc = (float) ($productoData['precio_costo'] ?? 0);
+                $pv = (float) ($productoData['precio_venta'] ?? 0);
+                if ($pc > 0 && $pv <= $pc) {
+                    $errores[] = 'Línea ' . (count($errores) + 1) . ': precio de venta ($' . number_format($pv, 2) . ') debe ser mayor al costo ($' . number_format($pc, 2) . ') en "' . ($productoData['nombre'] ?? 'sin nombre') . '"';
+                    continue;
+                }
+
+                $existente = Producto::where('codigo_barras', $productoData['codigo_barras'])
+                    ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                    ->first();
 
                 if ($existente) {
                     $existente->update($productoData);
@@ -535,19 +685,21 @@ class ProductoController extends Controller
             }
 
             DB::commit();
-            fclose($handle);
 
             $mensaje = "Importación completada: {$creados} creados, {$actualizados} actualizados.";
             if (!empty($errores)) {
                 $mensaje .= ' Errores: ' . implode(' | ', array_slice($errores, 0, 5));
             }
 
-            return redirect()->back()->with('success', $mensaje);
+            return response()->json(['success' => true, 'message' => $mensaje]);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            fclose($handle);
-            return redirect()->back()->with('error', 'Error al importar: ' . $e->getMessage());
+            $msg = $e->getMessage();
+            if (str_contains($msg, 'array_combine')) {
+                $msg = 'El archivo tiene un formato inválido. Verificá que todas las filas tengan la misma cantidad de columnas que el encabezado.';
+            }
+            return response()->json(['error' => 'Error al importar: ' . $msg], 500);
         }
     }
 
@@ -568,9 +720,18 @@ class ProductoController extends Controller
             ->pluck('valor', 'clave')
             ->toArray();
 
+        $user = auth()->user();
+
         $logoBase64 = null;
         if (!empty($config['logo_empresa'])) {
             $pathLogo = storage_path('app/public/' . $config['logo_empresa']);
+            if (file_exists($pathLogo) && is_file($pathLogo)) {
+                $ext = pathinfo($pathLogo, PATHINFO_EXTENSION);
+                $logoBase64 = 'data:image/' . $ext . ';base64,' . base64_encode(file_get_contents($pathLogo));
+            }
+        }
+        if (!$logoBase64 && $user->branch?->comercio?->logo) {
+            $pathLogo = storage_path('app/public/' . $user->branch->comercio->logo);
             if (file_exists($pathLogo) && is_file($pathLogo)) {
                 $ext = pathinfo($pathLogo, PATHINFO_EXTENSION);
                 $logoBase64 = 'data:image/' . $ext . ';base64,' . base64_encode(file_get_contents($pathLogo));
@@ -580,8 +741,6 @@ class ProductoController extends Controller
         $sucursales = $sucursalIds->isNotEmpty()
             ? Sucursal::whereIn('id', $sucursalIds)->pluck('nombre', 'id')
             : collect();
-
-        $user = auth()->user();
 
         $pdf = Pdf::loadView('pdf.productos', [
             'productos' => $productos,
@@ -598,14 +757,21 @@ class ProductoController extends Controller
         return $pdf->download('productos_' . now()->format('Ymd_His') . '.pdf');
     }
 
-    private function buscarOCrearReferencia(string $modelo, string $columna, ?string $valor, array $extra = []): ?int
+    private function buscarOCrearReferencia(string $modelo, string $columna, ?string $valor, array $extra = [], ?int $comercioId = null): ?int
     {
         if (empty($valor)) return null;
 
-        $registro = $modelo::firstOrCreate(
-            [$columna => $valor],
-            $extra
-        );
+        $registro = $modelo::where($columna, $valor)
+            ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId)->orWhereNull('comercio_id'))
+            ->first();
+
+        if (!$registro) {
+            $extra[$columna] = $valor;
+            if ($comercioId) {
+                $extra['comercio_id'] = $comercioId;
+            }
+            $registro = $modelo::create($extra);
+        }
 
         return $registro->id;
     }

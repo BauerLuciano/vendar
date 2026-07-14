@@ -41,6 +41,11 @@ defineEmits(['cerrar']);
                     </div>
                 </div>
 
+                <div v-if="producto.descripcion" class="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
+                    <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Descripción</span>
+                    <p class="text-xs text-slate-600 leading-relaxed">{{ producto.descripcion }}</p>
+                </div>
+
                 <div class="bg-sky-50 border border-sky-100 p-4 rounded-xl flex justify-between items-center mb-6">
                     <span class="text-xs font-black text-sky-800 uppercase tracking-widest">Precio Público:</span>
                     <span class="text-2xl font-black text-sky-600 font-mono">${{ producto.precio_venta }}</span>

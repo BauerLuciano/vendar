@@ -37,7 +37,7 @@ class Producto extends Model
         'precio_costo' => 'decimal:2',
         'precio_venta' => 'decimal:2',
         'stock_minimo' => 'decimal:3',
-        'stock_objetivo' => 'integer',
+        'stock_objetivo' => 'decimal:3',
         'cantidad_por_compra' => 'decimal:2',
     ];
 

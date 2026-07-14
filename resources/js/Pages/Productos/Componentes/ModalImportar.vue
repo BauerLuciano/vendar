@@ -17,9 +17,9 @@
                         :class="['border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer', dragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300 bg-slate-50']"
                         @click="$refs.inputFile.click()"
                     >
-                        <input ref="inputFile" type="file" accept=".csv,.txt" class="hidden" @change="manejarArchivo">
+                        <input ref="inputFile" type="file" accept=".csv,.txt,.xlsx,.xls" class="hidden" @change="manejarArchivo">
                         <svg class="w-10 h-10 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-                        <p class="text-sm font-medium text-slate-600">Arrastrá un archivo CSV acá</p>
+                        <p class="text-sm font-medium text-slate-600">Arrastrá un archivo CSV o Excel acá</p>
                         <p class="text-xs text-slate-400 mt-1">o hacé click para seleccionarlo</p>
                     </div>
 
@@ -33,9 +33,9 @@
                     </div>
 
                     <div v-if="archivo" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
-                        <p class="font-medium mb-1">Formato esperado:</p>
-                        <code class="text-amber-700">nombre, codigo_barras, categoria, marca, proveedor, precio_costo, precio_venta, stock_minimo, unidad_medida</code>
-                        <p class="mt-1">Si el código de barras ya existe, se actualiza el producto. Si no, se crea uno nuevo.</p>
+                        <p class="font-medium mb-1">Formato esperado (Excel o CSV):</p>
+                        <code class="text-amber-700">Nombre, Código de Barras, Categoría, Marca, Proveedor, Precio Costo, Precio Venta, Stock Mínimo, Unidad, Unidad Compra, Cant. por Compra, Descripción, Retornable, Estado</code>
+                        <p class="mt-1">Podés exportar el listado, editarlo en Excel y volver a importarlo. Si el código de barras ya existe, se actualiza. Si no, se crea uno nuevo.</p>
                     </div>
                 </div>
 
@@ -55,6 +55,7 @@
 <script setup>
 import { ref } from 'vue';
 import axios from 'axios';
+import Swal from 'sweetalert2';
 
 const emit = defineEmits(['cerrar', 'completado']);
 
@@ -66,8 +67,11 @@ const inputFile = ref(null);
 const manejarDrop = (e) => {
     dragOver.value = false;
     const file = e.dataTransfer.files[0];
-    if (file && (file.type === 'text/csv' || file.name.endsWith('.csv') || file.name.endsWith('.txt'))) {
-        archivo.value = file;
+    if (file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (['csv', 'txt', 'xlsx', 'xls'].includes(ext)) {
+            archivo.value = file;
+        }
     }
 };
 
@@ -82,8 +86,30 @@ const importar = async () => {
     try {
         const form = new FormData();
         form.append('archivo', archivo.value);
-        await axios.post(route('productos.importar'), form);
-        emit('completado');
+        const res = await axios.post(route('productos.importar'), form);
+        if (res.data?.success) {
+            Swal.fire({ title: '¡Importado!', text: res.data.message || 'Importación completada.', icon: 'success', timer: 3000, showConfirmButton: false });
+            emit('completado');
+        } else if (res.data?.error) {
+            Swal.fire({ title: 'Error', text: res.data.error, icon: 'error' });
+        } else {
+            emit('completado');
+        }
+    } catch (err) {
+        let msg = 'Error al importar el archivo.';
+        if (err.response?.status === 422) {
+            const errors = err.response.data?.errors;
+            if (errors?.archivo) {
+                msg = Array.isArray(errors.archivo) ? errors.archivo[0] : errors.archivo;
+            } else if (err.response.data?.message) {
+                msg = err.response.data.message;
+            }
+        } else if (err.response?.data?.error) {
+            msg = err.response.data.error;
+        } else if (err.response?.data?.message) {
+            msg = err.response.data.message;
+        }
+        Swal.fire({ title: 'Error', text: msg, icon: 'error' });
     } finally {
         cargando.value = false;
     }

@@ -39,7 +39,7 @@
                         <button @click="verImportar = true"
                             class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-blue-700 active:scale-95 shadow-sm shadow-blue-600/20">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                            Importar CSV
+                            Importar
                         </button>
                         <button @click="abrirNuevo"
                             class="inline-flex items-center gap-2 bg-slate-800 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-slate-700 active:scale-95 shadow-sm shadow-slate-800/20">
@@ -191,7 +191,9 @@
                                         <div class="inline-flex flex-col items-center gap-1">
                                             <span :class="calcularTotalStock(p) <= p.stock_minimo
                                                     ? 'text-red-700 bg-red-50 border-red-200'
-                                                    : 'text-emerald-700 bg-emerald-50 border-emerald-200'"
+                                                    : (p.stock_objetivo && calcularTotalStock(p) < p.stock_objetivo)
+                                                        ? 'text-amber-700 bg-amber-50 border-amber-200'
+                                                        : 'text-emerald-700 bg-emerald-50 border-emerald-200'"
                                                 class="px-3 py-1 rounded-lg text-xs font-bold border tabular-nums">
                                                 
                                                 {{ formatearCantidad(calcularTotalStock(p)) }}
@@ -337,7 +339,7 @@
                         class="flex justify-between items-center px-4 py-3 bg-slate-50 rounded-xl border border-slate-100">
                         <span class="text-sm font-medium text-slate-600">{{ suc.nombre }}</span>
                         <span class="text-sm font-semibold text-indigo-700">
-                            {{ Number(suc.pivot?.cantidad_fisica || 0).toFixed(seleccionado.unidad_medida === 'Kg' ? 3 : 0) }}
+                            {{ fmtMov(suc.pivot?.cantidad_fisica || 0) }}
                             <span class="text-[10px] text-indigo-400 ml-1">{{ seleccionado.unidad_medida }}</span>
                         </span>
                     </div>
@@ -377,22 +379,28 @@
                         </div>
                         <div class="flex-1">
                             <label class="block text-[10px] font-medium uppercase text-slate-400 mb-1.5 tracking-widest">Cantidad ({{ seleccionado.unidad_medida }})</label>
-                            <input v-model="formAjuste.cantidad" type="number" step="0.001" min="0.001"
+                            <input v-model="formAjuste.cantidad" type="number"
+                                :step="seleccionado.unidad_medida === 'Unidad' ? 1 : 0.001"
+                                :min="seleccionado.unidad_medida === 'Unidad' ? 1 : 0.001"
+                                :placeholder="seleccionado.unidad_medida === 'Unidad' ? '0' : '0.000'"
                                 class="w-full rounded-xl border-slate-200 bg-slate-50 focus:ring-violet-500 py-2.5 text-sm font-medium text-slate-700"
-                                placeholder="0.000" required>
+                                required>
                         </div>
                     </div>
                     <div>
                         <label class="block text-[10px] font-medium uppercase text-slate-400 mb-1.5 tracking-widest">Motivo</label>
                         <select v-model="formAjuste.motivo" class="w-full rounded-xl border-slate-200 bg-slate-50 focus:ring-violet-500 py-2.5 text-sm font-medium text-slate-700" required>
-                            <option>Rotura o Daño</option>
-                            <option>Vencimiento</option>
-                            <option>Faltante / Robo</option>
-                            <option>Sobrante / Encontrado</option>
-                            <option>Consumo Interno</option>
-                            <option>Corrección de Inventario</option>
-                            <option>Otro</option>
+                            <template v-if="formAjuste.tipo_ajuste === 'Restar'">
+                                <option v-for="m in motivosEgreso" :key="m">{{ m }}</option>
+                            </template>
+                            <template v-else>
+                                <option v-for="m in motivosIngreso" :key="m">{{ m }}</option>
+                            </template>
                         </select>
+                        <input v-if="formAjuste.motivo === 'Otro'" v-model="formAjuste.motivo_otro"
+                            type="text" placeholder="Especifique el motivo..."
+                            class="w-full rounded-xl border-slate-200 bg-slate-50 focus:ring-violet-500 py-2.5 text-sm font-medium text-slate-700 mt-2"
+                            required>
                     </div>
                     <div class="flex gap-3 pt-2">
                         <button type="button" @click="verAjuste = false"
@@ -423,6 +431,14 @@
                 </div>
                 <div class="px-6 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3 shrink-0">
                     <div>
+                        <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1">Sucursal</label>
+                        <select v-model="kardexFiltros.sucursal_id"
+                            class="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Todas</option>
+                            <option v-for="suc in sucursales" :key="suc.id" :value="suc.id">{{ suc.nombre }}</option>
+                        </select>
+                    </div>
+                    <div>
                         <label class="block text-[10px] font-medium uppercase tracking-widest text-slate-400 mb-1">Desde</label>
                         <input type="date" v-model="kardexFiltros.fecha_desde" :max="kardexFiltros.fecha_hasta"
                             class="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -436,7 +452,7 @@
                         class="mt-5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors">
                         Filtrar
                     </button>
-                    <button v-if="kardexFiltros.fecha_desde || kardexFiltros.fecha_hasta" @click="kardexFiltros.fecha_desde = ''; kardexFiltros.fecha_hasta = ''; kardexPagina = 1; cargarKardex()"
+                    <button v-if="kardexFiltros.fecha_desde || kardexFiltros.fecha_hasta || kardexFiltros.sucursal_id" @click="kardexFiltros.fecha_desde = ''; kardexFiltros.fecha_hasta = ''; kardexFiltros.sucursal_id = ''; kardexPagina = 1; cargarKardex()"
                         class="mt-5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors">
                         Limpiar
                     </button>
@@ -463,21 +479,21 @@
                             <tr v-for="mov in movimientos" :key="mov.id" class="hover:bg-slate-50 bg-white">
                                 <td class="px-5 py-3.5">
                                     <p class="text-xs font-medium text-slate-700">{{ new Date(mov.created_at).toLocaleDateString('es-AR') }}</p>
-                                    <p class="text-[10px] text-slate-400 mt-0.5">{{ new Date(mov.created_at).toLocaleTimeString('es-AR') }}</p>
+                                    <p class="text-[10px] text-slate-400 mt-0.5">{{ new Date(mov.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) }}</p>
                                 </td>
                                 <td class="px-5 py-3.5 text-xs font-medium text-indigo-600 uppercase tracking-tight">{{ mov.sucursal }}</td>
                                 <td class="px-5 py-3.5">
                                     <p class="text-xs font-medium text-slate-700">{{ mov.tipo_movimiento }}</p>
                                     <p class="text-[10px] text-slate-400 mt-0.5 truncate max-w-[180px]">{{ mov.usuario }} · {{ mov.motivo || 'Sin motivo' }}</p>
                                 </td>
-                                <td class="px-5 py-3.5 text-center font-mono text-xs text-slate-300">{{ Number(mov.cantidad_anterior).toFixed(3) }}</td>
+                                <td class="px-5 py-3.5 text-center font-mono text-xs text-slate-300">{{ fmtMov(mov.cantidad_anterior) }}</td>
                                 <td class="px-5 py-3.5 text-center font-mono text-sm font-semibold"
                                     :class="mov.cantidad_movimiento > 0 ? 'text-emerald-600' : 'text-red-500'">
-                                    {{ mov.cantidad_movimiento > 0 ? '+' : '' }}{{ Number(mov.cantidad_movimiento).toFixed(3) }}
+                                    {{ mov.cantidad_movimiento > 0 ? '+' : '' }}{{ fmtMov(mov.cantidad_movimiento) }}
                                 </td>
                                 <td class="px-5 py-3.5 text-center">
                                     <span class="font-mono text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-1 rounded-md">
-                                        {{ Number(mov.cantidad_actual).toFixed(3) }}
+                                        {{ fmtMov(mov.cantidad_actual) }}
                                     </span>
                                 </td>
                             </tr>
@@ -545,7 +561,7 @@ const verAjuste = ref(false);
 const verAuditoria = ref(false);
 const movimientos = ref([]);
 const kardexPagina = ref(1);
-const kardexFiltros = ref({ fecha_desde: '', fecha_hasta: '' });
+const kardexFiltros = ref({ fecha_desde: '', fecha_hasta: '', sucursal_id: '' });
 const kardexPaginacion = ref({ current_page: 1, last_page: 1, from: 0, to: 0, total: 0 });
 
 const menuAbierto = ref(null);
@@ -626,13 +642,22 @@ const formAjuste = useForm({
     sucursal_id: '',
     tipo_ajuste: 'Restar',
     cantidad: '',
-    motivo: 'Rotura o Daño',
+    motivo: 'Corrección de Inventario',
+    motivo_otro: '',
 });
+
+const motivosEgreso = ['Rotura o Daño', 'Vencimiento', 'Faltante / Robo', 'Consumo Interno', 'Corrección de Inventario', 'Otro'];
+const motivosIngreso = ['Sobrante / Encontrado', 'Devolución Cliente', 'Corrección de Inventario', 'Otro'];
 
 watch(() => page.props.flash, (nuevo) => {
     if (nuevo.exito) Swal.fire({ title: '¡Éxito!', text: nuevo.exito, icon: 'success', timer: 3000, showConfirmButton: false });
     if (nuevo.error) Swal.fire({ title: 'Error', text: nuevo.error, icon: 'error' });
 }, { deep: true });
+
+watch(() => formAjuste.tipo_ajuste, () => {
+    formAjuste.motivo = formAjuste.tipo_ajuste === 'Restar' ? 'Corrección de Inventario' : 'Sobrante / Encontrado';
+    formAjuste.motivo_otro = '';
+});
 
 const abrirAjuste = (p) => {
     seleccionado.value = p;
@@ -643,6 +668,10 @@ const abrirAjuste = (p) => {
 };
 
 const guardarAjuste = () => {
+    formAjuste.motivo = formAjuste.motivo === 'Otro' && formAjuste.motivo_otro
+        ? formAjuste.motivo_otro.trim()
+        : formAjuste.motivo;
+
     formAjuste.post(route('productos.ajustar', seleccionado.value.id), {
         preserveScroll: true,
         onSuccess: () => { verAjuste.value = false; }
@@ -655,7 +684,7 @@ const abrirAuditoria = async (p) => {
     verAuditoria.value = true;
     movimientos.value = [];
     kardexPagina.value = 1;
-    kardexFiltros.value = { fecha_desde: '', fecha_hasta: '' };
+    kardexFiltros.value = { fecha_desde: '', fecha_hasta: '', sucursal_id: '' };
     await cargarKardex();
 };
 
@@ -665,6 +694,7 @@ const cargarKardex = async () => {
         const params = { page: kardexPagina.value };
         if (kardexFiltros.value.fecha_desde) params.fecha_desde = kardexFiltros.value.fecha_desde;
         if (kardexFiltros.value.fecha_hasta) params.fecha_hasta = kardexFiltros.value.fecha_hasta;
+        if (kardexFiltros.value.sucursal_id) params.sucursal_id = kardexFiltros.value.sucursal_id;
         const respuesta = await axios.get(route('productos.auditoria', seleccionado.value.id), { params });
         movimientos.value = respuesta.data.data;
         kardexPaginacion.value = {
@@ -686,7 +716,14 @@ const kardexCambiarPagina = (page) => {
 
 const formatearCantidad = (cantidad) => {
     if (!cantidad) return '0';
-    return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 }).format(parseFloat(cantidad));
+    const num = parseFloat(cantidad);
+    if (Number.isInteger(num)) return num.toLocaleString('es-AR');
+    return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 }).format(num);
+};
+
+const fmtMov = (valor) => {
+    const num = parseFloat(valor);
+    return Number.isInteger(num) ? num.toString() : num.toFixed(3).replace(/\.?0+$/, '');
 };
 
 const abrirNuevo = () => { seleccionado.value = null; verModal.value = true; };

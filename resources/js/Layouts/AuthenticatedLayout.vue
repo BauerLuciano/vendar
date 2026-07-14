@@ -7,6 +7,7 @@ import { useAtajosTeclado } from '@/Composables/useAtajosTeclado';
 useAtajosTeclado();
 
 const mostrarMenuMovil = ref(false);
+const cerrarMenu = () => { mostrarMenuMovil.value = false; };
 </script>
 
 <template>
@@ -21,7 +22,7 @@ const mostrarMenuMovil = ref(false);
             'fixed lg:static inset-y-0 left-0 z-[120] h-full transition-transform duration-300 ease-in-out',
             mostrarMenuMovil ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         ]">
-            <Sidebar @click="mostrarMenuMovil = false" />
+            <Sidebar @navegar="cerrarMenu" />
         </div>
 
         <div class="flex-1 flex flex-col min-w-0 h-full">

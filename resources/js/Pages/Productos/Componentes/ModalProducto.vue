@@ -129,6 +129,13 @@ const tieneCoincidenciaExacta = computed(() => {
     return productosSimilares.value.some(p => p.nombre.toLowerCase().trim() === termino);
 });
 
+const precioVentaInvalido = computed(() => {
+    const costo = parseFloat(formulario.precio_costo);
+    const venta = parseFloat(formulario.precio_venta);
+    if (isNaN(costo) || isNaN(venta) || costo <= 0) return false;
+    return venta <= costo;
+});
+
 watch(() => formulario.unidad_compra, (valor) => {
     if (valor && valor !== 'Otro' && (formulario.cantidad_por_compra === null || formulario.cantidad_por_compra === '' || formulario.cantidad_por_compra === undefined)) {
         formulario.cantidad_por_compra = DEFAULTS_CANTIDAD_COMPRA[valor] ?? null;
@@ -233,7 +240,7 @@ async function buscarCodigo(codigo) {
         }
 
         if (res.data.found) {
-            const p = res.data.producto;
+            const p = res.data.global_product;
             const result = await Swal.fire({
                 title: 'Producto ya existe en DB',
                 html: `
@@ -352,6 +359,18 @@ const guardar = () => {
         formulario.stock_minimo = formulario.stock_minimo_visual;
         formulario.stock_inicial = formulario.stock_inicial_visual;
         formulario.stock_objetivo = formulario.stock_objetivo_visual;
+    }
+
+    const costo = parseFloat(formulario.precio_costo);
+    const venta = parseFloat(formulario.precio_venta);
+    if (!isNaN(costo) && !isNaN(venta) && costo >= venta) {
+        Swal.fire({
+            title: 'Precio inválido',
+            text: 'El precio de venta debe ser mayor al precio de costo.',
+            icon: 'warning',
+            confirmButtonColor: '#0284c7'
+        });
+        return;
     }
 
     const esEdicion = !!formulario.id;
@@ -507,11 +526,20 @@ const guardar = () => {
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Costo ($)</label>
-                            <input v-model="formulario.precio_costo" type="number" step="0.01" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-rose-700 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
+                            <input v-model="formulario.precio_costo" type="number" step="0.01" min="0"
+                                class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
+                                :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-slate-200 text-rose-700'"
+                                required>
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Venta ($)</label>
-                            <input v-model="formulario.precio_venta" type="number" step="0.01" min="0" class="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-sm text-emerald-800 font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
+                            <input v-model="formulario.precio_venta" type="number" step="0.01" min="0"
+                                class="w-full bg-emerald-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
+                                :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-emerald-200 text-emerald-800'"
+                                required>
+                            <p v-if="precioVentaInvalido" class="text-rose-500 text-[10px] mt-0.5 font-medium">
+                                Debe ser mayor a ${{ Number(formulario.precio_costo).toLocaleString('es-AR') }}
+                            </p>
                         </div>
                     </div>
 
