@@ -307,7 +307,7 @@ class PromotionController extends Controller
             'discount_type' => ['required', Rule::in(array_keys(config('promotions.discount_types')))],
             'value' => 'nullable|numeric|min:0',
             'discount_config' => 'nullable|array',
-            'starts_at' => 'required|date',
+            'starts_at' => 'required|date|after_or_equal:today',
             'ends_at' => 'required|date|after:starts_at',
             'active' => 'boolean',
             'priority' => 'integer|min:0',
