@@ -56,25 +56,26 @@ class PosController extends Controller
                 ->where('enabled', true)
                 ->where('channel', PaymentChannel::MANUAL)
                 ->get()
-                ->map(fn ($pm) => [
-                    'id' => $pm->id,
-                    'metodo_pago' => $pm->metodo_pago,
-                    'label' => MetodoPago::from($pm->metodo_pago)->label(),
-                    'provider' => $pm->provider,
-                    'display_data' => $pm->display_data,
-                ]);
+                ->map(function ($pm) {
+                    $baseLabel = MetodoPago::from($pm->metodo_pago)->label();
+                    return [
+                        'id' => $pm->id,
+                        'metodo_pago' => $pm->metodo_pago,
+                        'label' => $pm->provider ? $pm->provider : $baseLabel,
+                        'provider' => $pm->provider,
+                        'display_data' => $pm->display_data,
+                    ];
+                });
 
-            $metodosBase = collect(MetodoPago::cases())
-                ->filter(fn ($m) => !in_array($m->value, [
-                    MetodoPago::TRANSFERENCIA->value,
-                    MetodoPago::MERCADO_PAGO->value,
-                    MetodoPago::VIUMI->value,
-                ]))
-                ->values()
-                ->map(fn ($m) => [
-                    'value' => $m->value,
-                    'label' => $m->label(),
-                ]);
+            $metodosBase = collect([
+                MetodoPago::EFECTIVO,
+                MetodoPago::DEBITO,
+                MetodoPago::CREDITO,
+                MetodoPago::CUENTA_CORRIENTE,
+            ])->map(fn ($m) => [
+                'value' => $m->value,
+                'label' => $m->label(),
+            ]);
 
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
@@ -378,6 +379,9 @@ class PosController extends Controller
             return response()->json([]);
         }
 
+        $comercioId = $turno->caja?->sucursal?->comercio_id;
+        $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
+
         $movimientos = $turno->movimientos()
             ->orderBy('created_at', 'desc')
             ->limit(50)
@@ -387,7 +391,7 @@ class PosController extends Controller
                 'tipo' => $m->tipo,
                 'concepto' => $m->concepto,
                 'metodo_pago' => $m->metodo_pago,
-                'metodo_pago_display' => $m->metodo_pago_display,
+                'metodo_pago_display' => $labelMap[$m->metodo_pago] ?? \App\Enums\MetodoPago::fromString($m->metodo_pago)->label(),
                 'monto' => (float) $m->monto,
                 'descripcion' => $m->descripcion,
                 'created_at' => $m->created_at->format('H:i'),

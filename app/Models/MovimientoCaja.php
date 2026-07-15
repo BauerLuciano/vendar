@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\MetodoPago;
+use App\Models\PaymentMethodConfiguration;
 use Illuminate\Database\Eloquent\Model;
 
 class MovimientoCaja extends Model
@@ -23,6 +24,7 @@ class MovimientoCaja extends Model
 
     public function getMetodoPagoDisplayAttribute()
     {
-        return MetodoPago::fromString($this->metodo_pago)->label();
+        $comercioId = $this->turno?->caja?->sucursal?->comercio_id;
+        return PaymentMethodConfiguration::resolveDisplayLabel($this->metodo_pago, $comercioId);
     }
 }

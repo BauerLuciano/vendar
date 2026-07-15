@@ -37,13 +37,17 @@ const page = usePage();
 const esAdmin = computed(() =>
     ['SuperAdmin', 'Administrador Global'].some(r => page.props.auth?.user?.roles?.includes(r))
 );
+const hayOtrasSesiones = computed(() => {
+    const miNombre = page.props.auth?.user?.name;
+    return sesionesGlobal.value.length > 0 && sesionesGlobal.value.some(s => s.usuario_apertura_nombre !== miNombre);
+});
 const resumenGlobal = computed(() => {
     const data = sesionesGlobal.value;
     return {
         cantidad: data.length,
         efectivo: data.reduce((s, c) => s + (parseFloat(c.esperado_efectivo) || 0), 0),
-        mp: data.reduce((s, c) => s + (parseFloat(c.esperado_mp) || 0), 0),
-        transf: data.reduce((s, c) => s + (parseFloat(c.esperado_transf) || 0), 0),
+        transferencias: data.reduce((s, c) => s + (parseFloat(c.esperado_transferencias) || 0), 0),
+        tarjetas: data.reduce((s, c) => s + (parseFloat(c.esperado_tarjetas) || 0), 0),
         total: data.reduce((s, c) => s + (parseFloat(c.total) || 0), 0),
         sucursales: sucursalesGlobalUnicas.value.length,
     };
@@ -83,8 +87,8 @@ const sesionesGlobalConVacias = computed(() => {
                 usuario_apertura_nombre: null,
                 fecha_apertura: null,
                 esperado_efectivo: 0,
-                esperado_mp: 0,
-                esperado_transf: 0,
+                esperado_transferencias: 0,
+                esperado_tarjetas: 0,
                 total: 0,
                 _sinCajas: true,
             });
@@ -145,8 +149,8 @@ const formApertura = ref({
 
 const formCierre = ref({ 
   saldo_final_efectivo_real: 0, 
-  saldo_final_mp_real: 0, 
-  saldo_final_transf_real: 0, 
+  saldo_final_transferencias_real: 0, 
+  saldo_final_tarjetas_real: 0, 
   observaciones: '' 
 });
 
@@ -237,12 +241,12 @@ const diferenciaCierre = computed(() => {
   if (!balance.value) return 0;
   
   const esperado = parseFloat(balance.value.esperado_efectivo || 0) + 
-                   parseFloat(balance.value.esperado_mp || 0) + 
-                   parseFloat(balance.value.esperado_transf || 0); 
+                   parseFloat(balance.value.esperado_transferencias || 0) + 
+                   parseFloat(balance.value.esperado_tarjetas || 0); 
 
   const real = parseFloat(formCierre.value.saldo_final_efectivo_real || 0) + 
-               parseFloat(formCierre.value.saldo_final_mp_real || 0) +
-               parseFloat(formCierre.value.saldo_final_transf_real || 0);
+               parseFloat(formCierre.value.saldo_final_transferencias_real || 0) +
+               parseFloat(formCierre.value.saldo_final_tarjetas_real || 0);
   
   return real - esperado; 
 });
@@ -261,8 +265,8 @@ watch(hayDiferencia, (nuevaDiferencia) => {
 const tipoDiferencia = computed(() => {
   if (!balance.value) return '';
   const esperado = parseFloat(balance.value.esperado_efectivo || 0) + 
-                   parseFloat(balance.value.esperado_mp || 0) + 
-                   parseFloat(balance.value.esperado_transf || 0);
+                   parseFloat(balance.value.esperado_transferencias || 0) + 
+                   parseFloat(balance.value.esperado_tarjetas || 0);
 
   if (diferenciaCierre.value < 0) {
       return 'FALTANTE';
@@ -280,7 +284,8 @@ const tipoDiferencia = computed(() => {
 const calcularTotalRealDeclarado = (caja) => {
   return parseFloat(caja.saldo_final_efectivo_real || 0) + 
          parseFloat(caja.saldo_final_mp_real || 0) + 
-         parseFloat(caja.saldo_final_transf_real || 0);
+         parseFloat(caja.saldo_final_transf_real || 0) +
+         parseFloat(caja.saldo_final_tarjetas_real || 0);
 };
 
 const calcularTotalCaja = (caja) => {
@@ -307,7 +312,9 @@ const getMetodoPagoBadgeClass = (metodo) => {
   if (!metodo) return 'bg-gray-100 text-gray-700';
   const metodoUpper = metodo.toUpperCase();
   if (metodoUpper === 'EFECTIVO') return 'bg-emerald-100 text-emerald-700';
-  if (['MERCADO_PAGO', 'MERCADOPAGO', 'MP', 'TRANSFERENCIA', 'TRANSFER', 'DÉBITO', 'DEBITO', 'CRÉDITO', 'CREDITO', 'TARJETA'].some(m => metodoUpper.includes(m))) 
+  if (['DÉBITO', 'DEBITO', 'CRÉDITO', 'CREDITO', 'TARJETA'].some(m => metodoUpper.includes(m))) 
+    return 'bg-violet-100 text-violet-700';
+  if (['MERCADO_PAGO', 'MERCADOPAGO', 'MP', 'TRANSFERENCIA', 'TRANSFER', 'VIUMI'].some(m => metodoUpper.includes(m))) 
     return 'bg-sky-100 text-sky-700';
   if (metodoUpper.includes('CUENTA CORRIENTE') || metodoUpper.includes('FIADO') || metodoUpper === 'CTA CTE')
     return 'bg-amber-100 text-amber-700';
@@ -319,13 +326,16 @@ const inicializar = async () => {
   try {
     try {
       const resSesion = await axios.get('/api/sesiones-caja/actual');
-      sesionActual.value = resSesion.data;
-      await cargarDatosCajaAbierta(sesionActual.value.id);
-    } catch (e) {
-      if (e.response && e.response.status === 404) {
+      if (resSesion.data?.id) {
+        sesionActual.value = resSesion.data;
+        await cargarDatosCajaAbierta(sesionActual.value.id);
+      } else {
         sesionActual.value = null;
         await cargarDatosApertura();
       }
+    } catch (e) {
+      sesionActual.value = null;
+      await cargarDatosApertura();
     }
     await cargarHistorial();
     await cargarConsumidores(); // Cargamos los clientes al inicializar
@@ -400,8 +410,8 @@ const cargarDatosCajaAbierta = async (sesionId) => {
   currentPageMovs.value = 1; 
   
   formCierre.value.saldo_final_efectivo_real = Math.max(0, parseFloat(balance.value.esperado_efectivo || 0));
-  formCierre.value.saldo_final_mp_real = Math.max(0, parseFloat(balance.value.esperado_mp || 0)); 
-  formCierre.value.saldo_final_transf_real = Math.max(0, parseFloat(balance.value.esperado_transf || 0)); 
+  formCierre.value.saldo_final_transferencias_real = Math.max(0, parseFloat(balance.value.esperado_transferencias || 0)); 
+  formCierre.value.saldo_final_tarjetas_real = Math.max(0, parseFloat(balance.value.esperado_tarjetas || 0)); 
   formCierre.value.observaciones = ''; 
 };
 
@@ -476,12 +486,23 @@ const cerrarCaja = async () => {
             await axios.post(`/api/sesiones-caja/${sesionIdCerrada}/cerrar`, formCierre.value);
             detenerRadar();
             mostrarModalCierre.value = false;
-            
-            // Abre automáticamente el ticket de cierre en pestaña nueva al confirmar
-            window.open(BlackUrlReporteCaja(sesionIdCerrada), '_blank');
 
             inicializar();
-            Swal.fire('Caja Cerrada', 'El turno se ha cerrado correctamente.', 'success');
+
+            Swal.fire({
+              title: 'Caja Cerrada',
+              html: 'El turno se ha cerrado correctamente.',
+              icon: 'success',
+              showDenyButton: true,
+              confirmButtonText: '<i class="ri-printer-line"></i> Imprimir Reporte',
+              denyButtonText: 'No, gracias',
+              confirmButtonColor: '#0f172a',
+              denyButtonColor: '#64748b',
+            }).then((result) => {
+              if (result.isConfirmed) {
+                window.open(BlackUrlReporteCaja(sesionIdCerrada), '_blank');
+              }
+            });
           } catch (error) { 
             let errorMsg = 'Error al cerrar la caja';
             if (error.response && error.response.data && error.response.data.error) {
@@ -507,12 +528,12 @@ const registrarGastoManual = async () => {
       if (formGasto.value.metodo_pago === 'EFECTIVO') {
           saldoDisponible = parseFloat(balance.value.esperado_efectivo);
           metodoNombre = 'Efectivo';
-      } else if (formGasto.value.metodo_pago === 'MERCADO_PAGO') {
-          saldoDisponible = parseFloat(balance.value.esperado_mp);
-          metodoNombre = 'Mercado Pago';
-      } else if (formGasto.value.metodo_pago === 'TRANSFERENCIA') {
-          saldoDisponible = parseFloat(balance.value.esperado_transf || 0); 
-          metodoNombre = 'Transferencia';
+      } else if (['MERCADO_PAGO', 'VIUMI', 'TRANSFERENCIA'].includes(formGasto.value.metodo_pago)) {
+          saldoDisponible = parseFloat(balance.value.esperado_transferencias || 0);
+          metodoNombre = 'Transferencias';
+      } else if (['DEBITO', 'CREDITO'].includes(formGasto.value.metodo_pago)) {
+          saldoDisponible = parseFloat(balance.value.esperado_tarjetas || 0);
+          metodoNombre = 'Tarjetas';
       }
 
       if (montoEgreso > saldoDisponible) {
@@ -627,27 +648,38 @@ onUnmounted(() => {
 
         <div v-else>
 
-          <!-- ADMIN: Summary Bar -->
-          <div v-if="esAdmin && !mostrarHistorial && resumenGlobal.sucursales > 0" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-            <div class="bg-slate-800 rounded-xl p-4 col-span-2 md:col-span-1 flex items-center gap-3">
-              <div class="bg-emerald-500/20 p-2 rounded-lg"><i class="ri-bank-card-line text-emerald-400 text-xl"></i></div>
-              <div><span class="block text-2xl font-black text-white">{{ resumenGlobal.cantidad }}</span><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cajas Abiertas</span></div>
+          <!-- ADMIN: Summary Bar (solo si hay sesiones de otros usuarios) -->
+          <div v-if="esAdmin && !mostrarHistorial && hayOtrasSesiones" class="mb-6">
+            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Resumen Global</h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div class="bg-slate-800 rounded-xl p-4 col-span-2 md:col-span-1">
+              <div class="flex items-center gap-2 mb-3">
+                <div class="bg-emerald-500/20 p-2 rounded-lg"><i class="ri-bank-card-line text-emerald-400 text-xl"></i></div>
+                <div><span class="block text-2xl font-black text-white">{{ resumenGlobal.cantidad }}</span><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cajas Abiertas</span></div>
+              </div>
+              <div class="space-y-1.5">
+                <div v-for="s in sesionesGlobal.filter(s => !s._sinCajas)" :key="s.id" class="bg-slate-700/50 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300">
+                  <span class="font-bold text-white">{{ s.sucursal_nombre }}</span> — {{ s.caja_nombre }}
+                  <br><span class="text-slate-400 text-[10px]">{{ formatearFecha(s.fecha_apertura) }}</span>
+                </div>
+              </div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
               <div class="bg-emerald-100 p-2 rounded-lg"><i class="ri-money-dollar-circle-line text-emerald-600 text-xl"></i></div>
               <div><span class="block text-lg font-black text-emerald-700">{{ formatearMoneda(resumenGlobal.efectivo) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Efectivo</span></div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
-              <div class="bg-sky-100 p-2 rounded-lg"><i class="ri-smartphone-line text-sky-600 text-xl"></i></div>
-              <div><span class="block text-lg font-black text-sky-700">{{ formatearMoneda(resumenGlobal.mp) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mercado Pago</span></div>
+              <div class="bg-sky-100 p-2 rounded-lg"><i class="ri-bank-line text-sky-600 text-xl"></i></div>
+              <div><span class="block text-lg font-black text-sky-700">{{ formatearMoneda(resumenGlobal.transferencias) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Transferencias</span></div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
-              <div class="bg-indigo-100 p-2 rounded-lg"><i class="ri-bank-line text-indigo-600 text-xl"></i></div>
-              <div><span class="block text-lg font-black text-indigo-700">{{ formatearMoneda(resumenGlobal.transf) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Transferencias</span></div>
+              <div class="bg-violet-100 p-2 rounded-lg"><i class="ri-bank-card-line text-violet-600 text-xl"></i></div>
+              <div><span class="block text-lg font-black text-violet-700">{{ formatearMoneda(resumenGlobal.tarjetas) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tarjetas</span></div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
               <div class="bg-amber-100 p-2 rounded-lg"><i class="ri-store-3-line text-amber-600 text-xl"></i></div>
               <div><span class="block text-lg font-black text-amber-700">{{ resumenGlobal.sucursales }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sucursales</span></div>
+            </div>
             </div>
           </div>
           
@@ -699,8 +731,8 @@ onUnmounted(() => {
                   </tr>
                   <tr v-for="caja in paginatedCajas" :key="caja.id">
                     <td class="px-6 py-4 whitespace-nowrap font-bold text-gray-900">#{{ caja.id }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatearFechaCorta(caja.fecha_apertura) }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ caja.fecha_cierre ? formatearFechaCorta(caja.fecha_cierre) : '-' }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatearFecha(caja.fecha_apertura) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ caja.fecha_cierre ? formatearFecha(caja.fecha_cierre) : '-' }}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ caja.usuario_cierre_nombre || '-' }}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-emerald-600">
                       {{ caja.esta_abierta ? '-' : formatearMoneda(calcularTotalRealDeclarado(caja)) }}
@@ -749,8 +781,8 @@ onUnmounted(() => {
                   <label class="block text-sm font-bold text-slate-700 mb-1">¿Con qué fondos abrís la caja?</label>
                   <select v-model="formApertura.tipoFondo" required class="w-full border-gray-300 rounded-lg focus:ring-sky-500 focus:border-sky-500">
                     <option value="EFECTIVO">Solo Efectivo</option>
-                    <option value="MERCADO_PAGO">Solo Mercado Pago</option>
-                    <option value="AMBOS">Ambos (Efectivo y MP)</option>
+                    <option value="MERCADO_PAGO">Solo Transferencias</option>
+                    <option value="AMBOS">Ambos (Efectivo y Transferencias)</option>
                   </select>
                 </div>
 
@@ -763,7 +795,7 @@ onUnmounted(() => {
                 </div>
 
                 <div v-if="['MERCADO_PAGO', 'AMBOS'].includes(formApertura.tipoFondo)" class="mb-4">
-                  <label class="block text-sm font-bold text-slate-700 mb-1">Fondo Inicial en Mercado Pago</label>
+                  <label class="block text-sm font-bold text-slate-700 mb-1">Fondo Inicial en Transferencias</label>
                   <div class="relative">
                     <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
                     <input type="number" v-model="formApertura.saldo_inicial_mp" step="0.01" min="0" required class="w-full pl-8 border-gray-300 rounded-lg focus:ring-sky-500 focus:border-sky-500">
@@ -788,19 +820,26 @@ onUnmounted(() => {
                 </button>
               </div>
 
-              <div v-if="balance" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div v-if="balance">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sesión Actual</h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                   <p class="text-sm font-bold text-slate-500">Saldo (Efectivo)</p>
                   <h3 class="text-3xl font-black text-emerald-600 mt-1">{{ formatearMoneda(balance.esperado_efectivo) }}</h3>
                 </div>
                 <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                  <p class="text-sm font-bold text-slate-500">Saldo (Mercado Pago)</p>
-                  <h3 class="text-3xl font-black text-sky-600 mt-1">{{ formatearMoneda(balance.esperado_mp) }}</h3>
+                  <p class="text-sm font-bold text-slate-500">Saldo (Transferencias)</p>
+                  <h3 class="text-3xl font-black text-sky-600 mt-1">{{ formatearMoneda(balance.esperado_transferencias) }}</h3>
+                </div>
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                  <p class="text-sm font-bold text-slate-500">Saldo (Tarjetas)</p>
+                  <h3 class="text-3xl font-black text-violet-600 mt-1">{{ formatearMoneda(balance.esperado_tarjetas) }}</h3>
                 </div>
                 <div class="bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-700">
                   <p class="text-sm font-bold text-slate-400">Total General</p>
                   <h3 class="text-3xl font-black text-white mt-1">{{ formatearMoneda(calcularTotalActual(balance)) }}</h3>
                 </div>
+              </div>
               </div>
 
               <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -810,6 +849,7 @@ onUnmounted(() => {
                     <i class="ri-add-line align-middle"></i> Movimiento Manual
                   </button>
                 </div>
+                <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                   <thead class="bg-white">
                     <tr>
@@ -845,6 +885,7 @@ onUnmounted(() => {
                     </tr>
                   </tbody>
                 </table>
+                </div>
 
                 <Pagination :current-page="currentPageMovs" :total-pages="totalPagesMovs" @page-change="currentPageMovs = $event" />
               </div>
@@ -915,8 +956,8 @@ onUnmounted(() => {
                   <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Cajero</th>
                   <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Abierta</th>
                   <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Efectivo</th>
-                  <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">MP</th>
                   <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Transf</th>
+                  <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Tarjetas</th>
                   <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Total</th>
                   <th class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase">Acción</th>
                 </tr>
@@ -931,10 +972,10 @@ onUnmounted(() => {
                     <td class="px-4 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{{ sesion.sucursal_nombre }}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-600">{{ sesion.caja_nombre }}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-600">{{ sesion.usuario_apertura_nombre }}</td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-500">{{ formatearFechaCorta(sesion.fecha_apertura) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-500">{{ formatearFecha(sesion.fecha_apertura) }}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-emerald-700">{{ formatearMoneda(sesion.esperado_efectivo) }}</td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-sky-700">{{ formatearMoneda(sesion.esperado_mp) }}</td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-indigo-700">{{ formatearMoneda(sesion.esperado_transf) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-sky-700">{{ formatearMoneda(sesion.esperado_transferencias) }}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-bold text-violet-700">{{ formatearMoneda(sesion.esperado_tarjetas) }}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-black text-slate-800">{{ formatearMoneda(sesion.total) }}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-center">
                       <button @click="verDetalleSesionGlobal(sesion)"
@@ -1059,12 +1100,12 @@ onUnmounted(() => {
                   <span class="text-xl font-black text-emerald-700">{{ formatearMoneda(balance?.esperado_efectivo || 0) }}</span>
                 </div>
                 <div class="bg-white border-l-4 border-sky-500 p-3 rounded shadow-sm flex justify-between items-center">
-                  <span class="font-bold text-slate-700">Mercado Pago</span>
-                  <span class="text-xl font-black text-sky-700">{{ formatearMoneda(balance?.esperado_mp || 0) }}</span>
+                  <span class="font-bold text-slate-700">Transferencias</span>
+                  <span class="text-xl font-black text-sky-700">{{ formatearMoneda(balance?.esperado_transferencias || 0) }}</span>
                 </div>
-                <div class="bg-white border-l-4 border-indigo-500 p-3 rounded shadow-sm flex justify-between items-center">
-                  <span class="font-bold text-slate-700">Transferencia</span>
-                  <span class="text-xl font-black text-indigo-700">{{ formatearMoneda(balance?.esperado_transf || 0) }}</span>
+                <div class="bg-white border-l-4 border-violet-500 p-3 rounded shadow-sm flex justify-between items-center">
+                  <span class="font-bold text-slate-700">Tarjetas</span>
+                  <span class="text-xl font-black text-violet-700">{{ formatearMoneda(balance?.esperado_tarjetas || 0) }}</span>
                 </div>
               </div>
 
@@ -1086,17 +1127,17 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div>
-                  <label class="block text-sm font-bold text-slate-700 mb-1">Mercado Pago Real</label>
-                  <div class="relative">
-                    <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
-                    <input type="number" v-model="formCierre.saldo_final_mp_real" step="0.01" class="w-full pl-8 border-gray-300 rounded-lg font-bold text-lg focus:ring-sky-500 focus:border-sky-500">
-                  </div>
-                </div>
-                <div>
                   <label class="block text-sm font-bold text-slate-700 mb-1">Transferencias Real</label>
                   <div class="relative">
                     <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
-                    <input type="number" v-model="formCierre.saldo_final_transf_real" step="0.01" class="w-full pl-8 border-gray-300 rounded-lg font-bold text-lg focus:ring-sky-500 focus:border-sky-500">
+                    <input type="number" v-model="formCierre.saldo_final_transferencias_real" step="0.01" class="w-full pl-8 border-gray-300 rounded-lg font-bold text-lg focus:ring-sky-500 focus:border-sky-500">
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-bold text-slate-700 mb-1">Tarjetas Real</label>
+                  <div class="relative">
+                    <span class="absolute left-3 top-2.5 font-bold text-slate-400">$</span>
+                    <input type="number" v-model="formCierre.saldo_final_tarjetas_real" step="0.01" class="w-full pl-8 border-gray-300 rounded-lg font-bold text-lg focus:ring-sky-500 focus:border-sky-500">
                   </div>
                 </div>
               </div>
@@ -1185,7 +1226,10 @@ onUnmounted(() => {
             <select v-model="formGasto.metodo_pago" class="w-full border-gray-300 rounded-lg">
               <option value="EFECTIVO">Efectivo</option>
               <option value="MERCADO_PAGO">Mercado Pago</option>
+              <option value="VIUMI">viüMi</option>
               <option value="TRANSFERENCIA">Transferencia</option>
+              <option value="DEBITO">Débito</option>
+              <option value="CREDITO">Crédito</option>
             </select>
           </div>
           <div>

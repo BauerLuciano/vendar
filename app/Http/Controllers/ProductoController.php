@@ -470,7 +470,7 @@ class ProductoController extends Controller
                 $p->proveedor?->razon_social ?? '',
                 $p->precio_costo ? (float) $p->precio_costo : '',
                 $p->precio_venta ? (float) $p->precio_venta : '',
-                $p->stock_minimo ? (int) $p->stock_minimo : '',
+                $p->stock_minimo !== null && $p->stock_minimo !== '' ? (float) $p->stock_minimo : '',
                 $p->unidad_medida ?? '',
                 $p->unidad_compra ?? '',
                 $p->cantidad_por_compra ?? '',
@@ -633,18 +633,32 @@ class ProductoController extends Controller
                     'App\Models\Proveedor', 'razon_social', $data['proveedor'] ?? null, ['estado' => true], $comercioId
                 );
 
+                $unidadMedida = in_array(strtolower($data['unidad_medida'] ?? ''), ['unidad', 'kg', 'gramos'])
+                    ? ucfirst($data['unidad_medida'])
+                    : 'Unidad';
+
+                $stockMinimoRaw = is_numeric($data['stock_minimo'] ?? null) ? (float) $data['stock_minimo'] : 0;
+                $stockMinimo = in_array($unidadMedida, ['Kg', 'Gramos'])
+                    ? round($stockMinimoRaw, 3)
+                    : (int) round($stockMinimoRaw);
+
+                $cantidadCompraRaw = !empty($data['cantidad_por_compra']) && is_numeric($data['cantidad_por_compra']) ? (float) $data['cantidad_por_compra'] : null;
+                $cantidadCompra = $cantidadCompraRaw !== null
+                    ? (in_array($unidadMedida, ['Kg', 'Gramos']) ? round($cantidadCompraRaw, 3) : (int) round($cantidadCompraRaw))
+                    : null;
+
                 $productoData = [
                     'nombre' => $data['nombre'] ?? null,
                     'codigo_barras' => $data['codigo_barras'] ?? null,
                     'categoria_id' => $categoriaId,
                     'marca_id' => $marcaId,
                     'proveedor_id' => $proveedorId,
-                    'precio_costo' => is_numeric($data['precio_costo'] ?? null) ? $data['precio_costo'] : 0,
-                    'precio_venta' => is_numeric($data['precio_venta'] ?? null) ? $data['precio_venta'] : 0,
-                    'stock_minimo' => is_numeric($data['stock_minimo'] ?? null) ? $data['stock_minimo'] : 0,
-                    'unidad_medida' => in_array(strtolower($data['unidad_medida'] ?? ''), ['unidad', 'kg', 'gramos']) ? ucfirst($data['unidad_medida']) : 'Unidad',
+                    'precio_costo' => is_numeric($data['precio_costo'] ?? null) ? round((float) $data['precio_costo'], 2) : 0,
+                    'precio_venta' => is_numeric($data['precio_venta'] ?? null) ? round((float) $data['precio_venta'], 2) : 0,
+                    'stock_minimo' => $stockMinimo,
+                    'unidad_medida' => $unidadMedida,
                     'unidad_compra' => !empty($data['unidad_compra']) ? $data['unidad_compra'] : null,
-                    'cantidad_por_compra' => !empty($data['cantidad_por_compra']) && is_numeric($data['cantidad_por_compra']) ? $data['cantidad_por_compra'] : null,
+                    'cantidad_por_compra' => $cantidadCompra,
                     'descripcion' => $data['descripcion'] ?? null,
                     'es_retornable' => in_array(strtolower(trim($data['es_retornable'] ?? '0')), ['1', 'sí', 'si']),
                     'estado' => in_array(strtolower(trim($data['estado'] ?? '1')), ['1', 'activo']),

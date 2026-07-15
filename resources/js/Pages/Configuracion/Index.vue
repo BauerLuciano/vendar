@@ -497,7 +497,7 @@ const guardarConfiguracion = () => {
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Provider (opcional)</label>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Pasarela (opcional)</label>
                                             <input v-model="pmcForm.provider" type="text" placeholder="mercadopago, viumi..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
                                         </div>
                                     </div>

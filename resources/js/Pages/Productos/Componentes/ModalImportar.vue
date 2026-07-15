@@ -88,7 +88,7 @@ const importar = async () => {
         form.append('archivo', archivo.value);
         const res = await axios.post(route('productos.importar'), form);
         if (res.data?.success) {
-            Swal.fire({ title: '¡Importado!', text: res.data.message || 'Importación completada.', icon: 'success', timer: 3000, showConfirmButton: false });
+            Swal.fire({ title: '¡Importado!', text: res.data.message || 'Importación completada.', icon: 'success', timer: 5000, showConfirmButton: false });
             emit('completado');
         } else if (res.data?.error) {
             Swal.fire({ title: 'Error', text: res.data.error, icon: 'error' });

@@ -17,6 +17,18 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class CajaDiariaController extends Controller
 {
+    private const METODOS_EFECTIVO = [MetodoPago::EFECTIVO];
+    private const METODOS_TRANSFERENCIA = [MetodoPago::MERCADO_PAGO, MetodoPago::VIUMI, MetodoPago::TRANSFERENCIA];
+    private const METODOS_TARJETA = [MetodoPago::DEBITO, MetodoPago::CREDITO];
+
+    private function clasificarMetodo(string $metodoPago): string
+    {
+        $enum = MetodoPago::from($metodoPago);
+        if (in_array($enum, self::METODOS_EFECTIVO)) return 'efectivo';
+        if (in_array($enum, self::METODOS_TARJETA)) return 'tarjetas';
+        return 'transferencias';
+    }
+
     private function autorizarTurno(int $turnoId): void
     {
         $user = auth()->user();
@@ -54,6 +66,7 @@ class CajaDiariaController extends Controller
                     'saldo_final_efectivo_real' => $turno->saldo_final_efectivo_real ?? 0,
                     'saldo_final_mp_real' => $turno->saldo_final_mp_real ?? 0,
                     'saldo_final_transf_real' => $turno->saldo_final_transf_real ?? 0,
+                    'saldo_final_tarjetas_real' => $turno->saldo_final_tarjetas_real ?? 0,
                     'observaciones' => $turno->observaciones_cierre ?? '', 
                 ];
             });
@@ -73,7 +86,7 @@ class CajaDiariaController extends Controller
             ->first();
 
         if (!$turnoAbierto) {
-            return response()->json(['message' => 'No hay sesión abierta', 'sesion_activa' => false]);
+            return response()->json(['message' => 'No hay sesión abierta', 'sesion_activa' => false], 404);
         }
 
         return response()->json([
@@ -110,6 +123,14 @@ class CajaDiariaController extends Controller
 
             if (!$cajaFisica->estado) {
                 return response()->json(['error' => 'No puedes operar en una caja que se encuentra inactiva.'], 403);
+            }
+
+            $yaAbierta = TurnoCaja::where('caja_id', $cajaFisica->id)
+                ->where('estado', 'Abierto')
+                ->exists();
+
+            if ($yaAbierta) {
+                return response()->json(['error' => 'Esta caja ya tiene una sesión abierta. Cerrá la sesión actual antes de abrir una nueva.'], 409);
             }
 
             $efectivo = (float) $request->input('saldo_inicial_efectivo', 0);
@@ -255,12 +276,15 @@ class CajaDiariaController extends Controller
             ->get()
             ->map(function ($turno) {
                 $movs = MovimientoCaja::where('turno_caja_id', $turno->id)->get();
-                $efectivo = 0; $mp = 0; $transf = 0;
+                $efectivo = 0; $transferencias = 0; $tarjetas = 0;
                 foreach ($movs as $mov) {
                     $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
-                    if ($mov->metodo_pago === MetodoPago::EFECTIVO->value) $efectivo += $monto;
-                    elseif ($mov->metodo_pago === MetodoPago::MERCADO_PAGO->value) $mp += $monto;
-                    else $transf += $monto;
+                    $categoria = $this->clasificarMetodo($mov->metodo_pago);
+                    match ($categoria) {
+                        'efectivo' => $efectivo += $monto,
+                        'tarjetas' => $tarjetas += $monto,
+                        default => $transferencias += $monto,
+                    };
                 }
                 return [
                     'id'                    => $turno->id,
@@ -269,9 +293,9 @@ class CajaDiariaController extends Controller
                     'usuario_apertura_nombre' => $turno->usuarioApertura?->name ?? 'Desconocido',
                     'fecha_apertura'        => $turno->fecha_apertura,
                     'esperado_efectivo'     => $efectivo,
-                    'esperado_mp'           => $mp,
-                    'esperado_transf'       => $transf,
-                    'total'                 => $efectivo + $mp + $transf,
+                    'esperado_transferencias' => $transferencias,
+                    'esperado_tarjetas'     => $tarjetas,
+                    'total'                 => $efectivo + $transferencias + $tarjetas,
                 ];
             });
 
@@ -298,24 +322,23 @@ class CajaDiariaController extends Controller
 
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)->get();
         $efectivo = 0;
-        $mp = 0;
-        $transf = 0;
+        $transferencias = 0;
+        $tarjetas = 0;
 
         foreach ($movimientos as $mov) {
             $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
-            if ($mov->metodo_pago === MetodoPago::EFECTIVO->value) {
-                $efectivo += $monto;
-            } elseif ($mov->metodo_pago === MetodoPago::MERCADO_PAGO->value) {
-                $mp += $monto;
-            } else {
-                $transf += $monto;
-            }
+            $categoria = $this->clasificarMetodo($mov->metodo_pago);
+            match ($categoria) {
+                'efectivo' => $efectivo += $monto,
+                'tarjetas' => $tarjetas += $monto,
+                default => $transferencias += $monto,
+            };
         }
 
         return response()->json([
             'esperado_efectivo' => $efectivo,
-            'esperado_mp' => $mp,
-            'esperado_transf' => $transf
+            'esperado_transferencias' => $transferencias,
+            'esperado_tarjetas' => $tarjetas,
         ]);
     }
 
@@ -326,13 +349,17 @@ class CajaDiariaController extends Controller
     {
         $this->autorizarTurno($id);
 
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
+
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)
             ->orderBy('created_at', 'desc')
             ->get()
-            ->map(function ($mov) {
+            ->map(function ($mov) use ($labelMap) {
                 $mov->fecha = $mov->created_at;
                 $mov->concepto_display = str_replace('_', ' ', $mov->concepto);
-                $mov->metodo_pago_display = MetodoPago::fromString($mov->metodo_pago)->label();
+                $mov->metodo_pago_display = $labelMap[$mov->metodo_pago] ?? \App\Enums\MetodoPago::fromString($mov->metodo_pago)->label();
                 return $mov;
             });
 
@@ -346,8 +373,8 @@ class CajaDiariaController extends Controller
     {
         $request->validate([
             'saldo_final_efectivo_real' => 'required|numeric|min:0',
-            'saldo_final_mp_real' => 'required|numeric|min:0',
-            'saldo_final_transf_real' => 'required|numeric|min:0',
+            'saldo_final_transferencias_real' => 'required|numeric|min:0',
+            'saldo_final_tarjetas_real' => 'required|numeric|min:0',
             'observaciones' => 'nullable|string|max:500',
         ]);
 
@@ -368,8 +395,9 @@ class CajaDiariaController extends Controller
             'fecha_cierre' => Carbon::now(),
             'user_cierre_id' => $request->user()->id,
             'saldo_final_efectivo_real' => $request->saldo_final_efectivo_real,
-            'saldo_final_mp_real' => $request->saldo_final_mp_real,
-            'saldo_final_transf_real' => $request->saldo_final_transf_real,
+            'saldo_final_mp_real' => $request->saldo_final_transferencias_real,
+            'saldo_final_transf_real' => 0,
+            'saldo_final_tarjetas_real' => $request->saldo_final_tarjetas_real,
             'observaciones_cierre' => $request->observaciones,
         ];
 
@@ -395,6 +423,9 @@ class CajaDiariaController extends Controller
             ->firstOrFail();
         $sucursal = Sucursal::find($turno->sucursal_id);
         
+        $comercioId = $user->branch?->comercio_id;
+        $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
+
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)
             ->orderBy('created_at', 'asc')
             ->get();
@@ -402,29 +433,31 @@ class CajaDiariaController extends Controller
         $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
         
         $efectivoEsperado = 0;
-        $mpEsperado = 0;
-        $transfEsperado = 0;
+        $transferenciasEsperado = 0;
+        $tarjetasEsperado = 0;
 
         foreach ($movimientos as $mov) {
             $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
-            if ($mov->metodo_pago === MetodoPago::EFECTIVO->value) {
-                $efectivoEsperado += $monto;
-            } elseif ($mov->metodo_pago === MetodoPago::MERCADO_PAGO->value) {
-                $mpEsperado += $monto;
-            } else {
-                $transfEsperado += $monto;
-            }
+            $categoria = $this->clasificarMetodo($mov->metodo_pago);
+            match ($categoria) {
+                'efectivo' => $efectivoEsperado += $monto,
+                'tarjetas' => $tarjetasEsperado += $monto,
+                default => $transferenciasEsperado += $monto,
+            };
         }
+
+        $tarjetasReal = (float) $turno->saldo_final_tarjetas_real;
+        $transferenciasReal = (float) $turno->saldo_final_mp_real;
 
         $totales = [
             'efectivo_esperado' => $efectivoEsperado,
-            'mp_esperado' => $mpEsperado,
-            'transf_esperado' => $transfEsperado,
-            'total_esperado' => $efectivoEsperado + $mpEsperado + $transfEsperado,
+            'transferencias_esperado' => $transferenciasEsperado,
+            'tarjetas_esperado' => $tarjetasEsperado,
+            'total_esperado' => $efectivoEsperado + $transferenciasEsperado + $tarjetasEsperado,
             'efectivo_real' => (float) $turno->saldo_final_efectivo_real,
-            'mp_real' => (float) $turno->saldo_final_mp_real,
-            'transf_real' => (float) $turno->saldo_final_transf_real,
-            'total_real' => (float)$turno->saldo_final_efectivo_real + (float)$turno->saldo_final_mp_real + (float)$turno->saldo_final_transf_real
+            'transferencias_real' => $transferenciasReal,
+            'tarjetas_real' => $tarjetasReal,
+            'total_real' => (float)$turno->saldo_final_efectivo_real + $transferenciasReal + $tarjetasReal,
         ];
 
         // 🔥 EXTRAE LA RUTA REAL SIN MAPEAR CADENAS FIJAS
@@ -444,7 +477,7 @@ class CajaDiariaController extends Controller
             }
         }
 
-        $pdf = Pdf::loadView('pdf.caja_a4', compact('turno', 'movimientos', 'config', 'totales', 'logo', 'sucursal'));
+        $pdf = Pdf::loadView('pdf.caja_a4', compact('turno', 'movimientos', 'config', 'totales', 'logo', 'sucursal', 'labelMap'));
         $pdf->setPaper('a4', 'portrait');
         
         return $pdf->stream("reporte_caja_sesion_{$id}.pdf");

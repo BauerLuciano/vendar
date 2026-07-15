@@ -135,19 +135,19 @@
                 </td>
             </tr>
             <tr class="row-alt">
-                <td>Mercado Pago</td>
-                <td class="text-right">$ {{ number_format($totales['mp_esperado'], 2, ',', '.') }}</td>
-                <td class="text-right">$ {{ number_format($totales['mp_real'], 2, ',', '.') }}</td>
-                <td class="text-right" style="font-weight: bold; color: {{ ($totales['mp_real'] - $totales['mp_esperado']) < -0.01 ? '#e11d48' : '#1e293b' }}">
-                    $ {{ number_format($totales['mp_real'] - $totales['mp_esperado'], 2, ',', '.') }}
+                <td>Transferencias (MP, Viumi, etc.)</td>
+                <td class="text-right">$ {{ number_format($totales['transferencias_esperado'], 2, ',', '.') }}</td>
+                <td class="text-right">$ {{ number_format($totales['transferencias_real'], 2, ',', '.') }}</td>
+                <td class="text-right" style="font-weight: bold; color: {{ ($totales['transferencias_real'] - $totales['transferencias_esperado']) < -0.01 ? '#e11d48' : '#1e293b' }}">
+                    $ {{ number_format($totales['transferencias_real'] - $totales['transferencias_esperado'], 2, ',', '.') }}
                 </td>
             </tr>
             <tr>
-                <td>Transferencias / Otros</td>
-                <td class="text-right">$ {{ number_format($totales['transf_esperado'], 2, ',', '.') }}</td>
-                <td class="text-right">$ {{ number_format($totales['transf_real'], 2, ',', '.') }}</td>
-                <td class="text-right" style="font-weight: bold; color: {{ ($totales['transf_real'] - $totales['transf_esperado']) < -0.01 ? '#e11d48' : '#1e293b' }}">
-                    $ {{ number_format($totales['transf_real'] - $totales['transf_esperado'], 2, ',', '.') }}
+                <td>Tarjetas (Débito + Crédito)</td>
+                <td class="text-right">$ {{ number_format($totales['tarjetas_esperado'], 2, ',', '.') }}</td>
+                <td class="text-right">$ {{ number_format($totales['tarjetas_real'], 2, ',', '.') }}</td>
+                <td class="text-right" style="font-weight: bold; color: {{ ($totales['tarjetas_real'] - $totales['tarjetas_esperado']) < -0.01 ? '#e11d48' : '#1e293b' }}">
+                    $ {{ number_format($totales['tarjetas_real'] - $totales['tarjetas_esperado'], 2, ',', '.') }}
                 </td>
             </tr>
             <tr class="total-bg">
@@ -183,7 +183,7 @@
                         <br><span style="color: #64748b; font-size: 7.5pt; font-style: italic;">{{ $item->descripcion }}</span>
                     @endif
                 </td>
-                <td>{{ \App\Enums\MetodoPago::fromString($item->metodo_pago)->label() }}</td>
+                <td>{{ $labelMap[$item->metodo_pago] ?? \App\Enums\MetodoPago::fromString($item->metodo_pago)->label() }}</td>
                 <td class="text-right" style="font-weight: bold; color: {{ $item->tipo === 'INGRESO' ? '#10b981' : '#e11d48' }}">
                     {{ $item->tipo === 'EGRESO' ? '-' : '+' }} $ {{ number_format($item->monto, 2, ',', '.') }}
                 </td>

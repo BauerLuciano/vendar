@@ -19,6 +19,7 @@ class TurnoCaja extends Model
         'saldo_final_efectivo_real', 
         'saldo_final_mp_real', 
         'saldo_final_transf_real', 
+        'saldo_final_tarjetas_real', 
         'observaciones_cierre', 
         'fecha_apertura', 
         'fecha_cierre', 

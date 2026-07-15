@@ -244,11 +244,12 @@ class ConsumidorController extends Controller
                         ->first();
 
             $detallesPago = [];
+            $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
 
             if ($turno) {
                 foreach ($request->pagos as $pago) {
                     $metodoPagoNormalizado = MetodoPago::fromString($pago['metodo_pago'])->value;
-                    $metodoPagoLabel = MetodoPago::fromString($pago['metodo_pago'])->label();
+                    $metodoPagoLabel = $labelMap[$pago['metodo_pago']] ?? MetodoPago::fromString($pago['metodo_pago'])->label();
                     MovimientoCaja::create([
                         'turno_caja_id' => $turno->id,
                         'tipo'          => 'INGRESO',

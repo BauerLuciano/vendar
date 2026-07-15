@@ -32,4 +32,32 @@ class PaymentMethodConfiguration extends Model
     {
         return MetodoPago::from($this->metodo_pago);
     }
+
+    public static function resolveDisplayLabel(string $metodoPago, ?int $comercioId): string
+    {
+        $baseLabel = MetodoPago::fromString($metodoPago)->label();
+        if (!$comercioId) return $baseLabel;
+
+        $provider = static::where('comercio_id', $comercioId)
+            ->where('metodo_pago', $metodoPago)
+            ->where('enabled', true)
+            ->value('provider');
+
+        return $provider ? $provider : $baseLabel;
+    }
+
+    public static function labelMap(int $comercioId): array
+    {
+        $configs = static::where('comercio_id', $comercioId)
+            ->where('enabled', true)
+            ->pluck('provider', 'metodo_pago')
+            ->toArray();
+
+        $map = [];
+        foreach ($configs as $metodo => $provider) {
+            $base = MetodoPago::fromString($metodo)->label();
+            $map[$metodo] = $provider ? $provider : $base;
+        }
+        return $map;
+    }
 }

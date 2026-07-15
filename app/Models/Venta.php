@@ -7,6 +7,7 @@ use App\Enums\VentaStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Traits\Auditable;
+use App\Models\PaymentMethodConfiguration;
 
 class Venta extends Model
 {
@@ -46,23 +47,25 @@ class Venta extends Model
 
     public function getMetodoPagoDisplayAttribute()
     {
+        $comercioId = $this->turno?->caja?->sucursal?->comercio_id;
         if ($this->metodo_pago === 'MULTIPLE' && $this->pagos) {
             return collect($this->pagos)
-                ->map(fn ($p) => MetodoPago::fromString($p['metodo_pago'])->label() . ': $' . number_format($p['monto'], 2))
+                ->map(fn ($p) => PaymentMethodConfiguration::resolveDisplayLabel($p['metodo_pago'], $comercioId) . ': $' . number_format($p['monto'], 2))
                 ->implode(' + ');
         }
-        return MetodoPago::fromString($this->metodo_pago)->label();
+        return PaymentMethodConfiguration::resolveDisplayLabel($this->metodo_pago, $comercioId);
     }
 
     public function getPagosDisplayAttribute()
     {
+        $comercioId = $this->turno?->caja?->sucursal?->comercio_id;
         if (!$this->pagos) {
             return [['metodo_pago' => $this->metodo_pago, 'monto' => $this->total, 'label' => $this->metodo_pago_display]];
         }
         return collect($this->pagos)->map(fn ($p) => [
             'metodo_pago' => $p['metodo_pago'],
             'monto' => $p['monto'],
-            'label' => MetodoPago::fromString($p['metodo_pago'])->label(),
+            'label' => PaymentMethodConfiguration::resolveDisplayLabel($p['metodo_pago'], $comercioId),
         ])->toArray();
     }
 }

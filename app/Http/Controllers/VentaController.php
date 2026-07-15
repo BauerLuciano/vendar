@@ -99,6 +99,7 @@ class VentaController extends Controller
         $permitirStockNegativo = filter_var($permitirStockNegativo, FILTER_VALIDATE_BOOLEAN);
 
         $comercioId = auth()->user()->branch?->comercio_id;
+        $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
         $items = collect($request->items)->sortBy('id')->values()->all();
         $totalCalculado = collect($items)->sum(fn ($item) => (float) ($item['precio_venta'] ?? 0) * (float) ($item['cantidad'] ?? 0));
 
@@ -380,7 +381,7 @@ class VentaController extends Controller
             $displayInfo = [];
             foreach ($pagosNormalizados as $pago) {
                 $config = $manualConfigs[$pago['metodo_pago']] ?? null;
-                $label = MetodoPago::fromString($pago['metodo_pago'])->label();
+                $label = $labelMap[$pago['metodo_pago']] ?? MetodoPago::fromString($pago['metodo_pago'])->label();
                 $displayInfo[] = [
                     'metodo_pago' => $pago['metodo_pago'],
                     'label' => $label,
@@ -412,7 +413,7 @@ class VentaController extends Controller
                 continue;
             }
 
-            $label = MetodoPago::fromString($pago['metodo_pago'])->label();
+            $label = $labelMap[$pago['metodo_pago']] ?? MetodoPago::fromString($pago['metodo_pago'])->label();
             $provider = $config['provider'];
             $channel = PaymentChannel::from($config['channel']);
 

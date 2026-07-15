@@ -35,7 +35,7 @@ class ConfiguracionController extends Controller
             ->map(fn ($pmc) => [
                 'id' => $pmc->id,
                 'metodo_pago' => $pmc->metodo_pago,
-                'metodo_pago_label' => MetodoPago::from($pmc->metodo_pago)->label(),
+                'metodo_pago_label' => $pmc->provider ? $pmc->provider : MetodoPago::from($pmc->metodo_pago)->label(),
                 'provider' => $pmc->provider,
                 'channel' => $pmc->channel->value,
                 'display_data' => $pmc->display_data,

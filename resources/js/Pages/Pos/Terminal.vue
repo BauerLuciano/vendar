@@ -2,7 +2,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import LectorCamara from '@/Components/LectorCamara.vue';
 import ConfirmarPagoModal from '@/Components/ConfirmarPagoModal.vue';
-import MpQrPanel from '@/Components/MpQrPanel.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import Swal from 'sweetalert2';
@@ -193,14 +192,32 @@ const METODOS_DISPONIBLES = computed(() => {
     return base;
 });
 
-const mpDisplayData = computed(() => {
-    const mp = METODOS_DISPONIBLES.value.find(m => m.value === 'MERCADO_PAGO');
-    return mp?.display_data || null;
-});
+const EXCLUIDOS_GRUPO_TRANSFERENCIA = ['EFECTIVO', 'DEBITO', 'CREDITO', 'CUENTA_CORRIENTE'];
 
-const mostrarMpQr = computed(() => {
-    return pagos.value.some(p => p.metodo_pago === 'MERCADO_PAGO') && mpDisplayData.value;
-});
+const transferMethods = computed(() =>
+    METODOS_DISPONIBLES.value.filter(m => !EXCLUIDOS_GRUPO_TRANSFERENCIA.includes(m.value))
+);
+const tarjetaMethods = computed(() =>
+    METODOS_DISPONIBLES.value.filter(m => ['DEBITO', 'CREDITO'].includes(m.value))
+);
+const showTransferDropdown = ref(false);
+const showTarjetaDropdown = ref(false);
+
+function seleccionarTransferencia(metodo) {
+    showTransferDropdown.value = false;
+    togglePago(metodo);
+}
+function seleccionarTarjeta(metodo) {
+    showTarjetaDropdown.value = false;
+    togglePago(metodo);
+}
+
+function tieneTransferenciaActiva() {
+    return pagos.value.some(p => !EXCLUIDOS_GRUPO_TRANSFERENCIA.includes(p.metodo_pago));
+}
+function tieneTarjetaActiva() {
+    return pagos.value.some(p => ['DEBITO', 'CREDITO'].includes(p.metodo_pago));
+}
 
 const pagos = ref([{ metodo_pago: 'EFECTIVO', monto: null }]);
 
@@ -374,11 +391,7 @@ function agregarPago(metodo) {
 }
 
 function removerPago(idx) {
-    if (pagos.value.length <= 1) return;
     pagos.value.splice(idx, 1);
-    if (pagos.value.length === 1 && pagos.value[0].monto === null) {
-        pagos.value[0].monto = null;
-    }
 }
 
 function autoCompletarRestante() {
@@ -714,6 +727,7 @@ const atajosDisponibles = computed(() => {
         F3: 'CREDITO',
         F4: 'TRANSFERENCIA',
         F5: 'MERCADO_PAGO',
+        F6: 'VIUMI',
         F8: 'CUENTA_CORRIENTE',
     };
     const result = {};
@@ -782,18 +796,18 @@ onUnmounted(() => {
     <Head title="Terminal POS - VendAR" />
 
     <AuthenticatedLayout>
-        <div class="py-4 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen" @click="mostrarDropdownClientes = false">
+        <div class="py-4 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen" @click="mostrarDropdownClientes = false; showTransferDropdown = false; showTarjetaDropdown = false">
 
             <div class="grid grid-cols-12 gap-4 lg:gap-6">
 
                 <!-- ─── COLUMNA IZQUIERDA: Búsqueda + Resultados ─── -->
-                <div class="col-span-12 lg:col-span-7 flex flex-col gap-3">
+                <div class="col-span-12 lg:col-span-5 flex flex-col gap-2">
 
-                    <!-- Buscador protagonista -->
-                    <div class="bg-white rounded-2xl shadow-md border-2 border-slate-200 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/20 transition-all overflow-hidden">
+                    <!-- Buscador compacto -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/20 transition-all overflow-hidden">
                         <div class="relative flex items-center">
-                            <span class="absolute left-5 text-slate-400">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <span class="absolute left-4 text-slate-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                             </span>
                             <input
                                 ref="inputBusqueda"
@@ -802,22 +816,22 @@ onUnmounted(() => {
                                 @keyup.enter="procesarBusquedaEnter"
                                 type="text"
                                 placeholder="Escaneá código o buscá por nombre..."
-                                class="w-full pl-14 pr-36 h-14 bg-transparent border-none focus:ring-0 text-xl font-bold text-slate-800 placeholder-slate-400"
+                                class="w-full pl-12 pr-28 h-10 bg-transparent border-none focus:ring-0 text-base font-bold text-slate-800 placeholder-slate-400"
                                 autofocus
                             />
-                            <div v-if="buscandoProductos" class="absolute right-36 top-1/2 -translate-y-1/2">
-                                <svg class="animate-spin h-5 w-5 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <div v-if="buscandoProductos" class="absolute right-28 top-1/2 -translate-y-1/2">
+                                <svg class="animate-spin h-4 w-4 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             </div>
-                            <div class="absolute right-3 flex items-center gap-2">
-                                <span class="hidden sm:block px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-400 uppercase border border-slate-200">
+                            <div class="absolute right-2 flex items-center gap-1.5">
+                                <span class="hidden sm:block px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-400 uppercase border border-slate-200">
                                     ENTER ↵
                                 </span>
                                 <button
                                     @click="mostrarEscaner = true"
-                                    class="bg-sky-100 text-sky-600 p-2 rounded-xl hover:bg-sky-500 hover:text-white transition-all shadow-sm border border-sky-200 flex items-center gap-1 group"
+                                    class="bg-sky-100 text-sky-600 p-1.5 rounded-lg hover:bg-sky-500 hover:text-white transition-all shadow-sm border border-sky-200 flex items-center gap-1 group"
                                     title="Escanear con Cámara"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                                 </button>
                             </div>
                         </div>
@@ -917,7 +931,7 @@ onUnmounted(() => {
                 </div>
 
                 <!-- ─── COLUMNA DERECHA: Cliente → Carrito → Pagos → Total → Cobrar ─── -->
-                <div class="col-span-12 lg:col-span-5">
+                <div class="col-span-12 lg:col-span-7">
                     <div class="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 flex flex-col h-[calc(100vh-100px)] sticky top-4 border border-slate-200 overflow-hidden">
 
                         <!-- 1. CLIENTE -->
@@ -1033,25 +1047,92 @@ onUnmounted(() => {
 
                             <!-- Métodos de pago -->
                             <div class="px-4 pt-3 pb-2">
-                                <div class="grid grid-cols-3 gap-1.5">
+                                <!-- Fila 1: Efectivo + Cuenta Corriente (botones grandes) -->
+                                <div class="grid grid-cols-2 gap-2 mb-2">
                                     <button
-                                        v-for="m in METODOS_DISPONIBLES" :key="m.value"
-                                        @click="togglePago(m.value)"
-                                        :title="m.label"
-                                        class="flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl border-2 transition-all shadow-sm min-h-[52px]"
-                                        :class="pagos.some(p => p.metodo_pago === m.value)
-                                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-indigo-100'
-                                            : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
+                                        @click="togglePago('EFECTIVO')"
+                                        class="flex items-center justify-center gap-2 py-3.5 rounded-xl border-2 transition-all shadow-sm text-sm font-bold"
+                                        :class="pagos.some(p => p.metodo_pago === 'EFECTIVO')
+                                            ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-emerald-100'
+                                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'"
                                     >
-                                        <svg v-if="m.value === 'EFECTIVO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                        <svg v-else-if="m.value === 'DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
-                                        <svg v-else-if="m.value === 'CREDITO'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
-                                        <svg v-else-if="m.value === 'CUENTA_CORRIENTE'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                                        <svg v-else-if="m.value === 'TRANSFERENCIA'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
-                                        <svg v-else-if="m.value === 'MERCADO_PAGO'" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 12c0 2 1 3.5 3 3.5s3-1.5 3-3.5-1-3.5-3-3.5-3 1.5-3 3.5z" fill="white"/></svg>
-                                        <span class="text-[10px] font-bold leading-tight text-center">{{ m.label }}</span>
-                                        <span v-if="teclaDeMetodo(m.value)" class="text-[8px] font-mono font-black text-slate-400 bg-slate-100 px-1 rounded border border-slate-200 leading-tight">{{ teclaDeMetodo(m.value) }}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                        Efectivo
+                                        <span v-if="teclaDeMetodo('EFECTIVO')" class="text-[8px] font-mono text-slate-400 bg-slate-100 px-1 rounded border border-slate-200">{{ teclaDeMetodo('EFECTIVO') }}</span>
                                     </button>
+                                    <button
+                                        v-if="METODOS_DISPONIBLES.some(m => m.value === 'CUENTA_CORRIENTE')"
+                                        @click="togglePago('CUENTA_CORRIENTE')"
+                                        class="flex items-center justify-center gap-2 py-3.5 rounded-xl border-2 transition-all shadow-sm text-sm font-bold"
+                                        :class="pagos.some(p => p.metodo_pago === 'CUENTA_CORRIENTE')
+                                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-indigo-100'
+                                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                                        Cta. Corriente
+                                        <span v-if="teclaDeMetodo('CUENTA_CORRIENTE')" class="text-[8px] font-mono text-slate-400 bg-slate-100 px-1 rounded border border-slate-200">{{ teclaDeMetodo('CUENTA_CORRIENTE') }}</span>
+                                    </button>
+                                </div>
+
+                                <!-- Fila 2: Transferencias + Tarjetas (dropdowns) -->
+                                <div class="grid grid-cols-2 gap-2">
+                                    <!-- Transferencias -->
+                                    <div class="relative" @click.stop>
+                                        <button
+                                            @click="showTransferDropdown = !showTransferDropdown; showTarjetaDropdown = false"
+                                            class="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 transition-all shadow-sm text-sm font-bold"
+                                            :class="tieneTransferenciaActiva()
+                                                ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sky-100'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                                            Transferencias
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                            <span v-if="teclaDeMetodo('TRANSFERENCIA')" class="text-[8px] font-mono text-slate-400 bg-slate-100 px-1 rounded border border-slate-200">{{ teclaDeMetodo('TRANSFERENCIA') }}</span>
+                                        </button>
+                                        <div v-if="showTransferDropdown && transferMethods.length > 0"
+                                            class="absolute bottom-full left-0 mb-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl z-50 overflow-hidden">
+                                            <button v-for="m in transferMethods" :key="m.value"
+                                                @click="seleccionarTransferencia(m.value)"
+                                                class="w-full px-3 py-2.5 text-left text-sm font-bold flex items-center gap-2 hover:bg-sky-50 transition-colors"
+                                                :class="pagos.some(p => p.metodo_pago === m.value) ? 'text-sky-700 bg-sky-50/50' : 'text-slate-700'"
+                                            >
+                                                <svg v-if="m.value === 'MERCADO_PAGO'" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 12c0 2 1 3.5 3 3.5s3-1.5 3-3.5-1-3.5-3-3.5-3 1.5-3 3.5z" fill="white"/></svg>
+                                                <svg v-else-if="m.value === 'VIUMI'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                                                {{ m.label }}
+                                                <span v-if="teclaDeMetodo(m.value)" class="ml-auto text-[8px] font-mono text-slate-400 bg-slate-100 px-1 rounded border border-slate-200">{{ teclaDeMetodo(m.value) }}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Tarjetas -->
+                                    <div class="relative" @click.stop>
+                                        <button
+                                            @click="showTarjetaDropdown = !showTarjetaDropdown; showTransferDropdown = false"
+                                            class="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 transition-all shadow-sm text-sm font-bold"
+                                            :class="tieneTarjetaActiva()
+                                                ? 'bg-violet-50 border-violet-500 text-violet-700 shadow-violet-100'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
+                                            Tarjetas
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                        </button>
+                                        <div v-if="showTarjetaDropdown && tarjetaMethods.length > 0"
+                                            class="absolute bottom-full left-0 mb-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl z-50 overflow-hidden">
+                                            <button v-for="m in tarjetaMethods" :key="m.value"
+                                                @click="seleccionarTarjeta(m.value)"
+                                                class="w-full px-3 py-2.5 text-left text-sm font-bold flex items-center gap-2 hover:bg-violet-50 transition-colors"
+                                                :class="pagos.some(p => p.metodo_pago === m.value) ? 'text-violet-700 bg-violet-50/50' : 'text-slate-700'"
+                                            >
+                                                <svg v-if="m.value === 'DEBITO'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><circle cx="8" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
+                                                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/><path d="M6 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M14 14h4" stroke-width="1.5" stroke-linecap="round"/><path d="M6 17h8" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                                {{ m.label }}
+                                                <span v-if="teclaDeMetodo(m.value)" class="ml-auto text-[8px] font-mono text-slate-400 bg-slate-100 px-1 rounded border border-slate-200">{{ teclaDeMetodo(m.value) }}</span>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1154,7 +1235,8 @@ onUnmounted(() => {
                                     :disabled="!puedeCobrar"
                                     class="w-full bg-slate-900 hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-3.5 rounded-xl shadow-lg uppercase tracking-widest active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                 >
-                                    <template v-if="bloqueoPorSaldo">SALDO INSUFICIENTE</template>
+                                    <template v-if="pagos.length === 0">Seleccioná un método de pago</template>
+                                    <template v-else-if="bloqueoPorSaldo">SALDO INSUFICIENTE</template>
                                     <template v-else-if="esUnicoEfectivo && (montoRecibido === null || montoRecibido === '')">Ingresá el monto recibido</template>
                                     <template v-else-if="esUnicoEfectivo && Number(montoRecibido) < totalVenta">Faltan ${{ (totalVenta - Number(montoRecibido)).toFixed(2) }}</template>
                                     <template v-else-if="!esPagoCompleto">Asigná el total (${{ restante.toFixed(2) }})</template>
@@ -1183,12 +1265,6 @@ onUnmounted(() => {
             :display-info="confirmarDisplayInfo"
             @close="onPagoCancelado"
             @confirmed="onPagoConfirmado"
-        />
-
-        <MpQrPanel
-            :show="mostrarMpQr"
-            :display-data="mpDisplayData"
-            @close="togglePago('MERCADO_PAGO')"
         />
 
     </AuthenticatedLayout>

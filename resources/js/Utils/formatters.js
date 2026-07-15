@@ -30,6 +30,6 @@ export const formatearHora = (f) => {
 export const calcularTotalActual = (bal) => {
     if (!bal) return 0;
     return parseFloat(bal.esperado_efectivo || 0) +
-        parseFloat(bal.esperado_mp || 0) +
-        parseFloat(bal.esperado_transf || 0);
+        parseFloat(bal.esperado_transferencias || 0) +
+        parseFloat(bal.esperado_tarjetas || 0);
 };
