@@ -101,6 +101,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
     Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
+    Route::post('/pos/precios', [PosController::class, 'precios'])->name('pos.precios');
     Route::get('/pos/movimientos-turno', [PosController::class, 'movimientosTurno'])->name('pos.movimientos.turno');
     Route::post('/pos/guardar-carrito', [PosController::class, 'guardarCarrito'])->name('pos.guardar.carrito');
     Route::get('/pos/listar-pendientes', [PosController::class, 'listarPendientes'])->name('pos.listar.pendientes');
@@ -222,6 +223,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::post('/productos/importar', [ProductoController::class, 'importar'])->name('productos.importar');
     Route::get('/productos/exportar', [ProductoController::class, 'exportar'])->name('productos.exportar');
     Route::get('/productos/pdf', [ProductoController::class, 'pdf'])->name('productos.pdf');
+    Route::post('/productos/etiquetas', [ProductoController::class, 'etiquetas'])->name('productos.etiquetas');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');
     Route::get('/productos/buscar-por-codigo/{codigo}', [ProductoController::class, 'buscarPorCodigo'])->name('productos.buscar-codigo');
     Route::get('/productos/buscar-similares', [ProductoController::class, 'buscarSimilares'])->name('productos.buscar-similares');
@@ -294,6 +296,11 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::post('/configuracion/metodo-pago', [ConfiguracionController::class, 'storePaymentMethodConfig'])->name('configuracion.metodo-pago.store');
     Route::delete('/configuracion/metodo-pago/{paymentMethodConfiguration}', [ConfiguracionController::class, 'destroyPaymentMethodConfig'])->name('configuracion.metodo-pago.destroy');
     Route::post('/configuracion/storefront', [\App\Http\Controllers\StorefrontConfigController::class, 'update'])->name('configuracion.storefront.update');
+
+    // Recargos por tarjeta
+    Route::get('/configuracion/recargos', [\App\Http\Controllers\RecargoTarjetaController::class, 'index'])->name('recargos.index');
+    Route::post('/configuracion/recargos/grouped', [\App\Http\Controllers\RecargoTarjetaController::class, 'saveGrouped'])->name('recargos.saveGrouped');
+    Route::delete('/configuracion/recargos/grouped', [\App\Http\Controllers\RecargoTarjetaController::class, 'destroyGrouped'])->name('recargos.destroyGrouped');
 });
 
 // ==================================================================

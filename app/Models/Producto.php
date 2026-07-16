@@ -13,6 +13,7 @@ class Producto extends Model
     use HasFactory, Auditable;
 
     protected $fillable = [
+        'sku',
         'categoria_id',
         'marca_id',
         'proveedor_id',

@@ -34,8 +34,8 @@
 
                     <div v-if="archivo" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
                         <p class="font-medium mb-1">Formato esperado (Excel o CSV):</p>
-                        <code class="text-amber-700">Nombre, Código de Barras, Categoría, Marca, Proveedor, Precio Costo, Precio Venta, Stock Mínimo, Unidad, Unidad Compra, Cant. por Compra, Descripción, Retornable, Estado</code>
-                        <p class="mt-1">Podés exportar el listado, editarlo en Excel y volver a importarlo. Si el código de barras ya existe, se actualiza. Si no, se crea uno nuevo.</p>
+                        <code class="text-amber-700">Nombre, Código de Barras, Categoría, Marca, Proveedor, Precio Costo, Precio Venta, Stock Mínimo, Unidad, Unidad Compra, Cant. por Compra, Descripción, Retornable, Estado, SKU</code>
+                        <p class="mt-1">Si el código de barras ya existe en el sistema, el producto será rechazado. El SKU es opcional; si se incluye, no debe duplicarse.</p>
                     </div>
                 </div>
 
@@ -88,7 +88,13 @@ const importar = async () => {
         form.append('archivo', archivo.value);
         const res = await axios.post(route('productos.importar'), form);
         if (res.data?.success) {
-            Swal.fire({ title: '¡Importado!', text: res.data.message || 'Importación completada.', icon: 'success', timer: 5000, showConfirmButton: false });
+            Swal.fire({
+                title: '¡Importado!',
+                html: `<p>${res.data.message}</p>`,
+                icon: 'success',
+                timer: 5000,
+                showConfirmButton: false,
+            });
             emit('completado');
         } else if (res.data?.error) {
             Swal.fire({ title: 'Error', text: res.data.error, icon: 'error' });
@@ -96,20 +102,44 @@ const importar = async () => {
             emit('completado');
         }
     } catch (err) {
-        let msg = 'Error al importar el archivo.';
-        if (err.response?.status === 422) {
-            const errors = err.response.data?.errors;
-            if (errors?.archivo) {
-                msg = Array.isArray(errors.archivo) ? errors.archivo[0] : errors.archivo;
-            } else if (err.response.data?.message) {
-                msg = err.response.data.message;
-            }
-        } else if (err.response?.data?.error) {
-            msg = err.response.data.error;
-        } else if (err.response?.data?.message) {
-            msg = err.response.data.message;
+        const data = err.response?.data;
+
+        if (err.response?.status === 422 && data?.errores?.length) {
+            const errores = data.errores;
+            let html = `<p class="mb-3 text-sm text-red-600 font-medium">${data.message}</p>`;
+            html += `<div class="text-left max-h-64 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="border-b">`;
+            html += `<th class="py-1 px-2 text-left">Fila</th>`;
+            html += `<th class="py-1 px-2 text-left">Cód. Barras</th>`;
+            html += `<th class="py-1 px-2 text-left">SKU</th>`;
+            html += `<th class="py-1 px-2 text-left">Nombre</th>`;
+            html += `<th class="py-1 px-2 text-left">Motivo</th>`;
+            html += `</tr></thead><tbody>`;
+            errores.forEach(e => {
+                html += `<tr class="border-b border-slate-100">`;
+                html += `<td class="py-1 px-2 font-mono">${e.fila}</td>`;
+                html += `<td class="py-1 px-2 font-mono">${e.codigo_barras || '-'}</td>`;
+                html += `<td class="py-1 px-2 font-mono">${e.sku || '-'}</td>`;
+                html += `<td class="py-1 px-2">${e.nombre || '-'}</td>`;
+                html += `<td class="py-1 px-2 text-red-600">${e.motivo}</td>`;
+                html += `</tr>`;
+            });
+            html += `</tbody></table></div>`;
+            html += `<p class="mt-2 text-xs text-slate-500">${errores.length} producto(s) rechazado(s). Ningún producto fue importado.</p>`;
+
+            Swal.fire({
+                title: 'Importación con errores',
+                html: html,
+                icon: 'warning',
+                width: '700px',
+                confirmButtonText: 'Entendido',
+            });
+        } else if (err.response?.status === 422 && data?.message) {
+            Swal.fire({ title: 'Error', text: data.message, icon: 'error' });
+        } else if (data?.error) {
+            Swal.fire({ title: 'Error', text: data.error, icon: 'error' });
+        } else {
+            Swal.fire({ title: 'Error', text: 'Error al importar el archivo.', icon: 'error' });
         }
-        Swal.fire({ title: 'Error', text: msg, icon: 'error' });
     } finally {
         cargando.value = false;
     }

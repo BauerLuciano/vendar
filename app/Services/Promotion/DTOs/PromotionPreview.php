@@ -11,6 +11,8 @@ class PromotionPreview
         public readonly ?float $finalPrice = null,
         public readonly ?float $discountAmount = null,
         public readonly ?string $discountLabel = null,
+        public readonly ?string $discountType = null,
+        public readonly ?string $explanation = null,
         public readonly array $warnings = [],
         public readonly array $conflicts = [],
     ) {}
@@ -24,6 +26,8 @@ class PromotionPreview
             'final_price' => $this->finalPrice,
             'discount_amount' => $this->discountAmount,
             'discount_label' => $this->discountLabel,
+            'discount_type' => $this->discountType,
+            'explanation' => $this->explanation,
             'warnings' => $this->warnings,
             'conflicts' => $this->conflicts,
         ];

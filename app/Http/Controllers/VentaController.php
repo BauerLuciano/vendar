@@ -93,6 +93,11 @@ class VentaController extends Controller
             'pagos'         => 'nullable|array|min:1',
             'pagos.*.metodo_pago' => 'required_with:pagos|string',
             'pagos.*.monto' => 'required_with:pagos|numeric|min:0',
+            'pagos.*.banco' => 'nullable|string|max:255',
+            'pagos.*.tipo_tarjeta' => 'nullable|string|in:DEBITO,CREDITO',
+            'pagos.*.cuotas' => 'nullable|integer|min:1',
+            'pagos.*.recargo_porcentaje' => 'nullable|numeric|min:0|max:100',
+            'pagos.*.recargo_monto' => 'nullable|numeric|min:0',
         ]);
 
         $permitirStockNegativo = \App\Models\Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
@@ -113,10 +118,31 @@ class VentaController extends Controller
             $pagos = [['metodo_pago' => $request->metodo_pago, 'monto' => (float) $request->total]];
         }
 
-        $pagosNormalizados = collect($pagos)->map(fn ($p) => [
-            'metodo_pago' => MetodoPago::fromString($p['metodo_pago'])->value,
-            'monto' => (float) $p['monto'],
-        ]);
+        $pagosNormalizados = collect($pagos)->map(function ($p) {
+            $pago = [
+                'metodo_pago' => MetodoPago::fromString($p['metodo_pago'])->value,
+                'monto' => (float) $p['monto'],
+            ];
+
+            // Include recargo data for card payments
+            if (isset($p['banco']) && $p['banco']) {
+                $pago['banco'] = $p['banco'];
+            }
+            if (isset($p['tipo_tarjeta']) && $p['tipo_tarjeta']) {
+                $pago['tipo_tarjeta'] = $p['tipo_tarjeta'];
+            }
+            if (isset($p['cuotas']) && $p['cuotas']) {
+                $pago['cuotas'] = (int) $p['cuotas'];
+            }
+            if (isset($p['recargo_porcentaje']) && $p['recargo_porcentaje'] !== null) {
+                $pago['recargo_porcentaje'] = (float) $p['recargo_porcentaje'];
+            }
+            if (isset($p['recargo_monto']) && $p['recargo_monto'] !== null) {
+                $pago['recargo_monto'] = (float) $p['recargo_monto'];
+            }
+
+            return $pago;
+        });
 
         $sumaPagos = $pagosNormalizados->sum('monto');
         if (abs($sumaPagos - $totalCalculado) > 0.01) {
@@ -124,6 +150,11 @@ class VentaController extends Controller
                 "La suma de los pagos (\$$sumaPagos) no coincide con el total calculado (\${$totalCalculado})."
             ]);
         }
+
+        // Issue #2 & #3: Calculate recargo_monto server-side from pagos, don't trust frontend
+        $recargoMontoCalculado = $pagosNormalizados
+            ->filter(fn ($p) => isset($p['tipo_tarjeta']) && in_array($p['tipo_tarjeta'], ['DEBITO', 'CREDITO']))
+            ->sum('recargo_monto');
 
         $tieneCuentaCorriente = $pagosNormalizados->contains('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value);
         $montoCC = $pagosNormalizados->where('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value)->sum('monto');
@@ -212,6 +243,7 @@ class VentaController extends Controller
                 'metodo_pago'   => $metodoPagoNormalizado,
                 'pagos'         => $pagosNormalizados->toArray(),
                 'total'         => $totalCalculado,
+                'recargo_monto' => $recargoMontoCalculado,
                 'estado'        => $esPendiente ? VentaStatus::PENDING : VentaStatus::COMPLETED,
             ]);
 

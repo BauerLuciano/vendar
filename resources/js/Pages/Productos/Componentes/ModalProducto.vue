@@ -15,6 +15,26 @@ const props = defineProps({
 
 const emit = defineEmits(['cerrar']);
 const imagenPreview = ref(null);
+const nombreError = ref('');
+
+function validarNombre(valor) {
+    const limpio = (valor || '').replace(/\s+/g, ' ').trim();
+    if (!limpio) return '';
+    if (limpio.length < 3) return 'El nombre debe tener al menos 3 caracteres.';
+    if (!/[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(limpio)) return 'El nombre debe contener al menos una letra.';
+    return '';
+}
+
+function validarNombreBlur() {
+    nombreError.value = validarNombre(formulario.nombre);
+}
+
+function onNombreInput() {
+    if (nombreError.value) {
+        const error = validarNombre(formulario.nombre);
+        if (!error) nombreError.value = '';
+    }
+}
 
 const OPCIONES_UNIDAD_COMPRA = ['Caja', 'Pack', 'Bolsa', 'Fardo', 'Pallet', 'Otro'];
 
@@ -70,6 +90,7 @@ let buscarSimilaresTimer = null;
 
 watch(() => props.producto, (nuevoValor) => {
     formulario.clearErrors();
+    nombreError.value = '';
     productosSimilares.value = [];
     if (nuevoValor) {
         formulario.id = nuevoValor.id;
@@ -351,6 +372,9 @@ const guardar = () => {
     formulario.nombre = formulario.nombre.trim();
     formulario.descripcion = formulario.descripcion?.trim() || '';
 
+    nombreError.value = validarNombre(formulario.nombre);
+    if (nombreError.value) return;
+
     if (formulario.unidad_medida === 'Kg' && formulario.unidad_peso_visual === 'Gramos') {
         formulario.stock_minimo = formulario.stock_minimo_visual / 1000;
         formulario.stock_inicial = formulario.stock_inicial_visual / 1000;
@@ -387,6 +411,7 @@ const guardar = () => {
             });
             emit('cerrar');
             formulario.reset();
+            nombreError.value = '';
             imagenPreview.value = null;
         },
         onError: (err) => console.error(err)
@@ -424,8 +449,14 @@ const guardar = () => {
                         <div class="lg:col-span-8 space-y-2.5">
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Nombre *</label>
-                                <input v-model="formulario.nombre" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500 ring-rose-100': formulario.errors.nombre}" placeholder="Ej: Coca Cola 2.25L Retornable" required>
-                                <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.nombre }}</p>
+                                <input v-model="formulario.nombre" type="text"
+                                    class="w-full bg-slate-50 border text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
+                                    :class="(nombreError || formulario.errors.nombre) ? 'border-rose-500 ring-rose-100' : 'border-slate-200'"
+                                    placeholder="Ej: Coca Cola 2.25L Retornable"
+                                    @blur="validarNombreBlur"
+                                    @input="onNombreInput"
+                                    required>
+                                <p v-if="nombreError || formulario.errors.nombre" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ nombreError || formulario.errors.nombre }}</p>
 
                                 <div v-if="productosSimilares.length" class="bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-1.5">
                                     <p v-if="tieneCoincidenciaExacta" class="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded px-2 py-1 mb-1.5 flex items-center gap-1">

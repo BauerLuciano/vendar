@@ -571,11 +571,6 @@ class ProductoController extends Controller
             fclose($handle);
         }
 
-        $headers = null;
-        $creados = 0;
-        $actualizados = 0;
-        $errores = [];
-
         $headerMap = [
             'nombre' => 'nombre', 'código de barras' => 'codigo_barras', 'codigo_barras' => 'codigo_barras',
             'categoría' => 'categoria', 'categoria' => 'categoria',
@@ -589,132 +584,275 @@ class ProductoController extends Controller
             'descripción' => 'descripcion', 'descripcion' => 'descripcion',
             'retornable' => 'es_retornable', 'es_retornable' => 'es_retornable',
             'estado' => 'estado',
+            'sku' => 'sku',
         ];
 
-        DB::beginTransaction();
-        try {
-            foreach ($rows as $row) {
-                if (empty($row) || empty($row[0])) continue;
+        $headers = null;
+        $errores = [];
+        $productosValidos = [];
+        $codigosEnExcel = [];
+        $skusEnExcel = [];
 
-                $linea = trim((string) $row[0]);
-                if (str_starts_with($linea, '#')) continue;
+        foreach ($rows as $idx => $row) {
+            $numFila = $idx + 1;
 
-                if ($headers === null) {
-                    $rawHeaders = array_map(fn ($h) => trim(mb_strtolower((string) $h)), $row);
-                    $mappedHeaders = array_map(fn ($h) => $headerMap[$h] ?? $h, $rawHeaders);
+            if (empty($row) || empty($row[0])) continue;
 
-                    if (!in_array('nombre', $mappedHeaders) || !in_array('codigo_barras', $mappedHeaders)) {
-                        continue;
-                    }
+            $linea = trim((string) $row[0]);
+            if (str_starts_with($linea, '#')) continue;
 
-                    $headers = $mappedHeaders;
-                    continue;
+            if ($headers === null) {
+                $rawHeaders = array_map(fn ($h) => trim(mb_strtolower((string) $h)), $row);
+                $mappedHeaders = array_map(fn ($h) => $headerMap[$h] ?? $h, $rawHeaders);
+
+                if (!in_array('nombre', $mappedHeaders) || !in_array('codigo_barras', $mappedHeaders)) {
+                    $errores[] = [
+                        'fila' => $numFila,
+                        'codigo_barras' => null,
+                        'sku' => null,
+                        'nombre' => null,
+                        'motivo' => 'El encabezado debe contener las columnas "Nombre" y "Código de Barras".',
+                    ];
+                    break;
                 }
 
-                $trimmedRow = array_map(fn ($v) => is_string($v) ? trim($v) : $v, $row);
+                $headers = $mappedHeaders;
+                continue;
+            }
 
-                if (count($trimmedRow) < count($headers)) {
-                    $trimmedRow = array_pad($trimmedRow, count($headers), '');
-                } elseif (count($trimmedRow) > count($headers)) {
-                    $trimmedRow = array_slice($trimmedRow, 0, count($headers));
-                }
+            $trimmedRow = array_map(fn ($v) => is_string($v) ? trim($v) : $v, $row);
 
-                $allData = array_combine($headers, $trimmedRow);
+            if (count($trimmedRow) < count($headers)) {
+                $trimmedRow = array_pad($trimmedRow, count($headers), '');
+            } elseif (count($trimmedRow) > count($headers)) {
+                $trimmedRow = array_slice($trimmedRow, 0, count($headers));
+            }
 
-                $data = $allData;
+            $data = array_combine($headers, $trimmedRow);
 
-                $categoriaId = $this->buscarOCrearReferencia(
+            $nombre = $data['nombre'] ?? null;
+            $codigoBarras = $data['codigo_barras'] ?? null;
+            $sku = !empty($data['sku']) ? trim((string) $data['sku']) : null;
+
+            $unidadMedida = in_array(strtolower($data['unidad_medida'] ?? ''), ['unidad', 'kg', 'gramos'])
+                ? ucfirst($data['unidad_medida'])
+                : 'Unidad';
+
+            $stockMinimoRaw = is_numeric($data['stock_minimo'] ?? null) ? (float) $data['stock_minimo'] : 0;
+            $stockMinimo = in_array($unidadMedida, ['Kg', 'Gramos'])
+                ? round($stockMinimoRaw, 3)
+                : (int) round($stockMinimoRaw);
+
+            $cantidadCompraRaw = !empty($data['cantidad_por_compra']) && is_numeric($data['cantidad_por_compra']) ? (float) $data['cantidad_por_compra'] : null;
+            $cantidadCompra = $cantidadCompraRaw !== null
+                ? (in_array($unidadMedida, ['Kg', 'Gramos']) ? round($cantidadCompraRaw, 3) : (int) round($cantidadCompraRaw))
+                : null;
+
+            $productoData = [
+                'nombre' => $nombre,
+                'codigo_barras' => $codigoBarras,
+                'sku' => $sku,
+                'categoria_id' => $this->buscarOCrearReferencia(
                     'App\Models\Categoria', 'nombreCategoria', $data['categoria'] ?? null, ['estado' => true], $comercioId
-                );
-                $marcaId = $this->buscarOCrearReferencia(
+                ),
+                'marca_id' => $this->buscarOCrearReferencia(
                     'App\Models\Marca', 'nombreMarca', $data['marca'] ?? null, ['estado' => true], $comercioId
-                );
-                $proveedorId = $this->buscarOCrearReferencia(
+                ),
+                'proveedor_id' => $this->buscarOCrearReferencia(
                     'App\Models\Proveedor', 'razon_social', $data['proveedor'] ?? null, ['estado' => true], $comercioId
-                );
+                ),
+                'precio_costo' => is_numeric($data['precio_costo'] ?? null) ? round((float) $data['precio_costo'], 2) : 0,
+                'precio_venta' => is_numeric($data['precio_venta'] ?? null) ? round((float) $data['precio_venta'], 2) : 0,
+                'stock_minimo' => $stockMinimo,
+                'unidad_medida' => $unidadMedida,
+                'unidad_compra' => !empty($data['unidad_compra']) ? $data['unidad_compra'] : null,
+                'cantidad_por_compra' => $cantidadCompra,
+                'descripcion' => $data['descripcion'] ?? null,
+                'es_retornable' => in_array(strtolower(trim($data['es_retornable'] ?? '0')), ['1', 'sí', 'si']),
+                'estado' => in_array(strtolower(trim($data['estado'] ?? '1')), ['1', 'activo']),
+            ];
 
-                $unidadMedida = in_array(strtolower($data['unidad_medida'] ?? ''), ['unidad', 'kg', 'gramos'])
-                    ? ucfirst($data['unidad_medida'])
-                    : 'Unidad';
-
-                $stockMinimoRaw = is_numeric($data['stock_minimo'] ?? null) ? (float) $data['stock_minimo'] : 0;
-                $stockMinimo = in_array($unidadMedida, ['Kg', 'Gramos'])
-                    ? round($stockMinimoRaw, 3)
-                    : (int) round($stockMinimoRaw);
-
-                $cantidadCompraRaw = !empty($data['cantidad_por_compra']) && is_numeric($data['cantidad_por_compra']) ? (float) $data['cantidad_por_compra'] : null;
-                $cantidadCompra = $cantidadCompraRaw !== null
-                    ? (in_array($unidadMedida, ['Kg', 'Gramos']) ? round($cantidadCompraRaw, 3) : (int) round($cantidadCompraRaw))
-                    : null;
-
-                $productoData = [
-                    'nombre' => $data['nombre'] ?? null,
-                    'codigo_barras' => $data['codigo_barras'] ?? null,
-                    'categoria_id' => $categoriaId,
-                    'marca_id' => $marcaId,
-                    'proveedor_id' => $proveedorId,
-                    'precio_costo' => is_numeric($data['precio_costo'] ?? null) ? round((float) $data['precio_costo'], 2) : 0,
-                    'precio_venta' => is_numeric($data['precio_venta'] ?? null) ? round((float) $data['precio_venta'], 2) : 0,
-                    'stock_minimo' => $stockMinimo,
-                    'unidad_medida' => $unidadMedida,
-                    'unidad_compra' => !empty($data['unidad_compra']) ? $data['unidad_compra'] : null,
-                    'cantidad_por_compra' => $cantidadCompra,
-                    'descripcion' => $data['descripcion'] ?? null,
-                    'es_retornable' => in_array(strtolower(trim($data['es_retornable'] ?? '0')), ['1', 'sí', 'si']),
-                    'estado' => in_array(strtolower(trim($data['estado'] ?? '1')), ['1', 'activo']),
+            if (empty($nombre)) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => $codigoBarras ?: null,
+                    'sku' => $sku,
+                    'nombre' => null,
+                    'motivo' => 'El nombre del producto es requerido.',
                 ];
+                continue;
+            }
 
-                if (empty($productoData['nombre']) || empty($productoData['codigo_barras'])) {
-                    $errores[] = 'Línea ' . count($errores) . ': nombre y código de barras son requeridos';
+            if (empty($codigoBarras)) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => null,
+                    'sku' => $sku,
+                    'nombre' => $nombre,
+                    'motivo' => 'El código de barras es requerido.',
+                ];
+                continue;
+            }
+
+            $cbLimpio = trim((string) $codigoBarras);
+            if (!preg_match('/^[0-9]+$/', $cbLimpio) || strlen($cbLimpio) < 2 || strlen($cbLimpio) > 14) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => $cbLimpio,
+                    'sku' => $sku,
+                    'nombre' => $nombre,
+                    'motivo' => 'El código de barras debe ser numérico (2-14 dígitos).',
+                ];
+                continue;
+            }
+
+            if (isset($codigosEnExcel[$cbLimpio])) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => $cbLimpio,
+                    'sku' => $sku,
+                    'nombre' => $nombre,
+                    'motivo' => "Código de barras duplicado en el Excel (ya visto en fila {$codigosEnExcel[$cbLimpio]}).",
+                ];
+                continue;
+            }
+            $codigosEnExcel[$cbLimpio] = $numFila;
+
+            if ($sku !== null) {
+                if (isset($skusEnExcel[$sku])) {
+                    $errores[] = [
+                        'fila' => $numFila,
+                        'codigo_barras' => $cbLimpio,
+                        'sku' => $sku,
+                        'nombre' => $nombre,
+                        'motivo' => "SKU duplicado en el Excel (ya visto en fila {$skusEnExcel[$sku]}).",
+                    ];
                     continue;
                 }
+                $skusEnExcel[$sku] = $numFila;
+            }
 
-                $pc = (float) ($productoData['precio_costo'] ?? 0);
-                $pv = (float) ($productoData['precio_venta'] ?? 0);
-                if ($pc > 0 && $pv <= $pc) {
-                    $errores[] = 'Línea ' . (count($errores) + 1) . ': precio de venta ($' . number_format($pv, 2) . ') debe ser mayor al costo ($' . number_format($pc, 2) . ') en "' . ($productoData['nombre'] ?? 'sin nombre') . '"';
-                    continue;
-                }
+            $pc = (float) ($productoData['precio_costo'] ?? 0);
+            $pv = (float) ($productoData['precio_venta'] ?? 0);
+            if ($pc > 0 && $pv <= $pc) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => $cbLimpio,
+                    'sku' => $sku,
+                    'nombre' => $nombre,
+                    'motivo' => "Precio de venta (\$" . number_format($pv, 2) . ") debe ser mayor al costo (\$" . number_format($pc, 2) . ").",
+                ];
+                continue;
+            }
 
-                $existente = Producto::where('codigo_barras', $productoData['codigo_barras'])
-                    ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
-                    ->first();
+            $productoData['codigo_barras'] = $cbLimpio;
+            $productoData['_fila'] = $numFila;
+            $productosValidos[] = $productoData;
+        }
 
-                if ($existente) {
-                    $existente->update($productoData);
-                    $actualizados++;
-                } else {
-                    $producto = Producto::create($productoData);
+        if (!empty($errores)) {
+            return response()->json([
+                'success' => false,
+                'importados' => 0,
+                'rechazados' => count($errores),
+                'errores' => $errores,
+                'message' => 'Importación cancelada: ' . count($errores) . ' error(es) encontrado(s). Ningún producto fue importado.',
+            ], 422);
+        }
+
+        if (empty($productosValidos)) {
+            return response()->json([
+                'success' => false,
+                'importados' => 0,
+                'rechazados' => 0,
+                'errores' => [],
+                'message' => 'El archivo no contiene productos válidos para importar.',
+            ], 422);
+        }
+
+        $codigosAConsultar = array_column($productosValidos, 'codigo_barras');
+        $existentesCodigos = Producto::whereIn('codigo_barras', $codigosAConsultar)
+            ->pluck('codigo_barras')
+            ->flip();
+
+        $skusAConsultar = array_filter(array_column($productosValidos, 'sku'));
+        $existentesSku = !empty($skusAConsultar)
+            ? Producto::whereIn('sku', $skusAConsultar)->pluck('sku')->flip()
+            : collect();
+
+        foreach ($productosValidos as $productoData) {
+            $numFila = $productoData['_fila'];
+
+            if ($existentesCodigos->has($productoData['codigo_barras'])) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => $productoData['codigo_barras'],
+                    'sku' => $productoData['sku'] ?? null,
+                    'nombre' => $productoData['nombre'],
+                    'motivo' => 'El código de barras ya existe en el sistema.',
+                ];
+            }
+
+            if (!empty($productoData['sku']) && $existentesSku->has($productoData['sku'])) {
+                $errores[] = [
+                    'fila' => $numFila,
+                    'codigo_barras' => $productoData['codigo_barras'],
+                    'sku' => $productoData['sku'],
+                    'nombre' => $productoData['nombre'],
+                    'motivo' => 'El SKU ya existe en el sistema.',
+                ];
+            }
+        }
+
+        if (!empty($errores)) {
+            return response()->json([
+                'success' => false,
+                'importados' => 0,
+                'rechazados' => count($errores),
+                'errores' => $errores,
+                'message' => 'Importación cancelada: ' . count($errores) . ' error(es) encontrado(s). Ningún producto fue importado.',
+            ], 422);
+        }
+
+        try {
+            DB::transaction(function () use ($productosValidos, $sucursalIds) {
+                foreach ($productosValidos as $productoData) {
+                    $data = collect($productoData)->except('_fila')->toArray();
+                    $producto = Producto::create($data);
+
                     if ($sucursalIds->isNotEmpty()) {
-                        $primeraSucursal = $sucursalIds->first();
-                        $producto->sucursales()->attach($primeraSucursal, [
+                        $producto->sucursales()->attach($sucursalIds->first(), [
                             'cantidad_fisica' => 0,
                             'cantidad_reservada' => 0,
                             'created_at' => now(),
                             'updated_at' => now(),
                         ]);
                     }
-                    $creados++;
                 }
-            }
-
-            DB::commit();
-
-            $mensaje = "Importación completada: {$creados} creados, {$actualizados} actualizados.";
-            if (!empty($errores)) {
-                $mensaje .= ' Errores: ' . implode(' | ', array_slice($errores, 0, 5));
-            }
-
-            return response()->json(['success' => true, 'message' => $mensaje]);
-
+            });
         } catch (\Exception $e) {
-            DB::rollBack();
             $msg = $e->getMessage();
             if (str_contains($msg, 'array_combine')) {
                 $msg = 'El archivo tiene un formato inválido. Verificá que todas las filas tengan la misma cantidad de columnas que el encabezado.';
             }
-            return response()->json(['error' => 'Error al importar: ' . $msg], 500);
+            return response()->json([
+                'success' => false,
+                'importados' => 0,
+                'rechazados' => 0,
+                'errores' => [],
+                'message' => 'Error al importar: ' . $msg,
+            ], 500);
         }
+
+        $creados = count($productosValidos);
+
+        return response()->json([
+            'success' => true,
+            'importados' => $creados,
+            'rechazados' => 0,
+            'errores' => [],
+            'message' => "Importación completada: {$creados} productos importados.",
+        ]);
     }
 
     public function pdf(Request $request)
@@ -769,6 +907,52 @@ class ProductoController extends Controller
         $pdf->setPaper('A4', 'landscape');
 
         return $pdf->download('productos_' . now()->format('Ymd_His') . '.pdf');
+    }
+
+    public function etiquetas(Request $request)
+    {
+        $request->validate([
+            'modo' => 'required|in:todos,categoria,marca,busqueda',
+            'categoria_id' => 'required_if:modo,categoria|exists:categorias,id',
+            'marca_id' => 'required_if:modo,marca|exists:marcas,id',
+            'busqueda' => 'required_if:modo,busqueda|string|max:255',
+            'copias' => 'required|integer|min:1|max:50',
+        ]);
+
+        $query = Producto::query()->select(['id', 'nombre', 'precio_venta']);
+
+        switch ($request->modo) {
+            case 'todos':
+                break;
+            case 'categoria':
+                $query->where('categoria_id', $request->categoria_id);
+                break;
+            case 'marca':
+                $query->where('marca_id', $request->marca_id);
+                break;
+            case 'busqueda':
+                $query->where(function ($q) use ($request) {
+                    $q->where('nombre', 'ilike', "%{$request->busqueda}%")
+                      ->orWhere('codigo_barras', 'ilike', "%{$request->busqueda}%");
+                });
+                break;
+        }
+
+        $productos = $query->orderBy('nombre')->get();
+
+        if ($productos->isEmpty()) {
+            return redirect()->back()->withErrors(['error' => 'No se encontraron productos para las opciones seleccionadas.']);
+        }
+
+        $productosRepetidos = $productos->flatMap(fn ($p) => collect(array_fill(0, $request->copias, null))->map(fn () => $p));
+
+        $pdf = Pdf::loadView('pdf.etiquetas', [
+            'productos' => $productosRepetidos,
+        ]);
+
+        $pdf->setPaper('A4', 'portrait');
+
+        return $pdf->download('etiquetas_' . now()->format('Ymd_His') . '.pdf');
     }
 
     private function buscarOCrearReferencia(string $modelo, string $columna, ?string $valor, array $extra = [], ?int $comercioId = null): ?int

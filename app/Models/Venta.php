@@ -19,12 +19,14 @@ class Venta extends Model
         'metodo_pago', 
         'pagos',
         'total', 
+        'recargo_monto',
         'estado',
         'motivo_anulacion' 
     ];
 
     protected $casts = [
         'pagos' => 'array',
+        'recargo_monto' => 'decimal:2',
         'estado' => VentaStatus::class,
     ];
 
