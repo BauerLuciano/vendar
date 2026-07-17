@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\TransferenciaSugerida;
+use App\Models\Lote;
 use App\Services\SucursalScopeService;
+use App\Services\LoteService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -127,46 +129,88 @@ class TransferenciaSugeridaController extends Controller
 
         DB::transaction(function () use ($transferencia) {
             $userId = auth()->id();
+            $cantidadTotal = (float) $transferencia->cantidad;
 
-            // Bloquear y validar stock origen
+            $lotes = Lote::where('producto_id', $transferencia->producto_id)
+                ->where('sucursal_id', $transferencia->origen_id)
+                ->where('stock_actual', '>', 0)
+                ->orderBy('fecha_vencimiento', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            $pendientePorRestar = $cantidadTotal;
+            $lotesDespacho = [];
+
+            foreach ($lotes as $lote) {
+                if ($pendientePorRestar <= 0) break;
+
+                if ((float) $lote->stock_actual >= $pendientePorRestar) {
+                    $cantidadRestada = $pendientePorRestar;
+                    $lote->decrement('stock_actual', $pendientePorRestar);
+                    $pendientePorRestar = 0;
+                } else {
+                    $cantidadRestada = (float) $lote->stock_actual;
+                    $pendientePorRestar -= (float) $lote->stock_actual;
+                    $lote->update(['stock_actual' => 0]);
+                }
+
+                $lotesDespacho[] = [
+                    'lote_id' => $lote->id,
+                    'cantidad' => $cantidadRestada,
+                    'fecha_vencimiento' => $lote->fecha_vencimiento->format('Y-m-d'),
+                ];
+            }
+
+            if ($pendientePorRestar > 0) {
+                throw new \Exception(
+                    "Stock de lotes insuficiente en sucursal origen. " .
+                    "Faltan {$pendientePorRestar} unidades para cubrir la transferencia."
+                );
+            }
+
             $stockOrigen = DB::table('producto_sucursal')
                 ->where('sucursal_id', $transferencia->origen_id)
                 ->where('producto_id', $transferencia->producto_id)
                 ->lockForUpdate()
                 ->first();
 
-            $cantDisponible = $stockOrigen ? $stockOrigen->cantidad_fisica : 0;
+            $cantDisponible = $stockOrigen ? (float) $stockOrigen->cantidad_fisica : 0;
 
-            if ($cantDisponible < $transferencia->cantidad) {
+            if ($cantDisponible < $cantidadTotal) {
                 throw new \Exception(
                     "Stock insuficiente en sucursal origen. " .
-                    "Disponible: {$cantDisponible}, requerido: {$transferencia->cantidad}. " .
+                    "Disponible: {$cantDisponible}, requerido: {$cantidadTotal}. " .
                     "La transferencia fue cancelada automáticamente."
                 );
             }
 
-            $nuevaCant = $cantDisponible - $transferencia->cantidad;
+            $nuevaCant = $cantDisponible - $cantidadTotal;
 
             DB::table('producto_sucursal')
                 ->where('producto_id', $transferencia->producto_id)
                 ->where('sucursal_id', $transferencia->origen_id)
-                ->update(['cantidad_fisica' => $nuevaCant]);
+                ->update([
+                    'cantidad_fisica' => $nuevaCant,
+                    'updated_at' => now(),
+                ]);
 
-            // Auditoría origen
             DB::table('movimientos_stock')->insert([
                 'producto_id' => $transferencia->producto_id,
                 'sucursal_id' => $transferencia->origen_id,
                 'user_id' => $userId,
                 'tipo_movimiento' => 'Transferencia Enviada',
                 'cantidad_anterior' => $cantDisponible,
-                'cantidad_movimiento' => -$transferencia->cantidad,
+                'cantidad_movimiento' => -$cantidadTotal,
                 'cantidad_actual' => $nuevaCant,
                 'motivo' => "Despacho a sucursal destino ID: {$transferencia->destino_id}",
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            $transferencia->update(['estado' => 'en_transito']);
+            $transferencia->update([
+                'estado' => 'en_transito',
+                'lotes_despacho' => $lotesDespacho,
+            ]);
         });
 
         return redirect()->back()->with('success', 'Transferencia despachada. Stock en tránsito hacia la sucursal destino.');
@@ -191,8 +235,18 @@ class TransferenciaSugeridaController extends Controller
 
         DB::transaction(function () use ($transferencia) {
             $userId = auth()->id();
+            $lotesDespacho = $transferencia->lotes_despacho ?? [];
 
-            // Bloquear stock destino
+            $loteService = app(LoteService::class);
+            foreach ($lotesDespacho as $loteInfo) {
+                $loteService->upsert(
+                    (int) $transferencia->producto_id,
+                    (int) $transferencia->destino_id,
+                    $loteInfo['fecha_vencimiento'],
+                    (float) $loteInfo['cantidad']
+                );
+            }
+
             $stockDestino = DB::table('producto_sucursal')
                 ->where('sucursal_id', $transferencia->destino_id)
                 ->where('producto_id', $transferencia->producto_id)
@@ -200,17 +254,19 @@ class TransferenciaSugeridaController extends Controller
                 ->first();
 
             if ($stockDestino) {
-                $cantAnt = $stockDestino->cantidad_fisica;
-                $nuevaCant = $cantAnt + $transferencia->cantidad;
+                $cantAnt = (float) $stockDestino->cantidad_fisica;
+                $nuevaCant = $cantAnt + (float) $transferencia->cantidad;
 
                 DB::table('producto_sucursal')
                     ->where('producto_id', $transferencia->producto_id)
                     ->where('sucursal_id', $transferencia->destino_id)
-                    ->update(['cantidad_fisica' => $nuevaCant]);
+                    ->update([
+                        'cantidad_fisica' => $nuevaCant,
+                        'updated_at' => now(),
+                    ]);
             } else {
-                // Producto no existe aún en destino, crear registro
                 $cantAnt = 0;
-                $nuevaCant = $transferencia->cantidad;
+                $nuevaCant = (float) $transferencia->cantidad;
 
                 DB::table('producto_sucursal')->insert([
                     'producto_id' => $transferencia->producto_id,
@@ -222,7 +278,6 @@ class TransferenciaSugeridaController extends Controller
                 ]);
             }
 
-            // Auditoría destino
             DB::table('movimientos_stock')->insert([
                 'producto_id' => $transferencia->producto_id,
                 'sucursal_id' => $transferencia->destino_id,
@@ -261,5 +316,104 @@ class TransferenciaSugeridaController extends Controller
         $transferencia->update(['estado' => 'cancelada']);
 
         return redirect()->back()->with('success', 'Transferencia cancelada.');
+    }
+
+    /**
+     * Rechaza una transferencia en tránsito y devuelve el stock al origen.
+     * Cambia estado: en_transito -> rechazada
+     *
+     * Revierte exactamente el despacho usando lotes_despacho.
+     */
+    public function rechazar(TransferenciaSugerida $transferencia)
+    {
+        if (!$this->scope->puedeAccederSucursal($transferencia->origen_id)) {
+            return redirect()->back()->with('error', 'No estás autorizado para rechazar esta transferencia.');
+        }
+
+        if ($transferencia->estado !== 'en_transito') {
+            return redirect()->back()->with('error', 'Solo se pueden rechazar transferencias en tránsito.');
+        }
+
+        $lotesDespacho = $transferencia->lotes_despacho ?? [];
+        if (empty($lotesDespacho)) {
+            return redirect()->back()->with('error', 'No hay datos de lotes para revertir. Contacte al administrador.');
+        }
+
+        DB::transaction(function () use ($transferencia, $lotesDespacho) {
+            $userId = auth()->id();
+            $cantidadTotal = (float) $transferencia->cantidad;
+
+            $loteIds = collect($lotesDespacho)->pluck('lote_id')->values()->all();
+            DB::table('lotes')->whereIn('id', $loteIds)->lockForUpdate()->get();
+
+            foreach ($lotesDespacho as $loteInfo) {
+                $lote = DB::table('lotes')->where('id', $loteInfo['lote_id'])->first();
+
+                if ($lote) {
+                    DB::table('lotes')
+                        ->where('id', $loteInfo['lote_id'])
+                        ->update([
+                            'stock_actual' => DB::raw("stock_actual + " . (float) $loteInfo['cantidad']),
+                            'updated_at'  => now(),
+                        ]);
+                } else {
+                    DB::table('lotes')->insert([
+                        'producto_id'       => $transferencia->producto_id,
+                        'sucursal_id'       => $transferencia->origen_id,
+                        'fecha_vencimiento' => $loteInfo['fecha_vencimiento'],
+                        'stock_inicial'     => (float) $loteInfo['cantidad'],
+                        'stock_actual'      => (float) $loteInfo['cantidad'],
+                        'estado_liquidacion' => false,
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ]);
+                }
+            }
+
+            $stockOrigen = DB::table('producto_sucursal')
+                ->where('sucursal_id', $transferencia->origen_id)
+                ->where('producto_id', $transferencia->producto_id)
+                ->lockForUpdate()
+                ->first();
+
+            $cantAnterior = $stockOrigen ? (float) $stockOrigen->cantidad_fisica : 0;
+            $nuevaCant = $cantAnterior + $cantidadTotal;
+
+            if ($stockOrigen) {
+                DB::table('producto_sucursal')
+                    ->where('producto_id', $transferencia->producto_id)
+                    ->where('sucursal_id', $transferencia->origen_id)
+                    ->update([
+                        'cantidad_fisica' => $nuevaCant,
+                        'updated_at'     => now(),
+                    ]);
+            } else {
+                DB::table('producto_sucursal')->insert([
+                    'producto_id'       => $transferencia->producto_id,
+                    'sucursal_id'       => $transferencia->origen_id,
+                    'cantidad_fisica'   => $nuevaCant,
+                    'cantidad_reservada' => 0,
+                    'created_at'        => now(),
+                    'updated_at'        => now(),
+                ]);
+            }
+
+            DB::table('movimientos_stock')->insert([
+                'producto_id'         => $transferencia->producto_id,
+                'sucursal_id'         => $transferencia->origen_id,
+                'user_id'             => $userId,
+                'tipo_movimiento'     => 'Transferencia Rechazada',
+                'cantidad_anterior'   => $cantAnterior,
+                'cantidad_movimiento' => $cantidadTotal,
+                'cantidad_actual'     => $nuevaCant,
+                'motivo'              => "Rechazo de transferencia desde sucursal destino ID: {$transferencia->destino_id}",
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
+
+            $transferencia->update(['estado' => 'rechazada']);
+        });
+
+        return redirect()->back()->with('success', 'Transferencia rechazada. Stock restaurado en la sucursal origen.');
     }
 }

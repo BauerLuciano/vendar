@@ -16,6 +16,11 @@ class TransferenciaSugerida extends Model
         'producto_id',
         'cantidad',
         'estado',
+        'lotes_despacho',
+    ];
+
+    protected $casts = [
+        'lotes_despacho' => 'array',
     ];
 
     public function origen()

@@ -65,15 +65,36 @@ class GestionPedidosWebController extends Controller
 
         return DB::transaction(function () use ($pedido, $nuevoEstado, $estadoActual, $esCancel) {
             if ($nuevoEstado === 'entregado') {
+                $lockedStock = [];
                 foreach ($pedido->items as $item) {
+                    $ps = DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->lockForUpdate()
+                        ->first();
+                    $lockedStock[$item->producto_id] = $ps;
+                }
+
+                foreach ($pedido->items as $item) {
+                    $ps = $lockedStock[$item->producto_id];
+                    if (!$ps) {
+                        throw new \Exception("El producto ID {$item->producto_id} no existe en la sucursal.");
+                    }
+                    if ((float) $ps->cantidad_reservada < (float) $item->cantidad) {
+                        throw new \Exception("Stock reservado insuficiente para el producto ID {$item->producto_id}.");
+                    }
+                    if ((float) $ps->cantidad_fisica < (float) $item->cantidad) {
+                        throw new \Exception("Stock físico insuficiente para el producto ID {$item->producto_id}.");
+                    }
+
                     DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
-                        ->decrement('cantidad_reservada', $item->cantidad);
-                    DB::table('producto_sucursal')
-                        ->where('sucursal_id', $pedido->sucursal_id)
-                        ->where('producto_id', $item->producto_id)
-                        ->decrement('cantidad_fisica', $item->cantidad);
+                        ->update([
+                            'cantidad_reservada' => DB::raw("cantidad_reservada - " . (float) $item->cantidad),
+                            'cantidad_fisica'    => DB::raw("cantidad_fisica - " . (float) $item->cantidad),
+                            'updated_at'         => now(),
+                        ]);
                 }
             } elseif ($esCancel) {
                 if ($estadoActual === 'entregado') {
@@ -81,7 +102,16 @@ class GestionPedidosWebController extends Controller
                         DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
                             ->where('producto_id', $item->producto_id)
-                            ->increment('cantidad_fisica', $item->cantidad);
+                            ->lockForUpdate()
+                            ->first();
+
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->update([
+                                'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $item->cantidad),
+                                'updated_at'     => now(),
+                            ]);
                     }
                 } else {
                     foreach ($pedido->items as $item) {
@@ -99,7 +129,7 @@ class GestionPedidosWebController extends Controller
                             DB::table('producto_sucursal')
                                 ->where('sucursal_id', $pedido->sucursal_id)
                                 ->where('producto_id', $item->producto_id)
-                                ->update(['cantidad_reservada' => 0]);
+                                ->update(['cantidad_reservada' => 0, 'updated_at' => now()]);
                         }
                     }
                 }

@@ -611,25 +611,39 @@ class VentaController extends Controller
 
             $sucursalId = $venta->turno->caja->sucursal_id;
 
+            $loteIds = $venta->detalles->flatMap(fn ($d) => $d->lotes->pluck('id'))->unique()->sort()->values()->all();
+            if (!empty($loteIds)) {
+                DB::table('lotes')->whereIn('id', $loteIds)->lockForUpdate()->get();
+            }
+
             foreach ($venta->detalles as $detalle) {
                 foreach ($detalle->lotes as $lote) {
                     $cantidad = (float) $lote->pivot->cantidad;
-                    $lote->increment('stock_actual', $cantidad);
+                    DB::table('lotes')
+                        ->where('id', $lote->id)
+                        ->update([
+                            'stock_actual' => DB::raw("stock_actual + " . $cantidad),
+                            'updated_at'  => now(),
+                        ]);
                 }
             }
 
             foreach ($venta->detalles as $detalle) {
-                $registroActual = DB::table('producto_sucursal')
+                $stockLocked = DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $detalle->producto_id)
+                    ->lockForUpdate()
                     ->first();
 
-                $cantidadAnterior = $registroActual ? $registroActual->cantidad_fisica : 0;
+                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
 
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $detalle->producto_id)
-                    ->increment('cantidad_fisica', $detalle->cantidad);
+                    ->update([
+                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad),
+                        'updated_at'     => now(),
+                    ]);
 
                 DB::table('movimientos_stock')->insert([
                     'producto_id'         => $detalle->producto_id,

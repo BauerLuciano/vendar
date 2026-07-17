@@ -201,9 +201,13 @@ class OrdenCompraController extends Controller
                 $costoNuevo = $detalle->costo_unitario_estimado;
                 $precioVentaAnterior = $producto->precio_venta;
 
-                // Stock actual antes del ingreso
-                $pivot = $producto->sucursales()->where('sucursal_id', $ordenCompra->sucursal_id)->first();
-                $cantidadAnterior = $pivot?->pivot->cantidad_fisica ?? 0;
+                $stockLocked = DB::table('producto_sucursal')
+                    ->where('producto_id', $detalle->producto_id)
+                    ->where('sucursal_id', $ordenCompra->sucursal_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
                 $stockTotal = $cantidadAnterior + $detalle->cantidad_pedida;
 
                 // PPP: Precio de Promedio Ponderado
@@ -239,9 +243,13 @@ class OrdenCompraController extends Controller
                     ]);
                 }
 
-                $producto->sucursales()->updateExistingPivot($ordenCompra->sucursal_id, [
-                    'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad_pedida)
-                ]);
+                DB::table('producto_sucursal')
+                    ->where('producto_id', $detalle->producto_id)
+                    ->where('sucursal_id', $ordenCompra->sucursal_id)
+                    ->update([
+                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad_pedida),
+                        'updated_at'     => now(),
+                    ]);
 
                 DB::table('movimientos_stock')->insert([
                     'producto_id'         => $detalle->producto_id,
