@@ -32,10 +32,51 @@
                         </button>
                     </div>
 
-                    <div v-if="archivo" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
-                        <p class="font-medium mb-1">Formato esperado (Excel o CSV):</p>
-                        <code class="text-amber-700">Nombre, Código de Barras, Categoría, Marca, Proveedor, Precio Costo, Precio Venta, Stock Mínimo, Unidad, Unidad Compra, Cant. por Compra, Descripción, Retornable, Estado</code>
-                        <p class="mt-1">Podés exportar el listado, editarlo en Excel y volver a importarlo. Si el código de barras ya existe, se actualiza. Si no, se crea uno nuevo.</p>
+                    <div class="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-5 py-4 text-xs">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="font-bold text-sm text-slate-700 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            ¿Cómo preparo mi archivo?
+                            </p>
+                            <a :href="route('productos.plantilla')" class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 font-medium text-xs shadow-sm transition-all">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                Descargar plantilla
+                            </a>
+                        </div>
+
+                        <div class="bg-white/60 rounded-lg px-3 py-2 mb-3">
+                            <p class="font-semibold text-rose-600 text-[11px] uppercase tracking-wide mb-1">Obligatorios</p>
+                            <div class="flex flex-wrap gap-1.5">
+                                <span class="inline-flex items-center gap-1 bg-rose-100 text-rose-700 rounded-full px-2.5 py-0.5 font-medium">Nombre</span>
+                                <span class="inline-flex items-center gap-1 bg-rose-100 text-rose-700 rounded-full px-2.5 py-0.5 font-medium">Código de barras</span>
+                                <span class="text-slate-400 self-center">o</span>
+                                <span class="inline-flex items-center gap-1 bg-rose-100 text-rose-700 rounded-full px-2.5 py-0.5 font-medium">PLU</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-white/60 rounded-lg px-3 py-2 mb-3">
+                            <p class="font-semibold text-emerald-600 text-[11px] uppercase tracking-wide mb-1">Opcionales</p>
+                            <div class="flex flex-wrap gap-1.5">
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Categoría</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Marca</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Proveedor</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Precio costo</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Precio venta</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Stock mínimo</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Unidad</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Descripción</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Retornable</span>
+                                <span class="inline-flex items-center bg-emerald-100 text-emerald-700 rounded-full px-2.5 py-0.5 font-medium">Estado</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-amber-100/50 border border-amber-200 rounded-lg px-3 py-2">
+                            <p class="font-semibold text-amber-700 text-[11px] uppercase tracking-wide mb-1">Tip</p>
+                            <p class="text-amber-800 leading-relaxed">
+                                Podés exportar tu listado, editarlo en Excel y volver a importarlo.
+                                Si el código de barras ya existe, solo se actualizan los campos que tengan datos — los vacíos se ignoran.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -87,12 +128,64 @@ const importar = async () => {
         const form = new FormData();
         form.append('archivo', archivo.value);
         const res = await axios.post(route('productos.importar'), form);
-        if (res.data?.success) {
-            Swal.fire({ title: '¡Importado!', text: res.data.message || 'Importación completada.', icon: 'success', timer: 5000, showConfirmButton: false });
-            emit('completado');
-        } else if (res.data?.error) {
-            Swal.fire({ title: 'Error', text: res.data.error, icon: 'error' });
+        const data = res.data;
+
+        if (data?.success && data?.resumen) {
+            const r = data.resumen;
+            let html = `
+                <div class="text-left text-sm space-y-1.5">
+                    <div class="flex justify-between"><span class="text-slate-600">Total filas:</span><span class="font-bold text-slate-800">${r.total_filas}</span></div>
+                    <div class="flex justify-between"><span class="text-emerald-600">Productos creados:</span><span class="font-bold text-emerald-700">${r.creados}</span></div>
+                    <div class="flex justify-between"><span class="text-sky-600">Productos actualizados:</span><span class="font-bold text-sky-700">${r.actualizados}</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500">Filas omitidas:</span><span class="font-bold text-slate-600">${r.omitidos}</span></div>
+                </div>`;
+
+            if (r.conflictos > 0) {
+                html += `<div class="flex justify-between mt-1 pt-1 border-t border-slate-200"><span class="text-rose-600">Conflictos:</span><span class="font-bold text-rose-700">${r.conflictos}</span></div>`;
+            }
+            if (r.warnings > 0) {
+                html += `<div class="flex justify-between"><span class="text-amber-600">Warnings:</span><span class="font-bold text-amber-700">${r.warnings}</span></div>`;
+            }
+
+            if (data.errores?.length > 0) {
+                html += `<div class="mt-3 pt-2 border-t border-slate-200"><p class="font-bold text-rose-700 text-xs mb-1">Detalle de errores:</p><ul class="text-xs text-rose-600 space-y-0.5 max-h-32 overflow-y-auto">`;
+                data.errores.forEach(e => {
+                    html += `<li>Fila ${e.fila}: ${e.mensaje}</li>`;
+                });
+                html += `</ul></div>`;
+            }
+
+            if (data.conflictos?.length > 0) {
+                html += `<div class="mt-2 pt-2 border-t border-slate-200"><p class="font-bold text-rose-700 text-xs mb-1">Conflictos:</p><ul class="text-xs text-rose-600 space-y-0.5 max-h-32 overflow-y-auto">`;
+                data.conflictos.forEach(c => {
+                    html += `<li>Fila ${c.fila}: ${c.mensaje}</li>`;
+                });
+                html += `</ul></div>`;
+            }
+
+            if (data.warnings?.length > 0) {
+                html += `<div class="mt-2 pt-2 border-t border-slate-200"><p class="font-bold text-amber-700 text-xs mb-1">Observaciones:</p><ul class="text-xs text-amber-600 space-y-0.5 max-h-32 overflow-y-auto">`;
+                data.warnings.forEach(w => {
+                    html += `<li>Fila ${w.fila}: ${w.mensaje}</li>`;
+                });
+                html += `</ul></div>`;
+            }
+
+            const hasErrors = r.conflictos > 0 || (data.errores?.length > 0);
+            Swal.fire({
+                title: hasErrors ? 'Importación con observaciones' : '¡Importación completada!',
+                html: html,
+                icon: hasErrors ? 'warning' : 'success',
+                showConfirmButton: true,
+                confirmButtonText: 'Entendido',
+                width: '600px',
+            }).then(() => {
+                emit('completado');
+            });
+        } else if (data?.error) {
+            Swal.fire({ title: 'Error', text: data.error, icon: 'error' });
         } else {
+            Swal.fire({ title: 'Importado', text: 'Importación completada.', icon: 'success', timer: 10000, showConfirmButton: false });
             emit('completado');
         }
     } catch (err) {
@@ -101,6 +194,8 @@ const importar = async () => {
             const errors = err.response.data?.errors;
             if (errors?.archivo) {
                 msg = Array.isArray(errors.archivo) ? errors.archivo[0] : errors.archivo;
+            } else if (err.response.data?.error) {
+                msg = err.response.data.error;
             } else if (err.response.data?.message) {
                 msg = err.response.data.message;
             }

@@ -156,6 +156,7 @@ class TiendaController extends Controller
         $countsPorCategoria = Producto::join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
             ->where('producto_sucursal.sucursal_id', $sucursal_id)
             ->where('productos.estado', true)
+            ->whereNotNull('productos.categoria_id')
             ->selectRaw('categoria_id, count(*) as total')
             ->groupBy('categoria_id')
             ->pluck('total', 'categoria_id')

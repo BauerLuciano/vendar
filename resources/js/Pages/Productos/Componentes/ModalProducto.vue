@@ -24,9 +24,9 @@ const formulario = useForm({
     id: null,
     nombre: '',
     codigo_barras: '',
-    categoria_id: '',
-    marca_id: '',
-    proveedor_id: '',
+    categoria_id: null,
+    marca_id: null,
+    proveedor_id: null,
     unidad_medida: 'Unidad',
     unidad_compra: null,
     cantidad_por_compra: null,
@@ -396,7 +396,7 @@ const guardar = () => {
 
 <template>
     <div v-if="mostrar" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 transition-opacity">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden max-h-[92vh]">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden max-h-[92vh]">
 
             <div class="bg-slate-50 border-b border-slate-200 px-5 py-2.5 flex items-center justify-between shrink-0">
                 <div class="flex items-center gap-2.5">
@@ -407,9 +407,12 @@ const guardar = () => {
                         {{ formulario.id ? 'Editar Producto' : 'Nuevo Producto' }}
                     </h3>
                 </div>
-                <button @click="$emit('cerrar')" class="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
+                <div class="flex items-center gap-3">
+                    <span class="text-[10px] text-slate-400"><span class="text-rose-500 font-bold">*</span> Campo obligatorio</span>
+                    <button @click="$emit('cerrar')" class="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
             </div>
 
             <div class="p-4 overflow-y-auto flex-1 bg-white custom-scrollbar">
@@ -423,7 +426,7 @@ const guardar = () => {
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
                         <div class="lg:col-span-8 space-y-2.5">
                             <div>
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Nombre *</label>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Nombre <span class="text-rose-500">*</span></label>
                                 <input v-model="formulario.nombre" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500 ring-rose-100': formulario.errors.nombre}" placeholder="Ej: Coca Cola 2.25L Retornable" required>
                                 <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.nombre }}</p>
 
@@ -448,14 +451,14 @@ const guardar = () => {
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                 <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cód. Barras / PLU *</label>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cód. Barras / PLU <span class="text-rose-500">*</span></label>
                                     <div class="flex gap-1.5">
                                         <input v-model="formulario.codigo_barras" type="text" minlength="2" maxlength="14"
                                             @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')"
                                             @keyup.enter="buscarCodigo(formulario.codigo_barras)"
                                             class="flex-1 bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm font-mono focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
                                             :class="{'border-rose-500': formulario.errors.codigo_barras}"
-                                            placeholder="7791237290126" required>
+                                            placeholder="Ej: 7791234567890 o 1001" required>
                                         <button type="button" @click="mostrarEscaner = true" title="Escanear"
                                             class="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 rounded-lg px-2 flex items-center justify-center transition-colors">
                                             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="2" y="4" width="2" height="16" rx="0.5"/><rect x="5" y="5" width="1" height="14" rx="0.3"/><rect x="7" y="3" width="3" height="18" rx="0.5"/><rect x="11" y="6" width="1" height="12" rx="0.3"/><rect x="13" y="4" width="2" height="16" rx="0.5"/><rect x="16" y="7" width="1" height="10" rx="0.3"/><rect x="18" y="3" width="3" height="18" rx="0.5"/><rect x="22" y="5" width="1" height="14" rx="0.3"/></svg>
@@ -471,9 +474,9 @@ const guardar = () => {
                                     <p v-if="formulario.errors.codigo_barras" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.codigo_barras }}</p>
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Categoría *</label>
-                                    <select v-model="formulario.categoria_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.categoria_id}" required>
-                                        <option value="" disabled>Seleccionar...</option>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Categoría</label>
+                                    <select v-model="formulario.categoria_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.categoria_id}">
+                                        <option :value="null">Ninguna</option>
                                         <option v-for="cat in categorias" :key="cat.id" :value="cat.id">{{ cat.nombreCategoria }}</option>
                                     </select>
                                     <p v-if="formulario.errors.categoria_id" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.categoria_id }}</p>
@@ -482,21 +485,21 @@ const guardar = () => {
 
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                                 <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Marca *</label>
-                                    <select v-model="formulario.marca_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
-                                        <option value="" disabled>Seleccionar...</option>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Marca</label>
+                                    <select v-model="formulario.marca_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                                        <option :value="null">Ninguna</option>
                                         <option v-for="m in marcas" :key="m.id" :value="m.id">{{ m.nombreMarca }}</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Proveedor *</label>
-                                    <select v-model="formulario.proveedor_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" required>
-                                        <option value="" disabled>Seleccionar...</option>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Proveedor</label>
+                                    <select v-model="formulario.proveedor_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                                        <option :value="null">Ninguno</option>
                                         <option v-for="prov in proveedores" :key="prov.id" :value="prov.id">{{ prov.razon_social }}</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Forma de Venta *</label>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Forma de Venta <span class="text-rose-500">*</span></label>
                                     <select v-model="formulario.unidad_medida" class="w-full bg-slate-50 border border-slate-200 text-sky-700 font-bold rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
                                         <option value="Unidad">Por Unidad</option>
                                         <option value="Kg">Por Peso (Kg)</option>
@@ -525,14 +528,14 @@ const guardar = () => {
 
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Costo ($)</label>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Costo ($) <span class="text-rose-500">*</span></label>
                             <input v-model="formulario.precio_costo" type="number" step="0.01" min="0"
                                 class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
                                 :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-slate-200 text-rose-700'"
                                 required>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Venta ($)</label>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Venta ($) <span class="text-rose-500">*</span></label>
                             <input v-model="formulario.precio_venta" type="number" step="0.01" min="0"
                                 class="w-full bg-emerald-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
                                 :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-emerald-200 text-emerald-800'"
@@ -559,7 +562,7 @@ const guardar = () => {
                             </div>
 
                             <div>
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Mínimo</label>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Mínimo <span class="text-rose-500">*</span></label>
                                 <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
                                     <input v-model="formulario.stock_minimo_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" class="w-full border-none bg-transparent px-3 py-1.5 text-sm focus:ring-0 text-slate-800">
                                     <select v-if="formulario.unidad_medida === 'Kg'" v-model="formulario.unidad_peso_visual" class="border-y-0 border-r-0 border-l border-slate-200 bg-slate-100 px-1.5 py-1.5 focus:ring-0 text-[10px] font-bold text-sky-700">
