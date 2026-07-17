@@ -1278,4 +1278,50 @@ class ProductoController extends Controller
 
         return response()->json(['plu_sugerido' => $pluFormateado]);
     }
+
+    public function etiquetas(Request $request)
+    {
+        $request->validate([
+            'modo' => 'required|in:todos,categoria,marca,busqueda',
+            'categoria_id' => 'required_if:modo,categoria|exists:categorias,id',
+            'marca_id' => 'required_if:modo,marca|exists:marcas,id',
+            'busqueda' => 'required_if:modo,busqueda|string|max:255',
+            'copias' => 'required|integer|min:1|max:50',
+        ]);
+
+        $query = Producto::query()->select(['id', 'nombre', 'precio_venta']);
+
+        switch ($request->modo) {
+            case 'todos':
+                break;
+            case 'categoria':
+                $query->where('categoria_id', $request->categoria_id);
+                break;
+            case 'marca':
+                $query->where('marca_id', $request->marca_id);
+                break;
+            case 'busqueda':
+                $query->where(function ($q) use ($request) {
+                    $q->where('nombre', 'ilike', "%{$request->busqueda}%")
+                      ->orWhere('codigo_barras', 'ilike', "%{$request->busqueda}%");
+                });
+                break;
+        }
+
+        $productos = $query->orderBy('nombre')->get();
+
+        if ($productos->isEmpty()) {
+            return redirect()->back()->withErrors(['error' => 'No se encontraron productos para las opciones seleccionadas.']);
+        }
+
+        $productosRepetidos = $productos->flatMap(fn ($p) => collect(array_fill(0, $request->copias, null))->map(fn () => $p));
+
+        $pdf = Pdf::loadView('pdf.etiquetas', [
+            'productos' => $productosRepetidos,
+        ]);
+
+        $pdf->setPaper('A4', 'portrait');
+
+        return $pdf->download('etiquetas_' . now()->format('Ymd_His') . '.pdf');
+    }
 }
