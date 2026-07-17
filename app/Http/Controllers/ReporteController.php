@@ -6,28 +6,17 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\SucursalScopeService;
 
 class ReporteController extends Controller
 {
-    private function getComercioId(Request $request): int
-    {
-        $user = $request->user();
-        return $user->comercio_id ?? $user->branch?->comercio_id
-            ?? throw new \RuntimeException('Usuario sin comercio asignado');
-    }
-
-    private function getSucursalesIds(int $comercioId): array
-    {
-        return DB::table('sucursales')
-            ->where('comercio_id', $comercioId)
-            ->pluck('id')
-            ->toArray();
-    }
+    public function __construct(private SucursalScopeService $scope) {}
 
     public function index(Request $request)
     {
-        $comercioId = $this->getComercioId($request);
-        $sucursalesIds = $this->getSucursalesIds($comercioId);
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
 
         $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
         $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
@@ -46,9 +35,7 @@ class ReporteController extends Controller
                 'fecha_desde' => $fechaDesde,
                 'fecha_hasta' => $fechaHasta,
             ],
-            'sucursales' => DB::table('sucursales')
-                ->where('comercio_id', $comercioId)
-                ->where('estado', true)
+            'sucursales' => $this->scope->obtenerSucursalesPermitidas()
                 ->select('id', 'nombre')
                 ->get(),
         ]);
@@ -56,8 +43,9 @@ class ReporteController extends Controller
 
     public function rotacion(Request $request)
     {
-        $comercioId = $this->getComercioId($request);
-        $sucursalesIds = $this->getSucursalesIds($comercioId);
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
 
         if (empty($sucursalesIds)) {
             return response()->json(['data' => [], 'total_valor' => 0]);
@@ -128,8 +116,9 @@ class ReporteController extends Controller
 
     public function pdf(Request $request)
     {
-        $comercioId = $this->getComercioId($request);
-        $sucursalesIds = $this->getSucursalesIds($comercioId);
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
 
         $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
         $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());

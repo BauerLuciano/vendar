@@ -10,6 +10,7 @@ use App\Models\IngresoMercaderia;
 use App\Models\IngresoDetalle;
 use App\Models\Producto;
 use App\Services\LoteService;
+use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -19,10 +20,11 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class OrdenCompraController extends Controller
 {
+    public function __construct(private SucursalScopeService $scope) {}
+
     public function index(Request $request)
     {
-        $user = auth()->user();
-        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
+        $esJefe = $this->scope->esJefe();
         
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');
@@ -33,7 +35,7 @@ class OrdenCompraController extends Controller
         $query = OrdenCompra::with(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
 
         if (!$esJefe) {
-            $sucursalId = session('sucursal_activa_id', $user->branch_id);
+            $sucursalId = $this->scope->obtenerSucursalActiva();
             if ($sucursalId) {
                 $query->where('sucursal_id', $sucursalId);
             }
@@ -60,9 +62,11 @@ class OrdenCompraController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        $comercioId = $user->branch?->comercio_id;
+        $comercioId = $this->scope->obtenerComercioId();
         $proveedores = Proveedor::deComercio($comercioId)->where('estado', true)->get();
-        $sucursales = $esJefe ? Sucursal::all() : Sucursal::where('id', session('sucursal_activa_id', $user->branch_id))->get();
+        $sucursales = $esJefe
+            ? Sucursal::all()
+            : Sucursal::whereIn('id', array_filter([$this->scope->obtenerSucursalActiva()]))->get();
 
         return Inertia::render('OrdenesCompra/Index', [
             'ordenes' => $ordenes,
@@ -74,9 +78,10 @@ class OrdenCompraController extends Controller
 
     public function generarSugerencias()
     {
-        $user = auth()->user();
-        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
-        $sucursalesToProcess = $esJefe ? Sucursal::pluck('id') : [session('sucursal_activa_id', $user->branch_id)];
+        $esJefe = $this->scope->esJefe();
+        $sucursalesToProcess = $esJefe
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : array_filter([$this->scope->obtenerSucursalActiva()]);
 
         DB::beginTransaction();
         try {
@@ -131,12 +136,8 @@ class OrdenCompraController extends Controller
 
     public function confirmarPedido(OrdenCompra $ordenCompra)
     {
-        $user = auth()->user();
-        $sucursalIds = $user->branch?->comercio_id
-            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-            : collect();
-        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
-            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
         }
 
         if ($ordenCompra->estado !== 'Cotizada') {
@@ -153,12 +154,8 @@ class OrdenCompraController extends Controller
 
     public function aprobarYRecibir(OrdenCompra $ordenCompra)
     {
-        $user = auth()->user();
-        $sucursalIds = $user->branch?->comercio_id
-            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-            : collect();
-        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
-            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
         }
 
         if ($ordenCompra->estado !== 'Aprobada') {
@@ -276,12 +273,8 @@ class OrdenCompraController extends Controller
 
     public function cambiarEstado(Request $request, OrdenCompra $ordenCompra)
     {
-        $user = auth()->user();
-        $sucursalIds = $user->branch?->comercio_id
-            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-            : collect();
-        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
-            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
         }
 
         $validated = $request->validate([
@@ -293,12 +286,8 @@ class OrdenCompraController extends Controller
 
     public function destroy(OrdenCompra $ordenCompra)
     {
-        $user = auth()->user();
-        $sucursalIds = $user->branch?->comercio_id
-            ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-            : collect();
-        if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
-            return redirect()->back()->with('error', 'Esta orden no pertenece a tu comercio.');
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
         }
 
         if (in_array($ordenCompra->estado, ['Enviada', 'Recepcionada', 'Cotizada', 'Aprobada'])) {
@@ -309,11 +298,7 @@ class OrdenCompraController extends Controller
     }
     public function descargarPDF(OrdenCompra $ordenCompra)
         {
-            $user = auth()->user();
-            $sucursalIds = $user->branch?->comercio_id
-                ? Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-                : collect();
-            if ($sucursalIds->isNotEmpty() && !$sucursalIds->contains($ordenCompra->sucursal_id)) {
+            if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
                 abort(403, 'Esta orden no pertenece a tu comercio.');
             }
 
