@@ -119,8 +119,13 @@ class IngresoMercaderiaController extends Controller
 
                 $totalCosto += $item['cantidad'] * $costoNuevo;
 
-                $pivot = $producto->sucursales()->where('sucursal_id', $sucursalId)->first();
-                $cantidadAnterior = $pivot ? $pivot->pivot->cantidad_fisica : 0;
+                $stockLocked = DB::table('producto_sucursal')
+                    ->where('producto_id', $item['producto_id'])
+                    ->where('sucursal_id', $sucursalId)
+                    ->lockForUpdate()
+                    ->first();
+
+                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
                 $stockTotal = $cantidadAnterior + $item['cantidad'];
 
                 $nuevoPPP = $stockTotal > 0
@@ -166,13 +171,16 @@ class IngresoMercaderiaController extends Controller
                     ]);
                 }
 
-                if ($pivot) {
-                    $nuevaCantidad = $cantidadAnterior + $item['cantidad'];
-                    $producto->sucursales()->updateExistingPivot($sucursalId, [
-                        'cantidad_fisica' => $nuevaCantidad,
-                    ]);
+                $nuevaCantidad = $cantidadAnterior + $item['cantidad'];
+
+                if ($stockLocked) {
+                    DB::table('producto_sucursal')
+                        ->where('producto_id', $item['producto_id'])
+                        ->where('sucursal_id', $sucursalId)
+                        ->update([
+                            'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $item['cantidad']),
+                        ]);
                 } else {
-                    $nuevaCantidad = $item['cantidad'];
                     $producto->sucursales()->attach($sucursalId, [
                         'cantidad_fisica'    => $nuevaCantidad,
                         'cantidad_reservada' => 0,
