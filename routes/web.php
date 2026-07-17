@@ -224,6 +224,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::post('/productos', [ProductoController::class, 'store'])->name('productos.store');
     Route::post('/productos/importar', [ProductoController::class, 'importar'])->name('productos.importar');
     Route::get('/productos/exportar', [ProductoController::class, 'exportar'])->name('productos.exportar');
+    Route::get('/productos/plantilla', [ProductoController::class, 'plantilla'])->name('productos.plantilla');
     Route::get('/productos/pdf', [ProductoController::class, 'pdf'])->name('productos.pdf');
     Route::post('/productos/etiquetas', [ProductoController::class, 'etiquetas'])->name('productos.etiquetas');
     Route::get('/productos/generar-plu', [ProductoController::class, 'generarPlu'])->name('productos.generar-plu');

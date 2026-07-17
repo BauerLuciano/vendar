@@ -4,7 +4,7 @@ import { Head, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import axios from 'axios'; 
 import Swal from 'sweetalert2';
-import { formatearMoneda, formatearFecha, formatearFechaCorta, formatearHora, calcularTotalActual } from '@/Utils/formatters.js';
+import { formatearMoneda, formatearFecha, formatearFechaCorta, calcularTotalActual } from '@/Utils/formatters.js';
 import Pagination from '@/Components/Pagination.vue';
 import { useCajaDiaria } from '@/Composables/useCajaDiaria.js';
 
@@ -853,7 +853,7 @@ onUnmounted(() => {
                 <table class="min-w-full divide-y divide-gray-200">
                   <thead class="bg-white">
                     <tr>
-                      <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
+                      <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Fecha y Hora</th>
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Tipo</th>
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Concepto</th>
                       <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Método</th>
@@ -866,7 +866,7 @@ onUnmounted(() => {
                       <td colspan="6" class="px-6 py-8 text-center text-gray-500">No hay movimientos.</td>
                     </tr>
                     <tr v-for="mov in paginatedMovs" :key="mov.id" class="hover:bg-slate-50">
-                      <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600">{{ formatearHora(mov.fecha) }}</td>
+                      <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600">{{ formatearFecha(mov.fecha) }}</td>
                       <td class="px-6 py-3 whitespace-nowrap">
                         <span :class="mov.tipo === 'INGRESO' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'" class="px-2 py-1 text-[10px] font-bold rounded-md">
                           {{ mov.tipo }}
@@ -1045,7 +1045,7 @@ onUnmounted(() => {
           <table v-else class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden">
             <thead class="bg-slate-50">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Fecha y Hora</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Tipo</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Concepto</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Método</th>
@@ -1054,7 +1054,7 @@ onUnmounted(() => {
             </thead>
             <tbody class="divide-y divide-gray-100 bg-white">
               <tr v-for="mov in movimientosGlobal" :key="mov.id" class="hover:bg-slate-50">
-                <td class="px-4 py-3 text-sm text-slate-600">{{ formatearHora(mov.fecha) }}</td>
+                <td class="px-4 py-3 text-sm text-slate-600">{{ formatearFecha(mov.fecha) }}</td>
                 <td class="px-4 py-3">
                   <span :class="mov.tipo === 'INGRESO' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'" class="px-2 py-1 text-[10px] font-bold rounded">{{ mov.tipo }}</span>
                 </td>
@@ -1299,7 +1299,7 @@ onUnmounted(() => {
           <table class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden" v-else>
             <thead class="bg-slate-50">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Fecha y Hora</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Tipo</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Concepto</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Método</th>
@@ -1308,7 +1308,7 @@ onUnmounted(() => {
             </thead>
             <tbody class="divide-y divide-gray-100 bg-white">
               <tr v-for="mov in paginatedModalMovs" :key="mov.id" class="hover:bg-slate-50">
-                <td class="px-4 py-3 text-sm text-slate-600">{{ formatearHora(mov.fecha) }}</td>
+                <td class="px-4 py-3 text-sm text-slate-600">{{ formatearFecha(mov.fecha) }}</td>
                 <td class="px-4 py-3">
                   <span :class="mov.tipo === 'INGRESO' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'" class="px-2 py-1 text-[10px] font-bold rounded">
                     {{ mov.tipo }}
