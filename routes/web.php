@@ -203,7 +203,9 @@ Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
-    Route::post('/transferencias-sugeridas/{transferencia}/aprobar', [TransferenciaSugeridaController::class, 'aprobar'])->name('transferencias.aprobar');
+    Route::post('/transferencias-sugeridas/{transferencia}/despachar', [TransferenciaSugeridaController::class, 'despachar'])->name('transferencias.despachar');
+    Route::post('/transferencias-sugeridas/{transferencia}/recibir', [TransferenciaSugeridaController::class, 'recibir'])->name('transferencias.recibir');
+    Route::post('/transferencias-sugeridas/{transferencia}/cancelar', [TransferenciaSugeridaController::class, 'cancelar'])->name('transferencias.cancelar');
 });
 
 // ------------------------------------------------------------------

@@ -26,20 +26,20 @@ class AnalizarStockParaTransferencias implements ShouldQueue
 
         foreach ($productos as $producto) {
             DB::transaction(function () use ($producto) {
-                $necesitadas = DB::table('branch_producto')
-                    ->join('sucursales', 'branch_producto.branch_id', '=', 'sucursales.id')
-                    ->where('branch_producto.producto_id', $producto->id)
-                    ->where('branch_producto.cantidad_fisica', '<', $producto->stock_minimo)
-                    ->select('branch_producto.*')
+                $necesitadas = DB::table('producto_sucursal')
+                    ->join('sucursales', 'producto_sucursal.sucursal_id', '=', 'sucursales.id')
+                    ->where('producto_sucursal.producto_id', $producto->id)
+                    ->where('producto_sucursal.cantidad_fisica', '<', $producto->stock_minimo)
+                    ->select('producto_sucursal.*')
                     ->lockForUpdate()
                     ->get();
 
-                $conExceso = DB::table('branch_producto')
-                    ->join('sucursales', 'branch_producto.branch_id', '=', 'sucursales.id')
-                    ->where('branch_producto.producto_id', $producto->id)
-                    ->where('branch_producto.cantidad_fisica', '>', $producto->stock_minimo)
-                    ->orderBy('branch_producto.cantidad_fisica', 'desc')
-                    ->select('branch_producto.*')
+                $conExceso = DB::table('producto_sucursal')
+                    ->join('sucursales', 'producto_sucursal.sucursal_id', '=', 'sucursales.id')
+                    ->where('producto_sucursal.producto_id', $producto->id)
+                    ->where('producto_sucursal.cantidad_fisica', '>', $producto->stock_minimo)
+                    ->orderBy('producto_sucursal.cantidad_fisica', 'desc')
+                    ->select('producto_sucursal.*')
                     ->lockForUpdate()
                     ->get();
 
@@ -54,8 +54,8 @@ class AnalizarStockParaTransferencias implements ShouldQueue
                         if ($excesoDisponible > 0) {
                             $cantidadSugerida = min($cantidadFaltante, $excesoDisponible);
 
-                            $yaExiste = TransferenciaSugerida::where('origen_id', $donante->branch_id)
-                                ->where('destino_id', $necesitada->branch_id)
+                            $yaExiste = TransferenciaSugerida::where('origen_id', $donante->sucursal_id)
+                                ->where('destino_id', $necesitada->sucursal_id)
                                 ->where('producto_id', $producto->id)
                                 ->where('estado', 'pendiente')
                                 ->lockForUpdate()
@@ -63,8 +63,8 @@ class AnalizarStockParaTransferencias implements ShouldQueue
 
                             if (!$yaExiste && $cantidadSugerida > 0) {
                                 TransferenciaSugerida::create([
-                                    'origen_id' => $donante->branch_id,
-                                    'destino_id' => $necesitada->branch_id,
+                                    'origen_id' => $donante->sucursal_id,
+                                    'destino_id' => $necesitada->sucursal_id,
                                     'producto_id' => $producto->id,
                                     'cantidad' => $cantidadSugerida,
                                     'estado' => 'pendiente',

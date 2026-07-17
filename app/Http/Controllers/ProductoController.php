@@ -10,6 +10,7 @@ use App\Models\Sucursal;
 use App\Services\ProductLookupService;
 use App\Services\Promotion\PromotionEngineService;
 use App\Services\Promotion\DTOs\PromotionResult;
+use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -28,27 +29,37 @@ use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 
 class ProductoController extends Controller
 {
+    public function __construct(
+        private readonly SucursalScopeService $scope
+    ) {}
+
+    /**
+     * Listado de productos del comercio.
+     * El catálogo es compartido por todas las sucursales.
+     */
     public function index()
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
-        $sucursalIds = $comercioId
-            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
-            : collect();
+        $comercioId = $this->scope->obtenerComercioId();
+        $sucursalIds = $this->scope->obtenerSucursalesDelComercioIds();
 
         return Inertia::render('Productos/Index', [
             'productos' => Producto::with(['categoria', 'marca', 'sucursales', 'proveedor'])
-                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
                 ->orderBy('id', 'desc')
                 ->get(),
             'categorias' => Categoria::deComercio($comercioId)->get(),
             'marcas' => Marca::deComercio($comercioId)->get(),
             'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
-            'sucursales' => $sucursalIds->isNotEmpty()
+            'sucursales' => !empty($sucursalIds)
                 ? Sucursal::whereIn('id', $sucursalIds)->get()
                 : collect(),
         ]);
     }
 
+    /**
+     * Crea un producto nuevo.
+     * El stock inicial se crea en la sucursal activa del usuario.
+     */
     public function store(Request $request, ProductLookupService $lookup)
     {
         $request->merge([
@@ -136,9 +147,10 @@ class ProductoController extends Controller
                 'imagen' => $validados['imagen'] ?? null,
             ]);
 
-            $sucursalId = auth()->user()->branch_id;
+            // Stock inicial en la sucursal activa (nunca branch_id directo)
+            $sucursalId = $this->scope->obtenerSucursalActiva();
             if (!$sucursalId) {
-                throw new \Exception('No tenés una sucursal asignada para registrar productos.');
+                throw new \Exception('No tenés una sucursal activa para registrar productos.');
             }
             $cantidadInicial = $request->stock_inicial ?? 0;
 
@@ -173,9 +185,12 @@ class ProductoController extends Controller
         }
     }
 
+    /**
+     * Actualiza un producto existente.
+     */
     public function update(Request $request, Producto $producto)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
@@ -241,9 +256,12 @@ class ProductoController extends Controller
         return redirect()->back()->with('success', 'Producto actualizado correctamente.');
     }
 
+    /**
+     * Cambia el estado de un producto (activo/inactivo).
+     */
     public function status(Producto $producto)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
@@ -252,9 +270,12 @@ class ProductoController extends Controller
         return redirect()->back()->with('success', 'Estado modificado.');
     }
 
+    /**
+     * Ajusta el stock de un producto en una sucursal específica.
+     */
     public function ajustarStock(Request $request, Producto $producto)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
@@ -307,9 +328,12 @@ class ProductoController extends Controller
         }
     }
 
+    /**
+     * Auditoría de movimientos de stock de un producto.
+     */
     public function auditoria(Request $request, Producto $producto)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
@@ -336,13 +360,16 @@ class ProductoController extends Controller
         return response()->json($movimientos);
     }
 
+    /**
+     * Busca un producto por código de barras.
+     */
     public function buscarPorCodigo(string $codigo, ProductLookupService $lookup, PromotionEngineService $engine)
     {
         $result = $lookup->lookup($codigo);
 
         if ($result->found) {
             $gp = $result->globalProduct;
-            $comercioId = auth()->user()->branch?->comercio_id;
+            $comercioId = $this->scope->obtenerComercioId();
 
             $tenantProduct = Producto::where('codigo_barras', $codigo)
                 ->where('estado', true)
@@ -380,11 +407,14 @@ class ProductoController extends Controller
         ]);
     }
 
+    /**
+     * Busca productos similares por nombre.
+     */
     public function buscarSimilares(Request $request)
     {
         $request->validate(['q' => 'required|string|min:4']);
 
-        $comercioId = auth()->user()->branch?->comercio_id;
+        $comercioId = $this->scope->obtenerComercioId();
         $termino = trim($request->q);
 
         $productos = Producto::with('marca')
@@ -414,15 +444,16 @@ class ProductoController extends Controller
         return response()->json($productos);
     }
 
+    /**
+     * Exporta productos a Excel.
+     */
     public function exportar(Request $request)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
-        $sucursalIds = $comercioId
-            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
-            : collect();
+        $comercioId = $this->scope->obtenerComercioId();
+        $sucursalIds = $this->scope->obtenerSucursalesDelComercioIds();
 
         $productos = Producto::with(['categoria', 'marca', 'proveedor', 'sucursales'])
-            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+            ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
             ->orderBy('id', 'desc')
             ->get();
 
@@ -531,6 +562,9 @@ class ProductoController extends Controller
         ])->deleteFileAfterSend(true);
     }
 
+    /**
+     * Importa productos desde un archivo Excel/CSV.
+     */
     public function importar(Request $request)
     {
         $request->validate([
@@ -542,10 +576,8 @@ class ProductoController extends Controller
             'archivo.max' => 'El archivo supera el tamaño máximo de 5 MB.',
         ]);
 
-        $comercioId = auth()->user()->branch?->comercio_id;
-        $sucursalIds = $comercioId
-            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
-            : collect();
+        $comercioId = $this->scope->obtenerComercioId();
+        $sucursalIds = $this->scope->obtenerSucursalesDelComercioIds();
 
         $file = $request->file('archivo');
         $ext = strtolower($file->getClientOriginalExtension());
@@ -820,7 +852,7 @@ class ProductoController extends Controller
                     $data = collect($productoData)->except('_fila')->toArray();
                     $producto = Producto::create($data);
 
-                    if ($sucursalIds->isNotEmpty()) {
+                    if (!empty($sucursalIds)) {
                         $producto->sucursales()->attach($sucursalIds->first(), [
                             'cantidad_fisica' => 0,
                             'cantidad_reservada' => 0,
@@ -855,15 +887,16 @@ class ProductoController extends Controller
         ]);
     }
 
+    /**
+     * Genera PDF del catálogo de productos.
+     */
     public function pdf(Request $request)
     {
-        $comercioId = auth()->user()->branch?->comercio_id;
-        $sucursalIds = $comercioId
-            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
-            : collect();
+        $comercioId = $this->scope->obtenerComercioId();
+        $sucursalIds = $this->scope->obtenerSucursalesDelComercioIds();
 
         $productos = Producto::with(['categoria', 'marca', 'proveedor', 'sucursales'])
-            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+            ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
             ->orderBy('nombre')
             ->get();
 
@@ -890,7 +923,7 @@ class ProductoController extends Controller
             }
         }
 
-        $sucursales = $sucursalIds->isNotEmpty()
+        $sucursales = !empty($sucursalIds)
             ? Sucursal::whereIn('id', $sucursalIds)->pluck('nombre', 'id')
             : collect();
 
@@ -909,6 +942,9 @@ class ProductoController extends Controller
         return $pdf->download('productos_' . now()->format('Ymd_His') . '.pdf');
     }
 
+    /**
+     * Genera etiquetas de precios.
+     */
     public function etiquetas(Request $request)
     {
         $request->validate([
@@ -955,6 +991,9 @@ class ProductoController extends Controller
         return $pdf->download('etiquetas_' . now()->format('Ymd_His') . '.pdf');
     }
 
+    /**
+     * Busca o crea una referencia (Categoría, Marca, Proveedor).
+     */
     private function buscarOCrearReferencia(string $modelo, string $columna, ?string $valor, array $extra = [], ?int $comercioId = null): ?int
     {
         if (empty($valor)) return null;
@@ -974,6 +1013,9 @@ class ProductoController extends Controller
         return $registro->id;
     }
 
+    /**
+     * Genera un PLU sugerido.
+     */
     public function generarPlu()
     {
         $maxPlu = DB::table('productos')

@@ -3,50 +3,56 @@
 namespace App\Http\Controllers;
 
 use App\Models\TransferenciaSugerida;
+use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class TransferenciaSugeridaController extends Controller
 {
-    private function getSucursalIds(): array
-    {
-        $user = auth()->user();
-        $comercioId = $user->branch?->comercio_id;
-        if (!$comercioId) return [];
-        return \App\Models\Sucursal::where('comercio_id', $comercioId)->pluck('id')->toArray();
-    }
+    public function __construct(
+        private readonly SucursalScopeService $scope
+    ) {}
 
     /**
-     * Devuelve la lista para que Vue la muestre en la tabla.
+     * Listado de transferencias según el rol del usuario.
+     *
+     * SuperAdmin/AdminGlobal: todas las transferencias del comercio.
+     * Encargado/Cajero: solo transferencias donde su sucursal participa.
      */
     public function index()
     {
-        $sucursalIds = $this->getSucursalIds();
-        if (empty($sucursalIds)) {
-            return inertia('Transferencias/Index', ['sugerencias' => [], 'historial' => []]);
+        $sucursalIds = $this->scope->obtenerSucursalesPermitidasIds();
+
+        // AdminGlobal sin comercio: vista vacía
+        if ($this->scope->esAdminGlobal() && empty($sucursalIds)) {
+            return inertia('Transferencias/Index', [
+                'sugerencias' => [],
+                'enTransito' => [],
+                'historial' => [],
+            ]);
         }
 
         // =================================================================
-        // 1. EL MOTOR PREVENTIVO: Detectar bajo stock y armar sugerencias
+        // MOTOR PREVENTIVO: Detectar bajo stock y armar sugerencias
         // =================================================================
+        $alcanceIds = $this->scope->esJefe()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $sucursalIds;
 
-        // Unimos producto_sucursal con productos para saber el stock_minimo de cada uno
         $necesitados = DB::table('producto_sucursal')
             ->join('productos', 'productos.id', '=', 'producto_sucursal.producto_id')
             ->select('producto_sucursal.*', 'productos.stock_minimo')
-            ->whereIn('producto_sucursal.sucursal_id', $sucursalIds)
+            ->whereIn('producto_sucursal.sucursal_id', $alcanceIds)
             ->whereRaw('producto_sucursal.cantidad_fisica < productos.stock_minimo')
             ->get();
 
         foreach ($necesitados as $necesitado) {
-            // ¿Cuánto falta para rellenar hasta el stock mínimo?
-            // Ej: Mínimo es 10, tengo 3 -> Faltan 7.
             $cantidadFaltante = $necesitado->stock_minimo - $necesitado->cantidad_fisica;
 
             if ($cantidadFaltante > 0) {
                 $salvador = DB::table('producto_sucursal')
                     ->join('productos', 'productos.id', '=', 'producto_sucursal.producto_id')
-                    ->whereIn('producto_sucursal.sucursal_id', $sucursalIds)
+                    ->whereIn('producto_sucursal.sucursal_id', $alcanceIds)
                     ->where('producto_sucursal.producto_id', $necesitado->producto_id)
                     ->where('producto_sucursal.sucursal_id', '!=', $necesitado->sucursal_id)
                     ->whereRaw('producto_sucursal.cantidad_fisica >= (CAST(? AS NUMERIC) + CAST(productos.stock_minimo AS NUMERIC))', [$cantidadFaltante])
@@ -54,7 +60,6 @@ class TransferenciaSugeridaController extends Controller
                     ->first();
 
                 if ($salvador) {
-                    // Creamos la sugerencia (si no existe ya pendiente)
                     TransferenciaSugerida::firstOrCreate([
                         'origen_id' => $salvador->sucursal_id,
                         'destino_id' => $necesitado->sucursal_id,
@@ -68,105 +73,193 @@ class TransferenciaSugeridaController extends Controller
         }
 
         // =================================================================
-        // 2. LA LECTURA: Mostrar lo que armó el motor + El historial
+        // LECTURA: Pendientes para despachar (soy origen)
         // =================================================================
-        
-        // Traemos las sugerencias pendientes para la primera pestaña
         $sugerencias = TransferenciaSugerida::with(['origen', 'destino', 'producto'])
             ->whereIn('origen_id', $sucursalIds)
             ->where('estado', 'pendiente')
             ->get();
 
-        // NUEVO: Traemos las aprobadas para la segunda pestaña (Historial)
-        // Ordenamos por updated_at desc para ver las últimas que aprobaste arriba de todo
+        // =================================================================
+        // LECTURA: En tránsito para recibir (soy destino)
+        // =================================================================
+        $enTransito = TransferenciaSugerida::with(['origen', 'destino', 'producto'])
+            ->whereIn('destino_id', $sucursalIds)
+            ->where('estado', 'en_transito')
+            ->get();
+
+        // =================================================================
+        // LECTURA: Historial (finalizadas o canceladas)
+        // =================================================================
         $historial = TransferenciaSugerida::with(['origen', 'destino', 'producto'])
-            ->whereIn('origen_id', $sucursalIds)
-            ->where('estado', 'aprobada')
+            ->where(function ($q) use ($sucursalIds) {
+                $q->whereIn('origen_id', $sucursalIds)
+                  ->orWhereIn('destino_id', $sucursalIds);
+            })
+            ->whereIn('estado', ['recibida', 'cancelada', 'rechazada'])
             ->orderBy('updated_at', 'desc')
-            ->take(50) // Limitamos a 50 para que la carga sea rápida
+            ->take(50)
             ->get();
 
         return inertia('Transferencias/Index', [
             'sugerencias' => $sugerencias,
-            'historial'   => $historial // Mandamos el historial al Vue
+            'enTransito' => $enTransito,
+            'historial'   => $historial,
         ]);
     }
 
     /**
-     * Aprueba la transferencia y mueve el stock.
+     * Despacha stock desde la sucursal origen.
+     * Cambia estado: pendiente -> en_transito
+     *
+     * SuperAdmin: puede despachar desde cualquier sucursal del comercio.
+     * Encargado/Cajero: solo puede despachar si la sucursal origen es su sucursal activa.
      */
-    public function aprobar(TransferenciaSugerida $transferencia)
+    public function despachar(TransferenciaSugerida $transferencia)
     {
-        $sucursalIds = $this->getSucursalIds();
-        if (!empty($sucursalIds) && !in_array($transferencia->origen_id, $sucursalIds)) {
-            return redirect()->back()->with('error', 'Esta transferencia no pertenece a tu comercio.');
+        if (!$this->scope->puedeAccederSucursal($transferencia->origen_id)) {
+            return redirect()->back()->with('error', 'No estás autorizado para despachar desde esta sucursal.');
         }
 
         if ($transferencia->estado !== 'pendiente') {
-            return redirect()->back()->with('error', 'Esta transferencia ya fue procesada.');
+            return redirect()->back()->with('error', 'Solo se pueden despachar transferencias pendientes.');
         }
 
         DB::transaction(function () use ($transferencia) {
             $userId = auth()->id();
 
-            // --- 1. SUCURSAL ORIGEN (Resta stock) ---
+            // Bloquear y validar stock origen
             $stockOrigen = DB::table('producto_sucursal')
                 ->where('sucursal_id', $transferencia->origen_id)
                 ->where('producto_id', $transferencia->producto_id)
+                ->lockForUpdate()
                 ->first();
 
-            $cantAntOrigen = $stockOrigen ? $stockOrigen->cantidad_fisica : 0;
-            $nuevaCantOrigen = $cantAntOrigen - $transferencia->cantidad;
+            $cantDisponible = $stockOrigen ? $stockOrigen->cantidad_fisica : 0;
+
+            if ($cantDisponible < $transferencia->cantidad) {
+                throw new \Exception(
+                    "Stock insuficiente en sucursal origen. " .
+                    "Disponible: {$cantDisponible}, requerido: {$transferencia->cantidad}. " .
+                    "La transferencia fue cancelada automáticamente."
+                );
+            }
+
+            $nuevaCant = $cantDisponible - $transferencia->cantidad;
 
             DB::table('producto_sucursal')
                 ->where('producto_id', $transferencia->producto_id)
                 ->where('sucursal_id', $transferencia->origen_id)
-                ->update(['cantidad_fisica' => $nuevaCantOrigen]);
+                ->update(['cantidad_fisica' => $nuevaCant]);
 
-            // Auditoría Origen
+            // Auditoría origen
             DB::table('movimientos_stock')->insert([
                 'producto_id' => $transferencia->producto_id,
                 'sucursal_id' => $transferencia->origen_id,
                 'user_id' => $userId,
                 'tipo_movimiento' => 'Transferencia Enviada',
-                'cantidad_anterior' => $cantAntOrigen,
+                'cantidad_anterior' => $cantDisponible,
                 'cantidad_movimiento' => -$transferencia->cantidad,
-                'cantidad_actual' => $nuevaCantOrigen,
-                'motivo' => "Envío a sucursal destino ID: {$transferencia->destino_id}",
-                'created_at' => now(), 'updated_at' => now()
+                'cantidad_actual' => $nuevaCant,
+                'motivo' => "Despacho a sucursal destino ID: {$transferencia->destino_id}",
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
-            // --- 2. SUCURSAL DESTINO (Suma stock) ---
+            $transferencia->update(['estado' => 'en_transito']);
+        });
+
+        return redirect()->back()->with('success', 'Transferencia despachada. Stock en tránsito hacia la sucursal destino.');
+    }
+
+    /**
+     * Recibe stock en la sucursal destino.
+     * Cambia estado: en_transito -> recibida
+     *
+     * SuperAdmin: puede recibir en cualquier sucursal del comercio.
+     * Encargado/Cajero: solo puede recibir si la sucursal destino es su sucursal activa.
+     */
+    public function recibir(TransferenciaSugerida $transferencia)
+    {
+        if (!$this->scope->puedeAccederSucursal($transferencia->destino_id)) {
+            return redirect()->back()->with('error', 'No estás autorizado para recibir en esta sucursal.');
+        }
+
+        if ($transferencia->estado !== 'en_transito') {
+            return redirect()->back()->with('error', 'Solo se pueden recibir transferencias en tránsito.');
+        }
+
+        DB::transaction(function () use ($transferencia) {
+            $userId = auth()->id();
+
+            // Bloquear stock destino
             $stockDestino = DB::table('producto_sucursal')
                 ->where('sucursal_id', $transferencia->destino_id)
                 ->where('producto_id', $transferencia->producto_id)
+                ->lockForUpdate()
                 ->first();
 
-            $cantAntDestino = $stockDestino ? $stockDestino->cantidad_fisica : 0;
-            $nuevaCantDestino = $cantAntDestino + $transferencia->cantidad;
+            if ($stockDestino) {
+                $cantAnt = $stockDestino->cantidad_fisica;
+                $nuevaCant = $cantAnt + $transferencia->cantidad;
 
-            DB::table('producto_sucursal')->updateOrInsert(
-                ['producto_id' => $transferencia->producto_id, 'sucursal_id' => $transferencia->destino_id],
-                ['cantidad_fisica' => $nuevaCantDestino, 'cantidad_reservada' => 0]
-            );
+                DB::table('producto_sucursal')
+                    ->where('producto_id', $transferencia->producto_id)
+                    ->where('sucursal_id', $transferencia->destino_id)
+                    ->update(['cantidad_fisica' => $nuevaCant]);
+            } else {
+                // Producto no existe aún en destino, crear registro
+                $cantAnt = 0;
+                $nuevaCant = $transferencia->cantidad;
 
-            // Auditoría Destino
+                DB::table('producto_sucursal')->insert([
+                    'producto_id' => $transferencia->producto_id,
+                    'sucursal_id' => $transferencia->destino_id,
+                    'cantidad_fisica' => $nuevaCant,
+                    'cantidad_reservada' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // Auditoría destino
             DB::table('movimientos_stock')->insert([
                 'producto_id' => $transferencia->producto_id,
                 'sucursal_id' => $transferencia->destino_id,
                 'user_id' => $userId,
                 'tipo_movimiento' => 'Transferencia Recibida',
-                'cantidad_anterior' => $cantAntDestino,
+                'cantidad_anterior' => $cantAnt,
                 'cantidad_movimiento' => $transferencia->cantidad,
-                'cantidad_actual' => $nuevaCantDestino,
+                'cantidad_actual' => $nuevaCant,
                 'motivo' => "Recepción desde sucursal origen ID: {$transferencia->origen_id}",
-                'created_at' => now(), 'updated_at' => now()
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
-            // 3. Finalizar sugerencia
-            $transferencia->update(['estado' => 'aprobada']);
+            $transferencia->update(['estado' => 'recibida']);
         });
 
-        return redirect()->back()->with('success', 'Transferencia procesada correctamente.');
+        return redirect()->back()->with('success', 'Transferencia recibida. Stock actualizado en esta sucursal.');
+    }
+
+    /**
+     * Cancela una transferencia. Solo permitido si el estado es pendiente.
+     *
+     * SuperAdmin: puede cancelar si la transferencia pertenece a su comercio.
+     * Encargado/Cajero: solo puede cancelar si la sucursal origen es su sucursal activa.
+     */
+    public function cancelar(TransferenciaSugerida $transferencia)
+    {
+        if (!$this->scope->puedeAccederSucursal($transferencia->origen_id)) {
+            return redirect()->back()->with('error', 'No estás autorizado para cancelar esta transferencia.');
+        }
+
+        if ($transferencia->estado !== 'pendiente') {
+            return redirect()->back()->with('error', 'Solo se pueden cancelar transferencias pendientes.');
+        }
+
+        $transferencia->update(['estado' => 'cancelada']);
+
+        return redirect()->back()->with('success', 'Transferencia cancelada.');
     }
 }

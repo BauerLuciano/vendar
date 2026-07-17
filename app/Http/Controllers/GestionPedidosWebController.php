@@ -4,65 +4,66 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\PedidoWeb;
+use App\Services\SucursalScopeService;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class GestionPedidosWebController extends Controller
 {
+    public function __construct(
+        private readonly SucursalScopeService $scope
+    ) {}
+
+    /**
+     * Valida que un pedido pertenezca a una sucursal permitida por el usuario.
+     */
+    private function autorizarPedido(PedidoWeb $pedido): void
+    {
+        if ($this->scope->puedeAccederSucursal((int) $pedido->sucursal_id)) {
+            return;
+        }
+
+        abort(403, 'No tenés acceso a este pedido.');
+    }
+
     public function index()
     {
-        $user = auth()->user();
-        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
-        $sucursalIds = $user->branch?->comercio_id
-            ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-            : collect();
-
         $query = PedidoWeb::with(['items.producto', 'sucursal']);
-
-        if (!$esJefe) {
-            $sucursalId = session('sucursal_activa_id', $user->branch_id);
-            if ($sucursalId) {
-                $query->where('sucursal_id', $sucursalId);
-            }
-        } elseif ($sucursalIds->isNotEmpty()) {
-            $query->whereIn('sucursal_id', $sucursalIds);
-        }
+        $this->scope->aplicarFiltroSucursal($query);
 
         $pedidos = $query->orderBy('created_at', 'desc')->get();
 
         return Inertia::render('Pedidos/Index', [
             'pedidos' => $pedidos,
-            'sucursal' => $user->branch,
+            'sucursal' => auth()->user()->branch,
         ]);
     }
 
     public function updateEstado(Request $request, $id)
     {
-        $request->validate(['estado_pedido' => 'required|in:nuevo,preparando,en_camino,entregado,cancelado']);
+        $request->validate([
+            'estado_pedido' => 'required|in:nuevo,preparando,en_camino,entregado,cancelado',
+        ]);
 
-        $user = auth()->user();
-        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
+        $pedido = PedidoWeb::lockForUpdate()->with('items')->findOrFail($id);
+        $this->autorizarPedido($pedido);
 
-        return DB::transaction(function () use ($request, $id, $esJefe, $user) {
-            $sucursalIds = $user->branch?->comercio_id
-                ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-                : collect();
+        $esJefe = $this->scope->esJefe();
+        $estadoActual = $pedido->estado_pedido;
+        $nuevoEstado = $request->estado_pedido;
 
-            $pedido = PedidoWeb::lockForUpdate()->with('items')
-                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
-                ->findOrFail($id);
-            $estadoActual = $pedido->estado_pedido;
-            $nuevoEstado = $request->estado_pedido;
+        if ($estadoActual === $nuevoEstado) {
+            return redirect()->back();
+        }
 
-            if ($estadoActual === $nuevoEstado) return redirect()->back();
+        $esForward = in_array($nuevoEstado, $pedido->nextStates());
+        $esCancel = $nuevoEstado === 'cancelado';
 
-            $esForward = in_array($nuevoEstado, $pedido->nextStates());
-            $esCancel = $nuevoEstado === 'cancelado';
+        if (!$esForward && !$esCancel && !$esJefe) {
+            return redirect()->back()->with('error', 'Transición de estado no permitida.');
+        }
 
-            if (!$esForward && !$esCancel && !$esJefe) {
-                return redirect()->back()->with('error', 'Transición de estado no permitida.');
-            }
-
+        return DB::transaction(function () use ($pedido, $nuevoEstado, $estadoActual, $esCancel) {
             if ($nuevoEstado === 'entregado') {
                 foreach ($pedido->items as $item) {
                     DB::table('producto_sucursal')
@@ -111,17 +112,13 @@ class GestionPedidosWebController extends Controller
 
     public function updatePago(Request $request, $id)
     {
-        $request->validate(['estado_pago' => 'required|in:pendiente,pagado,reembolsado']);
+        $request->validate([
+            'estado_pago' => 'required|in:pendiente,pagado,reembolsado',
+        ]);
 
-        $user = auth()->user();
-        $sucursalIds = $user->branch?->comercio_id
-            ? \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id')
-            : collect();
-
-        return DB::transaction(function () use ($request, $id, $sucursalIds) {
-            $pedido = PedidoWeb::lockForUpdate()->with('items')
-                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereIn('sucursal_id', $sucursalIds))
-                ->findOrFail($id);
+        return DB::transaction(function () use ($request, $id) {
+            $pedido = PedidoWeb::lockForUpdate()->with('items')->findOrFail($id);
+            $this->autorizarPedido($pedido);
 
             $estadoPagoAnterior = $pedido->estado_pago;
             $pedido->estado_pago = $request->estado_pago;

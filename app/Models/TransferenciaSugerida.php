@@ -18,23 +18,33 @@ class TransferenciaSugerida extends Model
         'estado',
     ];
 
-    // Relación con la sucursal de origen
     public function origen()
     {
-        // CAMBIAMOS Branch::class por Sucursal::class
         return $this->belongsTo(Sucursal::class, 'origen_id');
     }
 
-    // Relación con la sucursal de destino
     public function destino()
     {
-        // CAMBIAMOS Branch::class por Sucursal::class
         return $this->belongsTo(Sucursal::class, 'destino_id');
     }
 
-    // Relación con el producto
     public function producto()
     {
         return $this->belongsTo(Producto::class, 'producto_id');
+    }
+
+    public function scopePendientes($query)
+    {
+        return $query->where('estado', 'pendiente');
+    }
+
+    public function scopeEnTransito($query)
+    {
+        return $query->where('estado', 'en_transito');
+    }
+
+    public function scopeFinalizadas($query)
+    {
+        return $query->whereIn('estado', ['recibida', 'cancelada', 'rechazada']);
     }
 }

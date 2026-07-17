@@ -7,7 +7,6 @@ use Tests\TestCaseMultiTenant;
 
 class Modulo7_TransferenciasTest extends TestCaseMultiTenant
 {
-    // P6.1.1
     public function test_admin_a_puede_ver_transferencias(): void
     {
         $this->actingAsAdminA();
@@ -16,35 +15,44 @@ class Modulo7_TransferenciasTest extends TestCaseMultiTenant
         $response->assertOk();
     }
 
-    // P6.1.2
-    public function test_admin_a_puede_aprobar_transferencia(): void
+    public function test_admin_a_puede_despachar_transferencia_pendiente(): void
     {
         $this->actingAsAdminA();
 
-        $response = $this->post('/transferencias-sugeridas/1/aprobar');
+        $response = $this->post('/transferencias-sugeridas/1/despachar');
         $response->assertRedirect();
 
         $this->assertDatabaseHas('transferencia_sugeridas', [
             'id' => 1,
-            'estado' => 'aprobada',
+            'estado' => 'en_transito',
         ]);
     }
 
-    // P6.1.3
-    public function test_admin_a_no_puede_aprobar_transferencia_de_b(): void
+    public function test_admin_a_no_puede_despachar_transferencia_de_b(): void
     {
         $this->actingAsAdminA();
 
-        $transferenciaB = TransferenciaSugerida::findOrFail(2);
-        $this->assertEquals(4, $transferenciaB->origen_id);
-
-        $response = $this->post('/transferencias-sugeridas/2/aprobar');
+        $response = $this->post('/transferencias-sugeridas/2/despachar');
         $response->assertRedirect();
         $response->assertSessionHas('error');
 
         $this->assertDatabaseHas('transferencia_sugeridas', [
             'id' => 2,
             'estado' => 'pendiente',
+        ]);
+    }
+
+    public function test_admin_a_no_puede_cancelar_transferencia_ya_despachada(): void
+    {
+        $this->actingAsAdminA();
+
+        // ID 1 fue despachada en el test anterior (estado=en_transito)
+        $this->post('/transferencias-sugeridas/1/cancelar');
+        $this->assertSessionHas('error');
+
+        $this->assertDatabaseHas('transferencia_sugeridas', [
+            'id' => 1,
+            'estado' => 'en_transito',
         ]);
     }
 }

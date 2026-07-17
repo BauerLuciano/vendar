@@ -6,21 +6,21 @@ use App\Models\IngresoMercaderia;
 use App\Models\IngresoDetalle;
 use App\Models\Producto;
 use App\Models\Proveedor;
-use App\Models\Sucursal;
 use App\Services\LoteService;
+use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class IngresoMercaderiaController extends Controller
 {
+    public function __construct(
+        private readonly SucursalScopeService $scope
+    ) {}
+
     public function index(Request $request)
     {
-        $user = auth()->user();
-        $comercioId = $user->branch?->comercio_id;
-        $sucursalIds = $comercioId
-            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
-            : collect();
+        $comercioId = $this->scope->obtenerComercioId();
 
         $search = $request->input('search');
         $proveedor_id = $request->input('proveedor_id', 'all');
@@ -28,74 +28,64 @@ class IngresoMercaderiaController extends Controller
         $fecha_desde = $request->input('fecha_desde');
         $fecha_hasta = $request->input('fecha_hasta');
 
-        $ingresos = $sucursalIds->isNotEmpty()
-            ? IngresoMercaderia::with(['proveedor', 'sucursal', 'detalles.producto', 'usuario'])
-                ->whereIn('sucursal_id', $sucursalIds)
-                ->when($search, function ($q, $search) {
-                    $q->where('numero_remito', 'LIKE', "%{$search}%");
-                })
-                ->when($proveedor_id !== 'all', function ($q) use ($proveedor_id) {
-                    $q->where('proveedor_id', $proveedor_id);
-                })
-                ->when($sucursal_id !== 'all', function ($q) use ($sucursal_id) {
-                    $q->where('sucursal_id', $sucursal_id);
-                })
-                ->when($fecha_desde, function ($q, $fecha_desde) {
-                    $q->whereDate('fecha_ingreso', '>=', $fecha_desde);
-                })
-                ->when($fecha_hasta, function ($q, $fecha_hasta) {
-                    $q->whereDate('fecha_ingreso', '<=', $fecha_hasta);
-                })
-                ->orderBy('fecha_ingreso', 'desc')
-                ->orderBy('id', 'desc')
-                ->paginate(10)
-                ->withQueryString()
-            : new \Illuminate\Paginator\LengthAwarePaginator([], 0, 10);
+        $query = IngresoMercaderia::with(['proveedor', 'sucursal', 'detalles.producto', 'usuario']);
+        $this->scope->aplicarFiltroSucursal($query);
+
+        $ingresos = $query
+            ->when($search, fn ($q, $search) => $q->where('numero_remito', 'LIKE', "%{$search}%"))
+            ->when($proveedor_id !== 'all', fn ($q) => $q->where('proveedor_id', $proveedor_id))
+            ->when($sucursal_id !== 'all', fn ($q) => $q->where('sucursal_id', $sucursal_id))
+            ->when($fecha_desde, fn ($q, $v) => $q->whereDate('fecha_ingreso', '>=', $v))
+            ->when($fecha_hasta, fn ($q, $v) => $q->whereDate('fecha_ingreso', '<=', $v))
+            ->orderBy('fecha_ingreso', 'desc')
+            ->orderBy('id', 'desc')
+            ->paginate(10)
+            ->withQueryString();
+
+        $sucursalesDropdown = $this->scope->obtenerSucursalesPermitidas()
+            ->where('estado', true);
 
         return Inertia::render('Ingresos/Index', [
             'ingresos' => $ingresos,
             'productos' => Producto::where('estado', true)->get(),
             'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
-            'sucursales' => $sucursalIds->isNotEmpty()
-                ? Sucursal::whereIn('id', $sucursalIds)->where('estado', true)->get()
-                : collect(),
-            'filtros' => $request->only(['search', 'proveedor_id', 'sucursal_id', 'fecha_desde', 'fecha_hasta'])
+            'sucursales' => $sucursalesDropdown,
+            'filtros' => $request->only(['search', 'proveedor_id', 'sucursal_id', 'fecha_desde', 'fecha_hasta']),
         ]);
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'sucursal_id' => 'required|exists:sucursales,id',
-            'fecha_ingreso' => 'required|date',
-            'numero_remito' => 'nullable|string',
-            'items' => 'required|array|min:1',
-            'items.*.producto_id' => 'required|exists:productos,id',
-            'items.*.cantidad' => 'required|numeric|min:1',
-            'items.*.costo' => 'nullable|numeric|min:0',
+            'sucursal_id'              => 'required|exists:sucursales,id',
+            'fecha_ingreso'            => 'required|date',
+            'numero_remito'            => 'nullable|string',
+            'items'                    => 'required|array|min:1',
+            'items.*.producto_id'      => 'required|exists:productos,id',
+            'items.*.cantidad'         => 'required|numeric|min:1',
+            'items.*.costo'            => 'nullable|numeric|min:0',
             'items.*.fecha_vencimiento' => 'nullable|date',
         ]);
 
-        $user = auth()->user();
-        $comercioId = $user->branch?->comercio_id;
-        $sucursalIds = $comercioId
-            ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
-            : collect();
-        if ($sucursalIds->isEmpty() || !$sucursalIds->contains($request->sucursal_id)) {
-            return redirect()->back()->withErrors(['error' => 'La sucursal seleccionada no pertenece a tu comercio.']);
+        if (!$this->scope->puedeAccederSucursal((int) $request->sucursal_id)) {
+            return redirect()->back()->withErrors([
+                'sucursal_id' => 'No tenés acceso a la sucursal seleccionada.',
+            ]);
         }
+
+        $sucursalId = (int) $request->sucursal_id;
 
         $alertasInflacion = [];
         $totalCosto = 0;
 
-        DB::transaction(function () use ($request, &$alertasInflacion, &$totalCosto) {
+        DB::transaction(function () use ($request, $sucursalId, &$alertasInflacion, &$totalCosto) {
             $ingreso = IngresoMercaderia::create([
-                'sucursal_id' => $request->sucursal_id,
-                'proveedor_id' => $request->proveedor_id,
-                'user_id' => auth()->id(),
+                'sucursal_id'   => $sucursalId,
+                'proveedor_id'  => $request->proveedor_id !== '' ? $request->proveedor_id : null,
+                'user_id'       => auth()->id(),
                 'fecha_ingreso' => $request->fecha_ingreso,
                 'numero_remito' => $request->numero_remito,
-                'total_costo' => 0,
+                'total_costo'   => 0,
             ]);
 
             $loteService = app(LoteService::class);
@@ -103,16 +93,16 @@ class IngresoMercaderiaController extends Controller
             foreach ($request->items as $item) {
                 IngresoDetalle::create([
                     'ingreso_mercaderia_id' => $ingreso->id,
-                    'producto_id' => $item['producto_id'],
-                    'cantidad_recibida' => $item['cantidad'],
-                    'costo_unitario' => $item['costo'],
-                    'fecha_vencimiento' => $item['fecha_vencimiento'] ?? null,
+                    'producto_id'           => $item['producto_id'],
+                    'cantidad_recibida'     => $item['cantidad'],
+                    'costo_unitario'        => $item['costo'],
+                    'fecha_vencimiento'     => $item['fecha_vencimiento'] ?? null,
                 ]);
 
                 if (!empty($item['fecha_vencimiento'])) {
                     $loteService->upsert(
                         (int) $item['producto_id'],
-                        (int) $request->sucursal_id,
+                        $sucursalId,
                         $item['fecha_vencimiento'],
                         (float) $item['cantidad']
                     );
@@ -129,7 +119,7 @@ class IngresoMercaderiaController extends Controller
 
                 $totalCosto += $item['cantidad'] * $costoNuevo;
 
-                $pivot = $producto->sucursales()->where('sucursal_id', $request->sucursal_id)->first();
+                $pivot = $producto->sucursales()->where('sucursal_id', $sucursalId)->first();
                 $cantidadAnterior = $pivot ? $pivot->pivot->cantidad_fisica : 0;
                 $stockTotal = $cantidadAnterior + $item['cantidad'];
 
@@ -147,12 +137,12 @@ class IngresoMercaderiaController extends Controller
                     $nuevoPrecioVenta = round($nuevoPPP * (1 + max($margen, 0)), 2);
 
                     $alertasInflacion[] = [
-                        'producto' => $producto->nombre,
-                        'costo_viejo' => $costoAnterior,
-                        'costo_nuevo' => $costoNuevo,
+                        'producto'     => $producto->nombre,
+                        'costo_viejo'  => $costoAnterior,
+                        'costo_nuevo'  => $costoNuevo,
                         'precio_viejo' => $precioVentaAnterior,
                         'precio_nuevo' => $nuevoPrecioVenta,
-                        'porcentaje' => round(($margen ?? 0) * 100, 2),
+                        'porcentaje'   => round(($margen ?? 0) * 100, 2),
                     ];
                 }
 
@@ -178,20 +168,20 @@ class IngresoMercaderiaController extends Controller
 
                 if ($pivot) {
                     $nuevaCantidad = $cantidadAnterior + $item['cantidad'];
-                    $producto->sucursales()->updateExistingPivot($request->sucursal_id, [
-                        'cantidad_fisica' => $nuevaCantidad
+                    $producto->sucursales()->updateExistingPivot($sucursalId, [
+                        'cantidad_fisica' => $nuevaCantidad,
                     ]);
                 } else {
                     $nuevaCantidad = $item['cantidad'];
-                    $producto->sucursales()->attach($request->sucursal_id, [
-                        'cantidad_fisica' => $nuevaCantidad,
-                        'cantidad_reservada' => 0
+                    $producto->sucursales()->attach($sucursalId, [
+                        'cantidad_fisica'    => $nuevaCantidad,
+                        'cantidad_reservada' => 0,
                     ]);
                 }
 
                 DB::table('movimientos_stock')->insert([
                     'producto_id'         => $item['producto_id'],
-                    'sucursal_id'         => $request->sucursal_id,
+                    'sucursal_id'         => $sucursalId,
                     'user_id'             => auth()->id(),
                     'tipo_movimiento'     => 'Ingreso Manual',
                     'cantidad_anterior'   => $cantidadAnterior,
@@ -208,7 +198,7 @@ class IngresoMercaderiaController extends Controller
 
         return redirect()->back()->with([
             'success' => 'Ingreso procesado y stock actualizado.',
-            'alertas_inflacion' => $alertasInflacion
+            'alertas_inflacion' => $alertasInflacion,
         ]);
     }
 }

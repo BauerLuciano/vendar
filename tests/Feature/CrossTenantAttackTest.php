@@ -86,11 +86,11 @@ class CrossTenantAttackTest extends TestCaseMultiTenant
         $this->delete('/usuarios/'.$this->userB->id)->assertForbidden();
     }
 
-    public function test_ct9_aprobar_transferencia_de_otro_comercio_da_error(): void
+    public function test_ct9_despachar_transferencia_de_otro_comercio_da_error(): void
     {
         $this->actingAsAdminA();
 
-        $this->post('/transferencias-sugeridas/2/aprobar')
+        $this->post('/transferencias-sugeridas/2/despachar')
             ->assertSessionHas('error');
     }
 
