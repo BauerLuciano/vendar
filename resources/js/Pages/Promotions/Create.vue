@@ -201,6 +201,25 @@ const getDiscountMessageText = () => {
     return '';
 };
 
+const getDiscountDescription = () => {
+    const dt = formulario.discount_type;
+    const val = formulario.value;
+    const cfg = formulario.discount_config;
+    switch (dt) {
+        case 'percent': return `${val}% de descuento`;
+        case 'fixed_amount': return `Descuento fijo de $${Number(val).toLocaleString('es-AR')}`;
+        case 'fixed_price': return `Precio fijo de $${Number(val).toLocaleString('es-AR')}`;
+        case '2x1': return 'Lleva 2 y paga 1';
+        case 'x_for_y': return `Lleva ${cfg?.x} y paga ${cfg?.y}`;
+        case 'bundle': {
+            const items = cfg?.items || '?';
+            const price = cfg?.price ? `$${Number(cfg.price).toLocaleString('es-AR')}` : '?';
+            return `Combo de ${items} productos por ${price}`;
+        }
+        default: return discountTypes[dt] || dt;
+    }
+};
+
 const ruleConditionText = (rule) => {
     const val = rule.value;
     if (!val && val !== 0) return '';
@@ -1028,6 +1047,7 @@ const fieldClass = (field) => {
                     </div>
 
                     <div v-else-if="previewData && previewData.total_products > 0">
+                        <!-- Summary cards -->
                         <div class="grid grid-cols-3 gap-4 mb-6">
                             <div class="bg-sky-50 rounded-xl p-4 text-center">
                                 <div class="text-2xl font-black text-sky-700">{{ previewData.total_products }}</div>
@@ -1043,27 +1063,148 @@ const fieldClass = (field) => {
                             </div>
                         </div>
 
-                        <div v-if="previewData.discount_amount > 0" class="text-center mb-4">
+                        <div v-if="previewData.discount_amount > 0" class="text-center mb-5">
                             <span class="inline-block px-4 py-1.5 bg-green-50 border border-green-200 rounded-full text-xs font-bold text-green-700">
-                                Descuento total: {{ formatPrice(previewData.discount_amount) }}
-                                <span v-if="previewData.discount_label" class="ml-1">({{ previewData.discount_label }})</span>
+                                Ahorro: {{ formatPrice(previewData.discount_amount) }}
                             </span>
                         </div>
 
-                        <div v-if="previewData.product_previews?.length" class="mt-4">
-                            <h4 class="text-sm font-bold text-slate-600 mb-3">Productos afectados</h4>
-                            <div class="max-h-64 overflow-y-auto space-y-2">
-                                <div v-for="pp in previewData.product_previews" :key="pp.product_id"
-                                    class="flex items-center justify-between bg-slate-50 rounded-lg px-4 py-2 text-sm">
-                                    <div class="min-w-0">
-                                        <div class="font-bold text-slate-700 truncate">{{ pp.name }}</div>
-                                        <div class="text-[10px] text-slate-400">{{ pp.barcode }}</div>
-                                    </div>
-                                    <span v-if="pp.error" class="text-rose-500 text-xs font-bold flex-shrink-0 ml-2">{{ pp.error }}</span>
-                                    <span v-else class="font-mono text-slate-600 flex-shrink-0 ml-2">
-                                        {{ formatPrice(pp.original_price) }} → <span class="text-emerald-600 font-bold">{{ formatPrice(pp.final_price) }}</span>
-                                    </span>
+                        <!-- ===== PERCENT / FIXED AMOUNT ===== -->
+                        <template v-if="['percent', 'fixed_amount'].includes(previewData.discount_type)">
+                            <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                                <div class="bg-slate-50 px-5 py-3 border-b border-slate-200">
+                                    <p class="text-xs font-black text-slate-500 uppercase tracking-widest">Simulación</p>
                                 </div>
+                                <div class="p-5 space-y-3">
+                                    <div class="text-xs font-bold text-slate-400 uppercase">Cliente compra:</div>
+                                    <div v-for="pp in previewData.product_previews" :key="pp.product_id" class="flex items-center gap-2 text-sm">
+                                        <span class="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></span>
+                                        <span class="font-bold text-slate-700">{{ pp.name }} ×{{ pp.quantity }}</span>
+                                    </div>
+                                    <div class="border-t border-slate-100 pt-3 space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Precio</span>
+                                            <span class="font-bold text-slate-700">{{ formatPrice(previewData.original_price) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">{{ previewData.discount_type === 'percent' ? 'Descuento' : 'Descuento fijo' }}</span>
+                                            <span class="font-bold text-rose-600">{{ previewData.discount_type === 'percent' ? formulario.value + '%' : formatPrice(previewData.discount_amount) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm border-t border-slate-100 pt-2">
+                                            <span class="font-black text-slate-700">Total</span>
+                                            <span class="font-black text-emerald-700 text-base">{{ formatPrice(previewData.final_price) }}</span>
+                                        </div>
+                                        <div v-if="previewData.discount_amount > 0" class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Ahorro</span>
+                                            <span class="font-bold text-green-600">{{ formatPrice(previewData.discount_amount) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- ===== FIXED PRICE ===== -->
+                        <template v-else-if="previewData.discount_type === 'fixed_price'">
+                            <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                                <div class="bg-slate-50 px-5 py-3 border-b border-slate-200">
+                                    <p class="text-xs font-black text-slate-500 uppercase tracking-widest">Simulación</p>
+                                </div>
+                                <div class="p-5 space-y-3">
+                                    <div class="text-xs font-bold text-slate-400 uppercase">Cliente compra:</div>
+                                    <div v-for="pp in previewData.product_previews" :key="pp.product_id" class="flex items-center gap-2 text-sm">
+                                        <span class="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></span>
+                                        <span class="font-bold text-slate-700">{{ pp.name }} ×{{ pp.quantity }}</span>
+                                    </div>
+                                    <div class="border-t border-slate-100 pt-3 space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Precio normal</span>
+                                            <span class="font-bold text-slate-700">{{ formatPrice(previewData.original_price) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Precio promocional</span>
+                                            <span class="font-bold text-emerald-700">{{ formatPrice(previewData.final_price) }}</span>
+                                        </div>
+                                        <div v-if="previewData.discount_amount > 0" class="flex justify-between text-sm border-t border-slate-100 pt-2">
+                                            <span class="text-slate-500">Ahorro</span>
+                                            <span class="font-bold text-green-600">{{ formatPrice(previewData.discount_amount) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- ===== X FOR Y (including 2x1) ===== -->
+                        <template v-else-if="previewData.discount_type === 'x_for_y'">
+                            <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                                <div class="bg-slate-50 px-5 py-3 border-b border-slate-200">
+                                    <p class="text-xs font-black text-slate-500 uppercase tracking-widest">Simulación</p>
+                                </div>
+                                <div class="p-5 space-y-3">
+                                    <div class="text-xs font-bold text-slate-400 uppercase">Cliente lleva:</div>
+                                    <div v-for="pp in previewData.product_previews" :key="pp.product_id" class="flex items-center gap-2 text-sm">
+                                        <span class="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></span>
+                                        <span class="font-bold text-slate-700">{{ pp.name }} ×{{ pp.quantity }}</span>
+                                    </div>
+                                    <div class="border-t border-slate-100 pt-3 space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Subtotal</span>
+                                            <span class="font-bold text-slate-700">{{ previewData.product_previews[0]?.quantity }} × {{ formatPrice(previewData.product_previews[0]?.unit_price) }} = {{ formatPrice(previewData.original_price) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Promoción aplicada</span>
+                                            <span class="font-bold text-sky-700">Lleva {{ previewData.product_previews[0]?.quantity }} y paga {{ formulario.discount_config?.y }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm border-t border-slate-100 pt-2">
+                                            <span class="font-black text-slate-700">Total a pagar</span>
+                                            <span class="font-black text-emerald-700 text-base">{{ formatPrice(previewData.final_price) }}</span>
+                                        </div>
+                                        <div v-if="previewData.discount_amount > 0" class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Ahorro</span>
+                                            <span class="font-bold text-green-600">{{ formatPrice(previewData.discount_amount) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- ===== BUNDLE ===== -->
+                        <template v-else-if="previewData.discount_type === 'bundle'">
+                            <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                                <div class="bg-slate-50 px-5 py-3 border-b border-slate-200">
+                                    <p class="text-xs font-black text-slate-500 uppercase tracking-widest">Simulación</p>
+                                </div>
+                                <div class="p-5 space-y-3">
+                                    <div class="text-xs font-bold text-slate-400 uppercase">Productos incluidos:</div>
+                                    <div v-for="pp in previewData.product_previews.filter(p => !p.is_summary)" :key="pp.product_id" class="flex items-center gap-2 text-sm">
+                                        <span class="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></span>
+                                        <span class="font-bold text-slate-700">{{ pp.name }}</span>
+                                        <span class="text-xs text-slate-400 ml-auto">{{ formatPrice(pp.original_price) }}</span>
+                                    </div>
+                                    <div class="border-t border-slate-100 pt-3 space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Precio individual</span>
+                                            <span class="font-bold text-slate-700">{{ formatPrice(previewData.original_price) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-500">Precio del combo</span>
+                                            <span class="font-bold text-emerald-700">{{ formatPrice(previewData.final_price) }}</span>
+                                        </div>
+                                        <div v-if="previewData.discount_amount > 0" class="flex justify-between text-sm border-t border-slate-100 pt-2">
+                                            <span class="text-slate-500">Ahorro</span>
+                                            <span class="font-bold text-green-600">{{ formatPrice(previewData.discount_amount) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Explanation -->
+                        <div v-if="previewData.explanation" class="mt-5 p-4 bg-sky-50 border border-sky-100 rounded-xl">
+                            <div class="flex items-start gap-2.5">
+                                <svg class="w-4 h-4 text-sky-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <p class="text-sm text-sky-700">{{ previewData.explanation }}</p>
                             </div>
                         </div>
 
@@ -1102,7 +1243,7 @@ const fieldClass = (field) => {
                         </div>
                         <div class="flex justify-between py-2 border-b border-slate-100">
                             <span class="text-slate-500">Descuento</span>
-                            <span class="font-bold text-slate-700">{{ discountTypes[formulario.discount_type] }}</span>
+                            <span class="font-bold text-slate-700">{{ getDiscountDescription() }}</span>
                         </div>
                         <div class="flex justify-between py-2 border-b border-slate-100">
                             <span class="text-slate-500">Vigencia</span>

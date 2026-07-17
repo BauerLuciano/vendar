@@ -55,6 +55,7 @@ class PromotionData
             'discount_type' => $this->discountType,
             'value' => $this->value,
             'discount_config' => $this->discountConfig,
+            'discount_label' => $this->buildDiscountLabel(),
             'starts_at' => $this->startsAt,
             'ends_at' => $this->endsAt,
             'active' => $this->active,
@@ -64,5 +65,37 @@ class PromotionData
             'comercio_id' => $this->comercioId,
             'rules_count' => $this->rulesCount,
         ];
+    }
+
+    private function buildDiscountLabel(): string
+    {
+        return match ($this->discountType) {
+            'percent' => $this->value !== null ? "{$this->value}% de descuento" : '-',
+            'fixed_amount' => $this->value !== null ? '$' . number_format($this->value, 0, ',', '.') . ' de descuento' : '-',
+            'fixed_price' => $this->value !== null ? 'Precio final: $' . number_format($this->value, 0, ',', '.') : '-',
+            '2x1' => '2x1',
+            'x_for_y' => $this->formatXForY(),
+            'bundle' => $this->formatBundle(),
+            default => '-',
+        };
+    }
+
+    private function formatXForY(): string
+    {
+        $x = $this->discountConfig['x'] ?? null;
+        $y = $this->discountConfig['y'] ?? null;
+        if ($x && $y) {
+            return "Lleva {$x} y paga {$y}";
+        }
+        return 'X por Y';
+    }
+
+    private function formatBundle(): string
+    {
+        $price = $this->discountConfig['price'] ?? null;
+        if ($price !== null) {
+            return 'Combo por $' . number_format((float) $price, 0, ',', '.');
+        }
+        return 'Combo';
     }
 }

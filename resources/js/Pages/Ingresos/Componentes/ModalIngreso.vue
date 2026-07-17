@@ -128,6 +128,10 @@ const guardarIngreso = () => {
                     confirmButtonColor: '#eab308'
                 });
             }
+        },
+        onError: (errors) => {
+            const mensajes = Object.values(errors).flat().join('\n');
+            Swal.fire('Error al guardar', mensajes || 'Ocurrió un error inesperado.', 'error');
         }
     });
 };

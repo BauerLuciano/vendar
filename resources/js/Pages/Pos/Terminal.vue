@@ -3,8 +3,9 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import LectorCamara from '@/Components/LectorCamara.vue';
 import ConfirmarPagoModal from '@/Components/ConfirmarPagoModal.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 
 const props = defineProps({
     turno: Object,
@@ -13,6 +14,8 @@ const props = defineProps({
     frecuentes: Array,
     paymentMethods: Array,
     metodosBase: Array,
+    recargos: Object,
+    bancosDisponibles: Array,
 });
 
 const page = usePage();
@@ -139,6 +142,7 @@ async function restaurarPendiente(p) {
             }
             ventasPendientes.value = ventasPendientes.value.filter(v => v.id !== p.id);
             mostrarPendientes.value = false;
+            debouncedFetchPrecios();
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Carrito restaurado', showConfirmButton: false, timer: 2000 });
         }
     } catch (e) {
@@ -222,6 +226,103 @@ function tieneTarjetaActiva() {
 const pagos = ref([{ metodo_pago: 'EFECTIVO', monto: null }]);
 
 const montoRecibido = ref(null);
+
+// ─── Recargos por tarjeta ────────────────────────────────────
+const bancoSeleccionado = ref('');
+const cuotasSeleccionadas = ref(1);
+
+const tieneTarjetaSeleccionada = computed(() => {
+    return pagos.value.some(p => p.metodo_pago === 'DEBITO' || p.metodo_pago === 'CREDITO');
+});
+
+const esUnicaTarjeta = computed(() => {
+    return pagos.value.length === 1 && ['DEBITO', 'CREDITO'].includes(pagos.value[0].metodo_pago);
+});
+
+const tipoTarjetaSeleccionado = computed(() => {
+    const pago = pagos.value.find(p => p.metodo_pago === 'DEBITO' || p.metodo_pago === 'CREDITO');
+    return pago ? pago.metodo_pago : null;
+});
+
+// Only show cuotas configured for the selected banco+tipo
+const cuotasDisponibles = computed(() => {
+    if (!tieneTarjetaSeleccionada.value) return [];
+    const banco = bancoSeleccionado.value;
+    const tipo = tipoTarjetaSeleccionado.value;
+    if (!banco || !tipo) return [];
+    const result = [];
+    for (const [key, config] of Object.entries(props.recargos?.[banco] || {})) {
+        if (key.startsWith(tipo + '_') && config.enabled) {
+            const cuotas = parseInt(key.split('_')[1]);
+            if (!isNaN(cuotas)) {
+                result.push({ cuotas, porcentaje: parseFloat(config.porcentaje) || 0 });
+            }
+        }
+    }
+    return result.sort((a, b) => a.cuotas - b.cuotas);
+});
+
+const sinRecargosConfigurados = computed(() => {
+    if (!tieneTarjetaSeleccionada.value || !bancoSeleccionado.value) return false;
+    return cuotasDisponibles.value.length === 0;
+});
+
+// Reset cuotas when bank changes
+watch(bancoSeleccionado, () => {
+    cuotasSeleccionadas.value = 1;
+});
+
+function onBancoChange() {
+    cuotasSeleccionadas.value = 1;
+}
+
+const recargoConfig = computed(() => {
+    if (!tieneTarjetaSeleccionada.value || !bancoSeleccionado.value) return null;
+    const banco = bancoSeleccionado.value;
+    const tipo = tipoTarjetaSeleccionado.value;
+    const cuotas = cuotasSeleccionadas.value;
+    const key = `${tipo}_${cuotas}`;
+    const config = props.recargos?.[banco]?.[key];
+    if (config && config.enabled) return config;
+    return null;
+});
+
+const recargoPorcentaje = computed(() => {
+    return recargoConfig.value ? parseFloat(recargoConfig.value.porcentaje) : 0;
+});
+
+const recargoMonto = computed(() => {
+    if (!tieneTarjetaSeleccionada.value || !bancoSeleccionado.value) return 0;
+    const pago = pagos.value.find(p => p.metodo_pago === 'DEBITO' || p.metodo_pago === 'CREDITO');
+    if (!pago) return 0;
+    const montoBase = Number(pago.monto) || 0;
+    return montoBase * (recargoPorcentaje.value / 100);
+});
+
+const montoTarjeta = computed(() => {
+    if (!tieneTarjetaSeleccionada.value) return 0;
+    const pago = pagos.value.find(p => p.metodo_pago === 'DEBITO' || p.metodo_pago === 'CREDITO');
+    return pago ? (Number(pago.monto) || 0) : 0;
+});
+
+const totalConRecargo = computed(() => {
+    return montoTarjeta.value + recargoMonto.value;
+});
+
+const montoPorCuota = computed(() => {
+    if (!tieneTarjetaSeleccionada.value || cuotasSeleccionadas.value <= 1) return 0;
+    return totalConRecargo.value / cuotasSeleccionadas.value;
+});
+
+const totalDisplay = computed(() => {
+    if (esUnicaTarjeta.value) return totalConRecargo.value;
+    return totalVenta.value;
+});
+
+function resetRecargoData() {
+    bancoSeleccionado.value = '';
+    cuotasSeleccionadas.value = 1;
+}
 
 const productosBusqueda = ref([]);
 const buscandoProductos = ref(false);
@@ -323,6 +424,18 @@ const restante = computed(() => {
     return totalVenta.value - totalAsignado.value;
 });
 
+// Auto-assign monto: full total when sole payment, remaining when split
+watch([() => totalVenta.value, tieneTarjetaSeleccionada, esUnicaTarjeta], () => {
+    if (!tieneTarjetaSeleccionada.value) return;
+    const pago = pagos.value.find(p => p.metodo_pago === 'DEBITO' || p.metodo_pago === 'CREDITO');
+    if (!pago) return;
+    if (esUnicaTarjeta.value) {
+        pago.monto = totalVenta.value;
+    } else {
+        pago.monto = restante.value > 0.01 ? restante.value : 0;
+    }
+}, { immediate: true });
+
 const esPagoCompleto = computed(() => {
     if (totalVenta.value <= 0) return false;
     if (esUnicoEfectivo.value) return Number(montoRecibido.value) >= totalVenta.value;
@@ -370,6 +483,7 @@ const puedeCobrar = computed(() => {
     if (!esPagoCompleto.value) return false;
     if (bloqueoPorSaldo.value) return false;
     if (tieneCuentaCorriente.value && !clienteActivoObj.value) return false;
+    if (tieneTarjetaSeleccionada.value && !bancoSeleccionado.value) return false;
     return true;
 });
 
@@ -377,6 +491,10 @@ function togglePago(metodo) {
     const idx = pagos.value.findIndex(p => p.metodo_pago === metodo);
     if (idx >= 0) {
         removerPago(idx);
+        // Reset recargo data if no more card payments
+        if (pagos.value.every(p => p.metodo_pago !== 'DEBITO' && p.metodo_pago !== 'CREDITO')) {
+            resetRecargoData();
+        }
     } else {
         agregarPago(metodo);
     }
@@ -573,7 +691,32 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     hacerSonidoBeep();
     mostrarProductoAgregado(producto, nuevaCantidad);
     mostrarFlash('success', `${producto.nombre} agregado`);
+    debouncedFetchPrecios();
 };
+
+let _preciosTimer = null;
+
+async function fetchPreciosEfectivos() {
+    if (!carrito.value.length) return;
+    try {
+        const items = carrito.value.map(item => ({ id: item.id, cantidad: item.cantidad }));
+        const { data } = await axios.post(route('pos.precios'), { items });
+        for (const precio of data.items) {
+            const item = carrito.value.find(i => i.id === precio.id);
+            if (!item) continue;
+            item.precio_venta = precio.precio_unitario;
+            item.descuento_promo = precio.descuento_aplicado;
+            item.tipo_descuento = precio.tipo_descuento;
+        }
+    } catch (e) {
+        console.error('Error fetching effective prices:', e);
+    }
+}
+
+function debouncedFetchPrecios() {
+    clearTimeout(_preciosTimer);
+    _preciosTimer = setTimeout(fetchPreciosEfectivos, 300);
+}
 
 const prevenirNegativo = (e) => {
     if (['-', 'e', 'E', '+'].includes(e.key)) e.preventDefault();
@@ -590,13 +733,15 @@ const incrementarCantidad = (index) => {
     }
     
     item.cantidad += incremento;
+    debouncedFetchPrecios();
 };
 
 const decrementarCantidad = (index) => { 
     const isKg = carrito.value[index].unidad_medida === 'Kg';
     const resta = isKg ? 0.1 : 1;
     if (carrito.value[index].cantidad > resta) {
-        carrito.value[index].cantidad -= resta; 
+        carrito.value[index].cantidad -= resta;
+        debouncedFetchPrecios();
     }
 };
 
@@ -610,6 +755,7 @@ const validarCantidad = (index) => {
         item.cantidad = item.stock_actual;
         Swal.fire('Stock Ajustado', 'Se ajustó a la disponibilidad máxima.', 'warning');
     }
+    debouncedFetchPrecios();
 };
 
 const eliminarDelCarrito = (index) => carrito.value.splice(index, 1);
@@ -629,16 +775,30 @@ const finalizarVenta = () => {
         allowOutsideClick: false
     });
 
-    const pagosData = pagos.value.map(p => ({
-        metodo_pago: p.metodo_pago,
-        monto: esUnicoEfectivo.value ? totalVenta.value : (Number(p.monto) || 0),
-    }));
+    const pagosData = pagos.value.map(p => {
+        const pagoData = {
+            metodo_pago: p.metodo_pago,
+            monto: esUnicoEfectivo.value ? totalVenta.value : (Number(p.monto) || 0),
+        };
+
+        // Add recargo data for card payments
+        if (p.metodo_pago === 'DEBITO' || p.metodo_pago === 'CREDITO') {
+            pagoData.banco = bancoSeleccionado.value || null;
+            pagoData.tipo_tarjeta = p.metodo_pago;
+            pagoData.cuotas = cuotasSeleccionadas.value;
+            pagoData.recargo_porcentaje = recargoPorcentaje.value;
+            pagoData.recargo_monto = recargoMonto.value;
+        }
+
+        return pagoData;
+    });
 
     router.post(route('ventas.store'), {
         turno_caja_id: props.turno.id, 
         consumidor_id: clienteSeleccionado.value,
         items: carrito.value,
         total: totalVenta.value,
+        recargo_monto: recargoMonto.value,
         pagos: pagosData,
     }, {
         onSuccess: (page) => {
@@ -1137,33 +1297,113 @@ onUnmounted(() => {
                             </div>
 
                             <!-- Montos por método (pago combinado) -->
-                            <div class="px-4 pb-2 space-y-1">
+                            <div v-if="!esUnicoEfectivo && !esUnicaTarjeta" class="px-4 pb-2 space-y-1">
                                 <div v-for="(pago, idx) in pagos" :key="idx" class="flex items-center gap-2">
                                     <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 min-w-[60px] shrink-0">{{ METODOS_DISPONIBLES.find(m => m.value === pago.metodo_pago)?.label || pago.metodo_pago }}</span>
-                                    <template v-if="esUnicoEfectivo">
-                                        <div class="flex-1 text-right text-sm font-bold text-slate-500">${{ totalVenta.toFixed(2) }}</div>
-                                    </template>
-                                    <template v-else>
-                                        <div class="relative flex-1">
-                                            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">$</span>
-                                            <input
-                                                v-model.number="pago.monto"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                placeholder="0.00"
-                                                class="w-full pl-5 pr-2 py-1.5 border-2 border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-0 transition-colors"
-                                                @focus="$event.target.select()"
-                                            >
-                                        </div>
-                                        <button
-                                            v-if="pagos.length > 1"
-                                            @click="removerPago(idx)"
-                                            class="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                    <div class="relative flex-1">
+                                        <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">$</span>
+                                        <input
+                                            v-model.number="pago.monto"
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            class="w-full pl-5 pr-2 py-1.5 border-2 border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-0 transition-colors"
+                                            @focus="$event.target.select()"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </div>
+                                    <button
+                                        v-if="pagos.length > 1"
+                                        @click="removerPago(idx)"
+                                        class="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Configuración de recargo (tarjeta débito/crédito) -->
+                            <div v-if="tieneTarjetaSeleccionada" class="px-4 pb-3 border-t border-slate-100 pt-3 space-y-3">
+
+                                <!-- Banco -->
+                                <div>
+                                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Banco</label>
+                                    <select
+                                        v-model="bancoSeleccionado"
+                                        @change="onBancoChange"
+                                        class="w-full px-3 py-2 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-0 transition-colors bg-white"
+                                    >
+                                        <option value="" disabled>Seleccionar banco...</option>
+                                        <option v-for="b in bancosDisponibles" :key="b" :value="b">{{ b }}</option>
+                                    </select>
+                                </div>
+
+                                <!-- Sin recargos configurados -->
+                                <div v-if="sinRecargosConfigurados" class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-400 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    <span class="text-xs font-bold text-amber-700">Sin recargos configurados para este banco</span>
+                                    <span class="block text-[10px] text-amber-500 mt-0.5">Se aplicará 0% de recargo</span>
+                                </div>
+
+                                <!-- Cuotas (solo Crédito, solo las configuradas) -->
+                                <div v-if="tipoTarjetaSeleccionado === 'CREDITO' && !sinRecargosConfigurados && cuotasDisponibles.length > 0">
+                                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Cuotas</label>
+                                    <div class="grid gap-1.5" :class="cuotasDisponibles.length <= 4 ? 'grid-cols-' + cuotasDisponibles.length : 'grid-cols-4'">
+                                        <button
+                                            v-for="cuota in cuotasDisponibles"
+                                            :key="cuota.cuotas"
+                                            @click="cuotasSeleccionadas = cuota.cuotas"
+                                            class="relative flex flex-col items-center py-2.5 px-1 rounded-xl border-2 transition-all"
+                                            :class="cuotasSeleccionadas === cuota.cuotas
+                                                ? 'bg-indigo-500 border-indigo-500 text-white shadow-md shadow-indigo-100'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'"
+                                        >
+                                            <span class="text-lg font-black leading-none">{{ cuota.cuotas }}</span>
+                                            <span class="text-[9px] font-bold mt-1 leading-none" :class="cuotasSeleccionadas === cuota.cuotas ? 'text-indigo-200' : 'text-slate-400'">
+                                                {{ cuota.cuotas === 1 ? 'cuota' : 'cuotas' }}
+                                            </span>
+                                            <span
+                                                class="text-[9px] font-bold mt-1.5 px-2 py-0.5 rounded-full leading-none"
+                                                :class="cuota.porcentaje > 0
+                                                    ? (cuotasSeleccionadas === cuota.cuotas ? 'bg-amber-400/40 text-amber-100' : 'bg-amber-50 text-amber-600')
+                                                    : (cuotasSeleccionadas === cuota.cuotas ? 'bg-emerald-400/40 text-emerald-100' : 'bg-emerald-50 text-emerald-600')"
+                                            >
+                                                {{ cuota.porcentaje > 0 ? '+' + cuota.porcentaje + '%' : '0%' }}
+                                            </span>
                                         </button>
-                                    </template>
+                                    </div>
+                                </div>
+
+                                <!-- Resumen: SUBTOTAL + RECARGO + TOTAL -->
+                                <div class="bg-slate-50 rounded-xl p-3 space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subtotal</span>
+                                        <span class="text-xs font-bold text-slate-500 tabular-nums">${{ montoTarjeta.toFixed(2) }}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[10px] font-black uppercase tracking-widest"
+                                            :class="recargoPorcentaje > 0 ? 'text-amber-500' : 'text-emerald-500'"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 inline -mt-0.5 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                                            Recargo ({{ recargoPorcentaje }}%)
+                                        </span>
+                                        <span class="text-xs font-bold tabular-nums"
+                                            :class="recargoPorcentaje > 0 ? 'text-amber-600' : 'text-emerald-600'"
+                                        >+${{ recargoMonto.toFixed(2) }}</span>
+                                    </div>
+                                    <div class="border-t border-slate-200 pt-2 flex items-end justify-between">
+                                        <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total a cobrar</span>
+                                        <span class="text-xl font-black text-slate-900 tabular-nums">${{ totalConRecargo.toFixed(2) }}</span>
+                                    </div>
+                                </div>
+
+                                <!-- El cliente pagará (por cuota) -->
+                                <div v-if="cuotasSeleccionadas > 1" class="bg-indigo-50 rounded-xl p-3 text-center">
+                                    <span class="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">El cliente pagará</span>
+                                    <span class="text-2xl font-black text-indigo-700 tabular-nums">${{ montoPorCuota.toFixed(2) }}</span>
+                                    <span class="text-[10px] font-bold text-indigo-400 block mt-0.5">
+                                        en {{ cuotasSeleccionadas }} cuotas
+                                    </span>
                                 </div>
                             </div>
 
@@ -1201,18 +1441,18 @@ onUnmounted(() => {
                             </div>
 
                             <!-- Barra de progreso del pago -->
-                            <div v-if="totalVenta > 0" class="px-4 pb-1">
+                            <div v-if="totalDisplay > 0" class="px-4 pb-1">
                                 <div class="flex items-center gap-2">
                                     <div class="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                         <div class="h-full rounded-full transition-all duration-300"
                                             :class="esPagoCompleto ? 'bg-emerald-500' : 'bg-indigo-500'"
-                                            :style="{ width: Math.min(100, esUnicoEfectivo ? ((Number(montoRecibido) || 0) / totalVenta * 100) : (totalAsignado / totalVenta * 100)) + '%' }">
+                                            :style="{ width: Math.min(100, esUnicoEfectivo ? ((Number(montoRecibido) || 0) / totalDisplay * 100) : (totalAsignado / totalDisplay * 100)) + '%' }">
                                         </div>
                                     </div>
                                     <span class="text-[10px] font-bold" :class="esPagoCompleto ? 'text-emerald-600' : 'text-slate-500'">
                                         <template v-if="esPagoCompleto">Completado</template>
-                                        <template v-else-if="esUnicoEfectivo && montoRecibido !== null && montoRecibido !== ''">${{ Number(montoRecibido).toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
-                                        <template v-else-if="!esUnicoEfectivo">${{ totalAsignado.toFixed(2) }} / ${{ totalVenta.toFixed(2) }}</template>
+                                        <template v-else-if="esUnicoEfectivo && montoRecibido !== null && montoRecibido !== ''">${{ Number(montoRecibido).toFixed(2) }} / ${{ totalDisplay.toFixed(2) }}</template>
+                                        <template v-else>${{ totalAsignado.toFixed(2) }} / ${{ totalDisplay.toFixed(2) }}</template>
                                     </span>
                                 </div>
                             </div>
@@ -1228,7 +1468,9 @@ onUnmounted(() => {
                             <div class="px-4 pt-2 pb-3 border-t border-slate-200 mt-1">
                                 <div class="flex items-end justify-between mb-2">
                                     <span class="text-xs font-black text-slate-500 uppercase tracking-widest">Total</span>
-                                    <span class="text-3xl font-black text-slate-900 tracking-tight tabular-nums" :class="{'text-rose-600': bloqueoPorSaldo}">${{ totalVenta.toFixed(2) }}</span>
+                                    <span class="text-3xl font-black tracking-tight tabular-nums"
+                                        :class="bloqueoPorSaldo ? 'text-rose-600' : (esUnicaTarjeta && recargoMonto > 0 ? 'text-violet-700' : 'text-slate-900')"
+                                    >${{ totalDisplay.toFixed(2) }}</span>
                                 </div>
                                 <button
                                     @click="finalizarVenta"
@@ -1240,6 +1482,8 @@ onUnmounted(() => {
                                     <template v-else-if="esUnicoEfectivo && (montoRecibido === null || montoRecibido === '')">Ingresá el monto recibido</template>
                                     <template v-else-if="esUnicoEfectivo && Number(montoRecibido) < totalVenta">Faltan ${{ (totalVenta - Number(montoRecibido)).toFixed(2) }}</template>
                                     <template v-else-if="!esPagoCompleto">Asigná el total (${{ restante.toFixed(2) }})</template>
+                                    <template v-else-if="tieneTarjetaSeleccionada && !bancoSeleccionado">Seleccioná un banco</template>
+                                    <template v-else-if="esUnicaTarjeta">Cobrar ${{ totalConRecargo.toFixed(2) }}</template>
                                     <template v-else>Cobrar ${{ totalVenta.toFixed(2) }}</template>
                                     <span class="text-[9px] font-mono font-black text-slate-500 bg-white/20 px-1.5 py-0.5 rounded border border-white/20">F9</span>
                                 </button>

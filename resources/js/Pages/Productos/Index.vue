@@ -36,6 +36,11 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                             PDF
                         </button>
+                        <button @click="verEtiquetas = true"
+                            class="inline-flex items-center gap-2 bg-slate-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-slate-700 active:scale-95 shadow-sm shadow-slate-600/20">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                            Imprimir etiquetas
+                        </button>
                         <button @click="verImportar = true"
                             class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:bg-blue-700 active:scale-95 shadow-sm shadow-blue-600/20">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
@@ -116,7 +121,7 @@
                         <table class="w-full text-left border-collapse">
                             <thead>
                                 <tr class="border-b border-slate-100 bg-slate-50/80 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
-                                    <th class="px-5 py-4">Cód. / SKU</th>
+                                    <th class="px-5 py-4">Cód. / PLU</th>
                                     <th class="px-5 py-4">Producto</th>
                                     <th class="px-5 py-4 text-center">Stock</th>
                                     <th class="px-5 py-4 text-right">P. Venta</th>
@@ -320,6 +325,14 @@
         <DetalleProducto :mostrar="verDetalle" :producto="seleccionado" @cerrar="verDetalle = false" />
 
         <ModalImportar v-if="verImportar" @cerrar="verImportar = false" @completado="importarCompletado" />
+
+        <ModalImprimirEtiquetas
+            v-if="verEtiquetas"
+            :categorias="categorias"
+            :marcas="marcas"
+            :productos="productos"
+            @cerrar="verEtiquetas = false"
+        />
 
         <div v-if="verStock && seleccionado" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
@@ -537,6 +550,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ModalProducto from './Componentes/ModalProducto.vue';
 import DetalleProducto from './Componentes/DetalleProducto.vue';
 import ModalImportar from './Componentes/ModalImportar.vue';
+import ModalImprimirEtiquetas from './Componentes/ModalImprimirEtiquetas.vue';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch, computed } from 'vue';
 import Swal from 'sweetalert2';
@@ -555,6 +569,7 @@ const verModal = ref(false);
 const verDetalle = ref(false);
 const verStock = ref(false);
 const verImportar = ref(false);
+const verEtiquetas = ref(false);
 const seleccionado = ref(null);
 
 const verAjuste = ref(false);

@@ -9,7 +9,7 @@ use App\Models\Proveedor;
 use App\Models\IngresoMercaderia;
 use App\Models\IngresoDetalle;
 use App\Models\Producto;
-use App\Models\Lote;
+use App\Services\LoteService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -179,6 +179,7 @@ class OrdenCompraController extends Controller
             ]);
 
             $alertasInflacion = [];
+            $loteService = app(LoteService::class);
 
             foreach ($ordenCompra->detalles as $detalle) {
                 IngresoDetalle::create([
@@ -190,14 +191,12 @@ class OrdenCompraController extends Controller
                 ]);
 
                 if ($detalle->fecha_vencimiento) {
-                    Lote::create([
-                        'producto_id'        => $detalle->producto_id,
-                        'sucursal_id'        => $ordenCompra->sucursal_id,
-                        'fecha_vencimiento'  => $detalle->fecha_vencimiento,
-                        'stock_inicial'      => $detalle->cantidad_pedida,
-                        'stock_actual'       => $detalle->cantidad_pedida,
-                        'estado_liquidacion' => false,
-                    ]);
+                    $loteService->upsert(
+                        (int) $detalle->producto_id,
+                        (int) $ordenCompra->sucursal_id,
+                        $detalle->fecha_vencimiento,
+                        (float) $detalle->cantidad_pedida
+                    );
                 }
 
                 $producto = $detalle->producto;

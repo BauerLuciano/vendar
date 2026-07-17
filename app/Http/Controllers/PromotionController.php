@@ -11,6 +11,7 @@ use App\Services\Promotion\PromotionEngineService;
 use App\Services\Promotion\PromotionService;
 use App\Services\Promotion\PromotionRuleService;
 use App\Services\Promotion\PromotionConflictResolver;
+use App\Services\Promotion\PromotionPreviewService;
 use App\Services\Promotion\DTOs\PromotionData;
 use App\Services\Promotion\DTOs\PromotionResult;
 use App\Services\Promotion\DTOs\PromotionPreview;
@@ -28,6 +29,7 @@ class PromotionController extends Controller
         private readonly PromotionRuleService $ruleService,
         private readonly PromotionEngineService $engine,
         private readonly PromotionConflictResolver $conflictResolver,
+        private readonly PromotionPreviewService $previewService,
     ) {}
 
     public function index(Request $request): Response
@@ -158,56 +160,7 @@ class PromotionController extends Controller
             })
             ->get();
 
-        $previews = [];
-        $totalOriginal = 0;
-        $totalFinal = 0;
-        $warnings = [];
-
-        foreach ($products as $product) {
-            $basePrice = (float) ($product->precio_venta ?? 0);
-
-            if ($basePrice <= 0) {
-                $previews[] = [
-                    'product_id' => $product->id,
-                    'name' => $product->nombre,
-                    'barcode' => $product->codigo_barras,
-                    'error' => 'Sin precio disponible',
-                ];
-                continue;
-            }
-
-            $mockPromotion = new Promotion();
-            $mockPromotion->discount_type = $discountType;
-            $mockPromotion->value = $discountValue;
-            $mockPromotion->discount_config = $discountConfig;
-
-            $discount = $this->conflictResolver->resolveDiscount($mockPromotion, $basePrice);
-            $final = $this->conflictResolver->calculateFinalPrice($mockPromotion, $basePrice);
-            $label = $this->conflictResolver->makeDiscountLabel($mockPromotion, $discount);
-
-            $totalOriginal += $basePrice;
-            $totalFinal += $final;
-
-            $previews[] = [
-                'product_id' => $product->id,
-                'name' => $product->nombre,
-                'barcode' => $product->codigo_barras,
-                'original_price' => $basePrice,
-                'final_price' => $final,
-                'discount_amount' => $discount,
-                'discount_label' => $label,
-            ];
-        }
-
-        $result = new PromotionPreview(
-            totalProducts: count($previews),
-            productPreviews: $previews,
-            originalPrice: $totalOriginal,
-            finalPrice: $totalFinal,
-            discountAmount: $totalOriginal - $totalFinal,
-            discountLabel: count($previews) > 0 ? $previews[0]['discount_label'] ?? '' : null,
-            warnings: $warnings,
-        );
+        $result = $this->previewService->generate($products, $discountType, $discountValue, $discountConfig);
 
         return response()->json($result->toArray());
     }

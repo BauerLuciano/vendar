@@ -105,22 +105,6 @@ const formatDate = (date) => {
         year: 'numeric',
     });
 };
-
-const discountLabel = (promotion) => {
-    if (promotion.discount_type === 'percent') {
-        return `${promotion.value}%`;
-    }
-    if (promotion.discount_type === 'fixed_price') {
-        return `$${promotion.value}`;
-    }
-    if (promotion.discount_type === '2x1') {
-        return '2x1';
-    }
-    if (promotion.discount_type === 'bundle') {
-        return `Combo $${promotion.value}`;
-    }
-    return '-';
-};
 </script>
 
 <template>
@@ -208,7 +192,7 @@ const discountLabel = (promotion) => {
                                     </td>
 
                                     <td class="p-4 font-mono font-bold text-sky-800">
-                                        {{ discountLabel(p) }}
+                                        {{ p.discount_label }}
                                     </td>
 
                                     <td class="p-4 text-sm text-slate-500">

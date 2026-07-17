@@ -12,16 +12,22 @@ use App\Models\Consumidor;
 use App\Models\DetalleVenta;
 use App\Models\VentaPendiente;
 use App\Models\PaymentMethodConfiguration;
+use App\Models\RecargoTarjeta;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
-
-
+use App\Services\Promotion\PromotionEngineService;
+use App\Services\Promotion\PromotionConflictResolver;
 
 class PosController extends Controller
 {
+    public function __construct(
+        private readonly PromotionEngineService $engine,
+        private readonly PromotionConflictResolver $conflictResolver,
+    ) {}
+
     // Esta es la puerta de entrada al POS
     public function index(Request $request)
     {
@@ -77,6 +83,19 @@ class PosController extends Controller
                 'label' => $m->label(),
             ]);
 
+            $recargos = RecargoTarjeta::where('comercio_id', $comercioId)
+                ->where('enabled', true)
+                ->get()
+                ->groupBy('banco')
+                ->map(fn ($group) => $group->keyBy(fn ($r) => $r->tipo_tarjeta . '_' . $r->cuotas));
+
+            $bancosDisponibles = RecargoTarjeta::where('comercio_id', $comercioId)
+                ->where('enabled', true)
+                ->distinct()
+                ->pluck('banco')
+                ->sort()
+                ->values();
+
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
@@ -85,6 +104,8 @@ class PosController extends Controller
                 'frecuentes' => $productosFrecuentes,
                 'paymentMethods' => $paymentMethods,
                 'metodosBase' => $metodosBase,
+                'recargos' => $recargos,
+                'bancosDisponibles' => $bancosDisponibles,
             ]);
         }
 
@@ -423,5 +444,105 @@ class PosController extends Controller
             ->get();
 
         return response()->json($clientes);
+    }
+
+    /**
+     * Bulk price computation for POS cart items.
+     * Returns effective unit prices including all active promotions
+     * (percent, fixed_amount, fixed_price, 2x1, x_for_y).
+     */
+    public function precios(Request $request)
+    {
+        $request->validate([
+            'items'   => 'required|array|min:1',
+            'items.*' => 'array',
+            'items.*.id'       => 'required|exists:productos,id',
+            'items.*.cantidad' => 'required|numeric|min:1',
+        ]);
+
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
+
+        $itemData = collect($request->items)->map(fn ($i) => [
+            'id'       => (int) $i['id'],
+            'cantidad' => max(1, (int) ($i['cantidad'] ?? 1)),
+        ]);
+
+        $productIds = $itemData->pluck('id')->unique()->values()->all();
+        $qtyByProduct = $itemData->pluck('cantidad', 'id')->toArray();
+
+        $productos = Producto::whereIn('id', $productIds)
+            ->where('estado', true)
+            ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
+            ->get();
+
+        $results = $this->engine->forProducts($productos, $comercioId);
+
+        $out = [];
+        foreach ($results as $r) {
+            $prod       = $r['producto'];
+            $promoResult = $r['promotion_result'];
+            $quantity   = $qtyByProduct[$prod->id] ?? 1;
+            $basePrice  = (float) $prod->precio_venta;
+
+            $effectiveUnit   = $basePrice;
+            $discountApplied = 0.0;
+            $discountType    = null;
+
+            $best = $promoResult->bestPromotion;
+
+            if ($best !== null && $best->promotion) {
+                $dtype = $best->promotion->discountType;
+
+                if (in_array($dtype, ['percent', 'fixed_amount', 'fixed_price'], true)) {
+                    $effectiveUnit   = $best->finalPrice;
+                    $discountApplied = $best->discountAmount;
+                    $discountType    = $dtype;
+                } elseif ($dtype === '2x1' || $dtype === 'x_for_y') {
+                    $x = $dtype === '2x1' ? 2 : (int) ($best->promotion->discountConfig['x'] ?? 2);
+                    $y = $dtype === '2x1' ? 1 : (int) ($best->promotion->discountConfig['y'] ?? 1);
+
+                    if ($quantity >= $x && $x > 0 && $y > 0 && $y < $x) {
+                        $groups  = intdiv($quantity, $x);
+                        $remainder = $quantity % $x;
+                        $effectiveUnit = ($groups * $y + $remainder) * $basePrice / $quantity;
+                        $discountApplied = $basePrice - $effectiveUnit;
+                        $discountType = $dtype;
+                    }
+                }
+            }
+
+            // Fallback: ConflictResolver skips 2x1/x_for_y in bestPromotion,
+            // so check the promotions array directly for quantity-based discounts
+            if ($discountType === null && !empty($promoResult->promotions)) {
+                foreach ($promoResult->promotions as $pd) {
+                    if (in_array($pd->discountType, ['2x1', 'x_for_y'], true)) {
+                        $x = $pd->discountType === '2x1' ? 2 : (int) ($pd->discountConfig['x'] ?? 2);
+                        $y = $pd->discountType === '2x1' ? 1 : (int) ($pd->discountConfig['y'] ?? 1);
+
+                        if ($quantity >= $x && $x > 0 && $y > 0 && $y < $x) {
+                            $groups  = intdiv($quantity, $x);
+                            $remainder = $quantity % $x;
+                            $effectiveUnit = ($groups * $y + $remainder) * $basePrice / $quantity;
+                            $discountApplied = $basePrice - $effectiveUnit;
+                            $discountType = $pd->discountType;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            $out[] = [
+                'id'                   => $prod->id,
+                'precio_unitario'      => round($effectiveUnit, 2),
+                'precio_original'      => $basePrice,
+                'descuento_aplicado'   => round($discountApplied, 2),
+                'tipo_descuento'       => $discountType,
+                'cantidad'             => $quantity,
+            ];
+        }
+
+        return response()->json(['items' => $out]);
     }
 }
