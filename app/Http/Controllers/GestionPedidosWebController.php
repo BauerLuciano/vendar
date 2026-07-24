@@ -5,13 +5,15 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\PedidoWeb;
 use App\Services\SucursalScopeService;
+use App\Services\LoteService;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class GestionPedidosWebController extends Controller
 {
     public function __construct(
-        private readonly SucursalScopeService $scope
+        private readonly SucursalScopeService $scope,
+        private readonly LoteService $lotes
     ) {}
 
     /**
@@ -87,6 +89,9 @@ class GestionPedidosWebController extends Controller
                         throw new \Exception("Stock físico insuficiente para el producto ID {$item->producto_id}.");
                     }
 
+                    $reservadaAnterior = (float) $ps->cantidad_reservada;
+                    $fisicaAnterior    = (float) $ps->cantidad_fisica;
+
                     DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
@@ -95,15 +100,51 @@ class GestionPedidosWebController extends Controller
                             'cantidad_fisica'    => DB::raw("cantidad_fisica - " . (float) $item->cantidad),
                             'updated_at'         => now(),
                         ]);
+
+                    $psDespues = DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->first();
+
+                    $consumidos = $this->lotes->consumirFifo(
+                        (int) $item->producto_id,
+                        (int) $pedido->sucursal_id,
+                        (float) $item->cantidad
+                    );
+
+                    foreach ($consumidos as $consumo) {
+                        DB::table('pedido_web_items_lotes')->insert([
+                            'pedido_web_item_id' => $item->id,
+                            'lote_id'            => $consumo['lote_id'],
+                            'cantidad'           => $consumo['cantidad'],
+                            'created_at'         => now(),
+                            'updated_at'         => now(),
+                        ]);
+                    }
+
+                    DB::table('movimientos_stock')->insert([
+                        'producto_id'         => $item->producto_id,
+                        'sucursal_id'         => $pedido->sucursal_id,
+                        'user_id'             => auth()->id(),
+                        'tipo_movimiento'     => 'Entrega Pedido Web',
+                        'cantidad_anterior'   => $fisicaAnterior,
+                        'cantidad_movimiento' => -(float) $item->cantidad,
+                        'cantidad_actual'     => (float) $psDespues->cantidad_fisica,
+                        'motivo'              => "Entrega del pedido web #{$pedido->id}",
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
+                    ]);
                 }
             } elseif ($esCancel) {
                 if ($estadoActual === 'entregado') {
                     foreach ($pedido->items as $item) {
-                        DB::table('producto_sucursal')
+                        $ps = DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
                             ->where('producto_id', $item->producto_id)
                             ->lockForUpdate()
                             ->first();
+
+                        $fisicaAnterior = $ps ? (float) $ps->cantidad_fisica : 0;
 
                         DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
@@ -112,6 +153,37 @@ class GestionPedidosWebController extends Controller
                                 'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $item->cantidad),
                                 'updated_at'     => now(),
                             ]);
+
+                        $consumidos = DB::table('pedido_web_items_lotes')
+                            ->where('pedido_web_item_id', $item->id)
+                            ->get()
+                            ->map(fn ($row) => ['lote_id' => (int) $row->lote_id, 'cantidad' => (float) $row->cantidad])
+                            ->toArray();
+
+                        if (!empty($consumidos)) {
+                            $this->lotes->restaurarLotes($consumidos);
+                            DB::table('pedido_web_items_lotes')
+                                ->where('pedido_web_item_id', $item->id)
+                                ->delete();
+                        }
+
+                        $psDespues = DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->first();
+
+                        DB::table('movimientos_stock')->insert([
+                            'producto_id'         => $item->producto_id,
+                            'sucursal_id'         => $pedido->sucursal_id,
+                            'user_id'             => auth()->id(),
+                            'tipo_movimiento'     => 'Devolución Pedido Web',
+                            'cantidad_anterior'   => $fisicaAnterior,
+                            'cantidad_movimiento' => (float) $item->cantidad,
+                            'cantidad_actual'     => (float) $psDespues->cantidad_fisica,
+                            'motivo'              => "Devolución por cancelación post-entrega del pedido web #{$pedido->id}",
+                            'created_at'          => now(),
+                            'updated_at'          => now(),
+                        ]);
                     }
                 } else {
                     foreach ($pedido->items as $item) {
@@ -120,6 +192,7 @@ class GestionPedidosWebController extends Controller
                             ->where('producto_id', $item->producto_id)
                             ->lockForUpdate()
                             ->first();
+                        $reservadaAnterior = $ps ? (float) $ps->cantidad_reservada : 0;
                         if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
                             DB::table('producto_sucursal')
                                 ->where('sucursal_id', $pedido->sucursal_id)
@@ -131,6 +204,19 @@ class GestionPedidosWebController extends Controller
                                 ->where('producto_id', $item->producto_id)
                                 ->update(['cantidad_reservada' => 0, 'updated_at' => now()]);
                         }
+
+                        DB::table('movimientos_stock')->insert([
+                            'producto_id'         => $item->producto_id,
+                            'sucursal_id'         => $pedido->sucursal_id,
+                            'user_id'             => auth()->id(),
+                            'tipo_movimiento'     => 'Liberación Reserva Web',
+                            'cantidad_anterior'   => $reservadaAnterior,
+                            'cantidad_movimiento' => (float) $item->cantidad,
+                            'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
+                            'motivo'              => "Cancelación pre-entrega del pedido web #{$pedido->id}",
+                            'created_at'          => now(),
+                            'updated_at'          => now(),
+                        ]);
                     }
                 }
             }
@@ -175,6 +261,8 @@ class GestionPedidosWebController extends Controller
                 ->lockForUpdate()
                 ->first();
 
+            $reservadaAnterior = $ps ? (float) $ps->cantidad_reservada : 0;
+
             if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $pedido->sucursal_id)
@@ -186,6 +274,19 @@ class GestionPedidosWebController extends Controller
                     ->where('producto_id', $item->producto_id)
                     ->update(['cantidad_reservada' => 0]);
             }
+
+            DB::table('movimientos_stock')->insert([
+                'producto_id'         => $item->producto_id,
+                'sucursal_id'         => $pedido->sucursal_id,
+                'user_id'             => auth()->id(),
+                'tipo_movimiento'     => 'Liberación Reserva Web',
+                'cantidad_anterior'   => $reservadaAnterior,
+                'cantidad_movimiento' => (float) $item->cantidad,
+                'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
+                'motivo'              => "Reembolso del pedido web #{$pedido->id}",
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
         }
     }
 }

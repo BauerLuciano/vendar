@@ -2,9 +2,10 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ModalSucursal from './Componentes/ModalSucursal.vue'; 
 import DetalleSucursal from './Componentes/DetalleSucursal.vue'; 
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, Link } from '@inertiajs/vue3';
 import { ref, watch, reactive } from 'vue';
 import Swal from 'sweetalert2';
+import EmptyState from '@/Components/EmptyState.vue';
 
 const props = defineProps({ 
     sucursales: Object,
@@ -165,7 +166,15 @@ const toggleEstado = (s) => {
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             <tr v-if="sucursales.data.length === 0">
-                                <td colspan="5" class="p-8 text-center text-slate-400 font-bold">No se encontraron sucursales con esos filtros.</td>
+                                <td colspan="5" class="p-8 text-center">
+                                    <EmptyState
+                                        titulo="No hay sucursales"
+                                        descripcion="Creá tu primera sucursal para comenzar a operar."
+                                        icono="sucursal"
+                                        accionLabel="Crear Sucursal"
+                                        accionRoute="sucursales.create"
+                                    />
+                                </td>
                             </tr>
                             <tr v-for="s in sucursales.data" :key="s.id" class="hover:bg-slate-50/50 transition-colors group" :class="{'opacity-50 grayscale bg-slate-50': !s.estado}">
                                 <td class="p-4 font-mono font-bold text-sky-800">#{{ s.id }}</td>

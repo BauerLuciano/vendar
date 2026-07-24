@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
 use App\Models\PedidoWeb;
+use App\Models\User;
 use App\Models\Comercio;
 use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
@@ -34,10 +35,6 @@ class ViumiWebhookController extends Controller
             return response()->json(['error' => 'Order not found'], 404);
         }
 
-        if ($pedido->estado_pago === 'pagado') {
-            return response()->json(['status' => 'already_processed']);
-        }
-
         $gateway = $this->paymentService
             ->forCommerce($pedido->comercio)
             ->gateway('viumi');
@@ -48,51 +45,75 @@ class ViumiWebhookController extends Controller
             return response()->json(['error' => 'Invalid payload'], 400);
         }
 
-        $pedido->pasarela_payment_id = $payload->gatewayTransactionId;
-        $estadoPagoAnterior = $pedido->estado_pago;
+        return DB::transaction(function () use ($pedido, $payload) {
+            $pedido = PedidoWeb::lockForUpdate()->find($pedido->id);
+            $pedido->load('items');
 
-        match ($payload->status) {
-            PaymentStatus::APPROVED => $pedido->estado_pago = 'pagado',
-            PaymentStatus::REJECTED => $pedido->estado_pago = 'rechazado',
-            default => null,
-        };
+            if ($pedido->estado_pago === 'pagado') {
+                return response()->json(['status' => 'already_processed']);
+            }
 
-        $pedido->save();
+            $estadoPagoAnterior = $pedido->estado_pago;
 
-        if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
-            && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
-            foreach ($pedido->items as $item) {
-                $ps = DB::table('producto_sucursal')
-                    ->where('sucursal_id', $pedido->sucursal_id)
-                    ->where('producto_id', $item->producto_id)
-                    ->lockForUpdate()
-                    ->first();
-                if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
-                    DB::table('producto_sucursal')
+            match ($payload->status) {
+                PaymentStatus::APPROVED => $pedido->estado_pago = 'pagado',
+                PaymentStatus::REJECTED => $pedido->estado_pago = 'rechazado',
+                default => null,
+            };
+
+            $pedido->save();
+
+            if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
+                && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+                foreach ($pedido->items as $item) {
+                    $ps = DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
-                        ->decrement('cantidad_reservada', $item->cantidad);
-                } elseif ($ps) {
-                    DB::table('producto_sucursal')
-                        ->where('sucursal_id', $pedido->sucursal_id)
-                        ->where('producto_id', $item->producto_id)
-                        ->update(['cantidad_reservada' => 0]);
+                        ->lockForUpdate()
+                        ->first();
+
+                    $reservadaAnterior = $ps ? (float) $ps->cantidad_reservada : 0;
+
+                    if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->decrement('cantidad_reservada', $item->cantidad);
+                    } elseif ($ps) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->update(['cantidad_reservada' => 0]);
+                    }
+
+                    DB::table('movimientos_stock')->insert([
+                        'producto_id'         => $item->producto_id,
+                        'sucursal_id'         => $pedido->sucursal_id,
+                        'user_id'             => auth()->id() ?? User::whereHas('roles', fn($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1,
+                        'tipo_movimiento'     => 'Liberación Reserva Web',
+                        'cantidad_anterior'   => $reservadaAnterior,
+                        'cantidad_movimiento' => (float) $item->cantidad,
+                        'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
+                        'motivo'              => "Rechazo de pago Viumi - pedido web #{$pedido->id}",
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
+                    ]);
                 }
             }
-        }
 
-        $this->paymentRecorder->recordWebhook($pedido, 'viumi', $payload);
+            $this->paymentRecorder->recordWebhook($pedido, 'viumi', $payload);
 
-        activity()
-            ->performedOn($pedido)
-            ->causedByAnonymous()
-            ->withProperties([
-                'via' => 'webhook_viumi',
-                'payment_id' => $payload->gatewayTransactionId,
-                'status' => $payload->status->value,
-            ])
-            ->log('pedido_actualizado_via_webhook');
+            activity()
+                ->performedOn($pedido)
+                ->causedByAnonymous()
+                ->withProperties([
+                    'via' => 'webhook_viumi',
+                    'payment_id' => $payload->gatewayTransactionId,
+                    'status' => $payload->status->value,
+                ])
+                ->log('pedido_actualizado_via_webhook');
 
-        return response()->json(['status' => 'ok']);
+            return response()->json(['status' => 'ok']);
+        });
     }
 }

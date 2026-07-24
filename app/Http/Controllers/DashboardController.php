@@ -14,6 +14,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use App\Services\OnboardingService;
 
 class DashboardController extends Controller
 {
@@ -169,6 +170,9 @@ class DashboardController extends Controller
             ]);
         }
 
+        $onboardingService = new OnboardingService();
+        $estadoOnboarding = $onboardingService->estado();
+
         return Inertia::render('Dashboard', [
             'deudaTotal'          => (float) $deudaTotal,
             'ventasHoy'           => $ventasHoy,
@@ -184,6 +188,7 @@ class DashboardController extends Controller
             'fechaHasta'          => $fechaHasta,
             'esJefe'              => $esJefe,
             'sucursalUsuario'     => Sucursal::find($sucursalActivaId)?->nombre ?? ($user->branch?->nombre ?? 'Sede Central'),
+            'estadoOnboarding'    => $estadoOnboarding,
         ]);
     }
 

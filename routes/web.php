@@ -28,6 +28,7 @@ use App\Http\Controllers\{
     GestionPedidosWebController,
     ReporteController,
     PromotionController,
+    OnboardingController,
 };
 
 use App\Models\CuentaCorriente;
@@ -80,6 +81,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::get('/onboarding', [OnboardingController::class, 'index'])->name('onboarding.index');
+    Route::get('/onboarding/estado', [OnboardingController::class, 'estado'])->name('onboarding.estado');
 });
 
 // Ruta para pedidos web: acepta admin (User) y consumidores
@@ -185,12 +189,14 @@ Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
     Route::get('/ingresos', [IngresoMercaderiaController::class, 'index'])->name('ingresos.index');
     Route::post('/ingresos', [IngresoMercaderiaController::class, 'store'])->name('ingresos.store');
 
-    Route::resource('ordenes-compra', OrdenCompraController::class)->except(['create', 'show', 'edit', 'update']);
+    Route::resource('ordenes-compra', OrdenCompraController::class)->except(['create', 'show', 'edit']);
     Route::get('/ordenes-compra/{ordenCompra}/pdf', [OrdenCompraController::class, 'descargarPDF'])->name('ordenes-compra.pdf');
     Route::post('/ordenes-compra/sugerencias', [OrdenCompraController::class, 'generarSugerencias'])->name('ordenes-compra.sugerencias');
-    Route::patch('/ordenes-compra/{ordenCompra}/estado', [OrdenCompraController::class, 'cambiarEstado'])->name('ordenes-compra.estado');
-    Route::post('/ordenes-compra/{ordenCompra}/aprobar', [OrdenCompraController::class, 'aprobarYRecibir'])->name('ordenes-compra.aprobar');
-    Route::post('/ordenes-compra/{ordenCompra}/confirmar', [OrdenCompraController::class, 'confirmarPedido'])->name('ordenes-compra.confirmar');
+    Route::post('/ordenes-compra/{ordenCompra}/enviar', [OrdenCompraController::class, 'enviar'])->name('ordenes-compra.enviar');
+    Route::post('/ordenes-compra/{ordenCompra}/confirmar', [OrdenCompraController::class, 'confirmar'])->name('ordenes-compra.confirmar');
+    Route::post('/ordenes-compra/{ordenCompra}/rechazar', [OrdenCompraController::class, 'rechazar'])->name('ordenes-compra.rechazar');
+    Route::post('/ordenes-compra/{ordenCompra}/recibir', [OrdenCompraController::class, 'recibir'])->name('ordenes-compra.recibir');
+    Route::post('/ordenes-compra/{ordenCompra}/cancelar', [OrdenCompraController::class, 'cancelar'])->name('ordenes-compra.cancelar');
 
     Route::get('/reposicion', [ReposicionController::class, 'index'])->name('reposicion.index');
     Route::post('/reposicion/generar', [ReposicionController::class, 'generarPreOrdenes'])->name('reposicion.generar');

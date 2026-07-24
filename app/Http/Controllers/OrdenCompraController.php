@@ -4,35 +4,38 @@ namespace App\Http\Controllers;
 
 use App\Models\OrdenCompra;
 use App\Models\OrdenCompraDetalle;
+use App\Models\OrdenCompraHistorial;
 use App\Models\Sucursal;
 use App\Models\Proveedor;
+use App\Models\Producto;
 use App\Models\IngresoMercaderia;
 use App\Models\IngresoDetalle;
-use App\Models\Producto;
 use App\Services\LoteService;
 use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
-use Illuminate\Support\Facades\Mail;
-use App\Mail\OrdenConfirmadaProveedor; 
-use Barryvdh\DomPDF\Facade\Pdf;
 
 class OrdenCompraController extends Controller
 {
     public function __construct(private SucursalScopeService $scope) {}
 
+    // =========================================================================
+    // ÍNDICE
+    // =========================================================================
+
     public function index(Request $request)
     {
         $esJefe = $this->scope->esJefe();
-        
+        $comercioId = $this->scope->obtenerComercioId();
+
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');
         $proveedor_id = $request->input('proveedor_id', 'all');
         $fecha_desde = $request->input('fecha_desde');
         $fecha_hasta = $request->input('fecha_hasta');
 
-        $query = OrdenCompra::with(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
+        $query = OrdenCompra::with(['proveedor', 'sucursal', 'usuario', 'detalles.producto', 'historial.usuario']);
 
         if (!$esJefe) {
             $sucursalId = $this->scope->obtenerSucursalActiva();
@@ -62,23 +65,444 @@ class OrdenCompraController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        $comercioId = $this->scope->obtenerComercioId();
         $proveedores = Proveedor::deComercio($comercioId)->where('estado', true)->get();
         $sucursales = $esJefe
             ? Sucursal::all()
             : Sucursal::whereIn('id', array_filter([$this->scope->obtenerSucursalActiva()]))->get();
+        $productos = Producto::where('estado', true)->get();
 
         return Inertia::render('OrdenesCompra/Index', [
-            'ordenes' => $ordenes,
+            'ordenes'    => $ordenes,
             'proveedores' => $proveedores,
-            'sucursales' => $sucursales,
-            'filtros' => $request->only(['search', 'estado', 'proveedor_id', 'fecha_desde', 'fecha_hasta'])
+            'sucursales'  => $sucursales,
+            'productos'   => $productos,
+            'filtros'     => $request->only(['search', 'estado', 'proveedor_id', 'fecha_desde', 'fecha_hasta']),
         ]);
     }
+
+    // =========================================================================
+    // CREAR ORDEN MANUAL
+    // =========================================================================
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'proveedor_id'              => 'required|exists:proveedores,id',
+            'sucursal_id'               => 'required|exists:sucursales,id',
+            'fecha_entrega_esperada'    => 'nullable|date',
+            'observaciones'             => 'nullable|string|max:1000',
+            'items'                     => 'required|array|min:1',
+            'items.*.producto_id'       => 'required|exists:productos,id',
+            'items.*.cantidad_pedida'   => 'required|integer|min:1',
+            'items.*.costo_unitario'    => 'required|numeric|min:0',
+            'items.*.fecha_vencimiento' => 'nullable|date',
+        ]);
+
+        if (!$this->scope->puedeAccederSucursal((int) $validated['sucursal_id'])) {
+            return redirect()->back()->withErrors(['sucursal_id' => 'No tenés acceso a esa sucursal.']);
+        }
+
+        $totalEstimado = 0;
+
+        DB::beginTransaction();
+        try {
+            $orden = OrdenCompra::create([
+                'proveedor_id'           => $validated['proveedor_id'],
+                'sucursal_id'            => $validated['sucursal_id'],
+                'user_id'                => auth()->id(),
+                'fecha_emision'          => now(),
+                'fecha_entrega_esperada' => $validated['fecha_entrega_esperada'] ?? null,
+                'estado'                 => 'Sugerida',
+                'total_estimado'         => 0,
+                'observaciones'          => $validated['observaciones'] ?? null,
+            ]);
+
+            foreach ($validated['items'] as $item) {
+                $subtotal = $item['cantidad_pedida'] * $item['costo_unitario'];
+                $totalEstimado += $subtotal;
+
+                OrdenCompraDetalle::create([
+                    'orden_compra_id'          => $orden->id,
+                    'producto_id'              => $item['producto_id'],
+                    'cantidad_pedida'          => $item['cantidad_pedida'],
+                    'cantidad_recibida'        => 0,
+                    'costo_unitario_estimado'  => $item['costo_unitario'],
+                    'subtotal_estimado'        => $subtotal,
+                    'fecha_vencimiento'        => $item['fecha_vencimiento'] ?? null,
+                ]);
+            }
+
+            $orden->update(['total_estimado' => $totalEstimado]);
+
+            $this->registrarHistorial($orden->id, 'Sugerida', 'Orden creada manualmente.');
+
+            DB::commit();
+            return redirect()->back()->with('exito', 'Orden de compra creada correctamente.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error al crear la orden: ' . $e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // EDITAR ORDEN (solo Sugerida)
+    // =========================================================================
+
+    public function update(Request $request, OrdenCompra $ordenCompra)
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
+
+        if ($ordenCompra->estado !== 'Sugerida') {
+            return redirect()->back()->with('error', 'Solo se pueden editar órdenes en estado Sugerida.');
+        }
+
+        $validated = $request->validate([
+            'proveedor_id'              => 'required|exists:proveedores,id',
+            'sucursal_id'               => 'required|exists:sucursales,id',
+            'fecha_entrega_esperada'    => 'nullable|date',
+            'observaciones'             => 'nullable|string|max:1000',
+            'items'                     => 'required|array|min:1',
+            'items.*.producto_id'       => 'required|exists:productos,id',
+            'items.*.cantidad_pedida'   => 'required|integer|min:1',
+            'items.*.costo_unitario'    => 'required|numeric|min:0',
+            'items.*.fecha_vencimiento' => 'nullable|date',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $ordenCompra->update([
+                'proveedor_id'           => $validated['proveedor_id'],
+                'sucursal_id'            => $validated['sucursal_id'],
+                'fecha_entrega_esperada' => $validated['fecha_entrega_esperada'] ?? null,
+                'observaciones'          => $validated['observaciones'] ?? null,
+            ]);
+
+            $ordenCompra->detalles()->delete();
+
+            $totalEstimado = 0;
+            foreach ($validated['items'] as $item) {
+                $subtotal = $item['cantidad_pedida'] * $item['costo_unitario'];
+                $totalEstimado += $subtotal;
+
+                OrdenCompraDetalle::create([
+                    'orden_compra_id'          => $ordenCompra->id,
+                    'producto_id'              => $item['producto_id'],
+                    'cantidad_pedida'          => $item['cantidad_pedida'],
+                    'cantidad_recibida'        => 0,
+                    'costo_unitario_estimado'  => $item['costo_unitario'],
+                    'subtotal_estimado'        => $subtotal,
+                    'fecha_vencimiento'        => $item['fecha_vencimiento'] ?? null,
+                ]);
+            }
+
+            $ordenCompra->update(['total_estimado' => $totalEstimado]);
+
+            $this->registrarHistorial($ordenCompra->id, $ordenCompra->estado, 'Orden editada.');
+
+            DB::commit();
+            return redirect()->back()->with('exito', 'Orden actualizada correctamente.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error al actualizar: ' . $e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // ENVIAR AL PROVEEDOR
+    // =========================================================================
+
+    public function enviar(OrdenCompra $ordenCompra)
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
+
+        if (!in_array($ordenCompra->estado, ['Sugerida'])) {
+            return redirect()->back()->with('error', 'Solo se pueden enviar órdenes en estado Sugerida.');
+        }
+
+        $ordenCompra->update([
+            'estado'      => 'Enviada',
+            'fecha_envio' => now(),
+        ]);
+
+        $this->registrarHistorial($ordenCompra->id, 'Enviada');
+
+        return redirect()->back()->with('exito', 'Orden enviada al proveedor.');
+    }
+
+    // =========================================================================
+    // CONFIRMAR (proveedor aceptó)
+    // =========================================================================
+
+    public function confirmar(OrdenCompra $ordenCompra)
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
+
+        if ($ordenCompra->estado !== 'Enviada') {
+            return redirect()->back()->with('error', 'Solo se pueden confirmar órdenes en estado Enviada.');
+        }
+
+        $ordenCompra->update(['estado' => 'Confirmada']);
+
+        $this->registrarHistorial($ordenCompra->id, 'Confirmada', 'Proveedor confirmó el pedido.');
+
+        return redirect()->back()->with('exito', 'Orden confirmada por el proveedor.');
+    }
+
+    // =========================================================================
+    // RECHAZAR (vuelve a Sugerida para editar)
+    // =========================================================================
+
+    public function rechazar(Request $request, OrdenCompra $ordenCompra)
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
+
+        if (!in_array($ordenCompra->estado, ['Enviada'])) {
+            return redirect()->back()->with('error', 'Solo se pueden rechazar órdenes en estado Enviada.');
+        }
+
+        $request->validate([
+            'motivo_rechazo' => 'required|string|max:500',
+        ]);
+
+        $ordenCompra->update([
+            'estado'      => 'Sugerida',
+            'fecha_envio' => null,
+        ]);
+
+        $this->registrarHistorial(
+            $ordenCompra->id,
+            'Sugerida',
+            'Rechazada: ' . $request->motivo_rechazo
+        );
+
+        return redirect()->back()->with('exito', 'Orden rechazada. Podés editarla y reenviarla.');
+    }
+
+    // =========================================================================
+    // CANCELAR ORDEN
+    // =========================================================================
+
+    public function cancelar(Request $request, OrdenCompra $ordenCompra)
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
+
+        if (in_array($ordenCompra->estado, ['Recibida', 'Cancelada'])) {
+            return redirect()->back()->with('error', 'No se puede cancelar una orden ya recibida o cancelada.');
+        }
+
+        $request->validate([
+            'motivo_cancelacion' => 'required|string|max:500',
+        ]);
+
+        $ordenCompra->update(['estado' => 'Cancelada']);
+
+        $this->registrarHistorial(
+            $ordenCompra->id,
+            'Cancelada',
+            'Cancelada: ' . $request->motivo_cancelacion
+        );
+
+        return redirect()->back()->with('exito', 'Orden cancelada.');
+    }
+
+    // =========================================================================
+    // RECIBIR (parcial o total)
+    // =========================================================================
+
+    public function recibir(Request $request, OrdenCompra $ordenCompra)
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
+
+        if (!in_array($ordenCompra->estado, ['Confirmada', 'Parcialmente Recibida'])) {
+            return redirect()->back()->with('error', 'Solo se pueden recibir órdenes confirmadas o parcialmente recibidas.');
+        }
+
+        $request->validate([
+            'items'                          => 'required|array|min:1',
+            'items.*.orden_compra_detalle_id' => 'required|exists:orden_compra_detalles,id',
+            'items.*.cantidad_recibir'        => 'required|numeric|min:0',
+        ]);
+
+        $ordenCompra->load('detalles.producto');
+        $sucursalId = (int) $ordenCompra->sucursal_id;
+        $detallesMap = $ordenCompra->detalles->keyBy('id');
+
+        DB::beginTransaction();
+        try {
+            $alertasInflacion = [];
+            $loteService = app(LoteService::class);
+            $totalRecibido = 0;
+            $hayPendientes = false;
+            $itemsRecibidos = [];
+
+            foreach ($request->items as $itemData) {
+                $detalle = $detallesMap->get($itemData['orden_compra_detalle_id']);
+                if (!$detalle) continue;
+
+                $cantidadRecibir = (float) $itemData['cantidad_recibir'];
+                if ($cantidadRecibir <= 0) {
+                    $pendiente = $detalle->cantidad_pedida - $detalle->cantidad_recibida;
+                    if ($pendiente > 0) $hayPendientes = true;
+                    continue;
+                }
+
+                $pendiente = $detalle->cantidad_pedida - $detalle->cantidad_recibida;
+                $cantidadRecibir = min($cantidadRecibir, $pendiente);
+
+                $itemsRecibidos[] = [
+                    'producto' => $detalle->producto->nombre ?? 'Producto #' . $detalle->producto_id,
+                    'cantidad' => $cantidadRecibir,
+                ];
+
+                // --- LÓGICA DE STOCK (preservada de aprobarYRecibir) ---
+
+                if ($detalle->fecha_vencimiento) {
+                    $loteService->upsert(
+                        (int) $detalle->producto_id,
+                        $sucursalId,
+                        $detalle->fecha_vencimiento->format('Y-m-d'),
+                        $cantidadRecibir
+                    );
+                }
+
+                $producto = $detalle->producto;
+                $costoAnterior = $producto->precio_costo;
+                $costoNuevo = $detalle->costo_unitario_estimado;
+                $precioVentaAnterior = $producto->precio_venta;
+
+                $stockLocked = DB::table('producto_sucursal')
+                    ->where('producto_id', $detalle->producto_id)
+                    ->where('sucursal_id', $sucursalId)
+                    ->lockForUpdate()
+                    ->first();
+
+                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
+                $stockTotal = $cantidadAnterior + $cantidadRecibir;
+
+                $nuevoPPP = $stockTotal > 0
+                    ? round(($cantidadAnterior * $costoAnterior + $cantidadRecibir * $costoNuevo) / $stockTotal, 2)
+                    : $costoNuevo;
+
+                if ($costoNuevo > $costoAnterior && $costoAnterior > 0) {
+                    $alertasInflacion[] = [
+                        'producto'    => $producto->nombre,
+                        'costo_viejo' => $costoAnterior,
+                        'costo_nuevo' => $costoNuevo,
+                        'porcentaje'  => number_format((($costoNuevo - $costoAnterior) / $costoAnterior) * 100, 2),
+                    ];
+                }
+
+                if ($nuevoPPP != $costoAnterior) {
+                    $producto->update(['precio_costo' => $nuevoPPP]);
+
+                    DB::table('historico_costos')->insert([
+                        'producto_id'           => $detalle->producto_id,
+                        'costo_anterior'        => $costoAnterior,
+                        'costo_nuevo'           => $nuevoPPP,
+                        'precio_venta_anterior' => $precioVentaAnterior,
+                        'precio_venta_nuevo'    => $precioVentaAnterior,
+                        'user_id'               => auth()->id(),
+                        'origen_tipo'           => 'Recepción OC',
+                        'origen_id'             => $ordenCompra->id,
+                        'created_at'            => now(),
+                        'updated_at'            => now(),
+                    ]);
+                }
+
+                DB::table('producto_sucursal')
+                    ->where('producto_id', $detalle->producto_id)
+                    ->where('sucursal_id', $sucursalId)
+                    ->update([
+                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . $cantidadRecibir),
+                        'updated_at'     => now(),
+                    ]);
+
+                DB::table('movimientos_stock')->insert([
+                    'producto_id'         => $detalle->producto_id,
+                    'sucursal_id'         => $sucursalId,
+                    'user_id'             => auth()->id(),
+                    'tipo_movimiento'     => 'Ingreso OC',
+                    'cantidad_anterior'   => $cantidadAnterior,
+                    'cantidad_movimiento' => $cantidadRecibir,
+                    'cantidad_actual'     => $cantidadAnterior + $cantidadRecibir,
+                    'motivo'              => "OC #{$ordenCompra->id}" . ($cantidadRecibir < $detalle->cantidad_pedida ? " (parcial)" : ""),
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ]);
+
+                // --- FIN LÓGICA DE STOCK ---
+
+                $detalle->update([
+                    'cantidad_recibida' => $detalle->cantidad_recibida + $cantidadRecibir,
+                ]);
+
+                $totalRecibido += $cantidadRecibir;
+
+                $pendienteFinal = $detalle->cantidad_pedida - ($detalle->cantidad_recibida);
+                if ($pendienteFinal > 0) $hayPendientes = true;
+            }
+
+            // Crear ingreso de mercadería si hubo recepción
+            if ($totalRecibido > 0) {
+                IngresoMercaderia::create([
+                    'sucursal_id'   => $sucursalId,
+                    'proveedor_id'  => $ordenCompra->proveedor_id,
+                    'user_id'       => auth()->id(),
+                    'fecha_ingreso' => now(),
+                    'numero_remito' => 'OC-' . str_pad($ordenCompra->id, 4, '0', STR_PAD_LEFT),
+                    'total_costo'   => $totalRecibido,
+                ]);
+            }
+
+            // Determinar estado final
+            $nuevoEstado = $hayPendientes ? 'Parcialmente Recibida' : 'Recibida';
+            $ordenCompra->update(['estado' => $nuevoEstado]);
+
+            $detalleHistorial = $hayPendientes
+                ? 'Recepción parcial: ' . collect($itemsRecibidos)->map(fn($i) => "{$i['cantidad']}x {$i['producto']}")->implode(', ')
+                : 'Recepción total de la orden.';
+
+            $this->registrarHistorial($ordenCompra->id, $nuevoEstado, $detalleHistorial, [
+                'items_recibidos' => $itemsRecibidos,
+                'total_cantidad'  => $totalRecibido,
+            ]);
+
+            DB::commit();
+
+            $mensaje = $hayPendientes
+                ? "Recibido parcialmente. Quedan items pendientes."
+                : "Orden recibida completamente. Stock y precios actualizados.";
+
+            return redirect()->back()->with([
+                'exito'           => $mensaje,
+                'alertas_inflacion' => $alertasInflacion,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error al recibir: ' . $e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // GENERAR SUGERENCIAS AUTOMÁTICAS
+    // =========================================================================
 
     public function generarSugerencias()
     {
         $esJefe = $this->scope->esJefe();
+        $userId = $this->scope->usuario()->id;
         $sucursalesToProcess = $esJefe
             ? $this->scope->obtenerSucursalesDelComercioIds()
             : array_filter([$this->scope->obtenerSucursalActiva()]);
@@ -100,7 +524,7 @@ class OrdenCompraController extends Controller
                 foreach ($porProveedor as $proveedorId => $productos) {
                     $orden = OrdenCompra::firstOrCreate(
                         ['sucursal_id' => $sucId, 'proveedor_id' => $proveedorId, 'estado' => 'Sugerida'],
-                        ['user_id' => $user->id, 'fecha_emision' => now(), 'total_estimado' => 0, 'observaciones' => 'Generada automáticamente por alerta de stock mínimo.']
+                        ['user_id' => $userId, 'fecha_emision' => now(), 'total_estimado' => 0, 'observaciones' => 'Generada automáticamente por alerta de stock mínimo.']
                     );
 
                     $totalEstimado = $orden->total_estimado;
@@ -110,15 +534,16 @@ class OrdenCompraController extends Controller
                         if (!$detalleExiste) {
                             $cantidadPedida = ($prod->stock_minimo * 2) - $prod->cantidad_fisica;
                             if ($cantidadPedida <= 0) $cantidadPedida = 1;
-                            $costo = $prod->precio_costo ?? 0; 
+                            $costo = $prod->precio_costo ?? 0;
                             $subtotal = $cantidadPedida * $costo;
 
                             OrdenCompraDetalle::create([
-                                'orden_compra_id' => $orden->id,
-                                'producto_id' => $prod->id,
-                                'cantidad_pedida' => $cantidadPedida,
+                                'orden_compra_id'         => $orden->id,
+                                'producto_id'             => $prod->id,
+                                'cantidad_pedida'         => $cantidadPedida,
+                                'cantidad_recibida'       => 0,
                                 'costo_unitario_estimado' => $costo,
-                                'subtotal_estimado' => $subtotal
+                                'subtotal_estimado'       => $subtotal,
                             ]);
                             $totalEstimado += $subtotal;
                         }
@@ -134,163 +559,9 @@ class OrdenCompraController extends Controller
         }
     }
 
-    public function confirmarPedido(OrdenCompra $ordenCompra)
-    {
-        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
-            abort(403, 'Esta orden no pertenece a tu comercio.');
-        }
-
-        if ($ordenCompra->estado !== 'Cotizada') {
-            return redirect()->back()->with('error', 'Solo se pueden confirmar órdenes cotizadas.');
-        }
-
-        $ordenCompra->update(['estado' => 'Aprobada']);
-
-        $correoDestino = $ordenCompra->proveedor->email ?? 'proveedor@test.com';
-        Mail::to($correoDestino)->send(new OrdenConfirmadaProveedor($ordenCompra));
-
-        return redirect()->back()->with('exito', '¡Pedido confirmado! Se le envió un correo al proveedor.');
-    }
-
-    public function aprobarYRecibir(OrdenCompra $ordenCompra)
-    {
-        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
-            abort(403, 'Esta orden no pertenece a tu comercio.');
-        }
-
-        if ($ordenCompra->estado !== 'Aprobada') {
-            return redirect()->back()->with('error', 'Primero debes confirmar el pedido al proveedor.');
-        }
-
-        DB::beginTransaction();
-        try {
-            $ordenCompra->load('detalles.producto');
-
-            $ingreso = IngresoMercaderia::create([
-                'sucursal_id'  => $ordenCompra->sucursal_id,
-                'proveedor_id' => $ordenCompra->proveedor_id,
-                'user_id'      => auth()->id(),
-                'fecha_ingreso' => now(),
-                'numero_remito' => 'AUTO-OC-' . str_pad($ordenCompra->id, 4, '0', STR_PAD_LEFT),
-                'total_costo'   => $ordenCompra->total_estimado,
-            ]);
-
-            $alertasInflacion = [];
-            $loteService = app(LoteService::class);
-
-            foreach ($ordenCompra->detalles as $detalle) {
-                IngresoDetalle::create([
-                    'ingreso_mercaderia_id' => $ingreso->id,
-                    'producto_id'           => $detalle->producto_id,
-                    'cantidad_recibida'     => $detalle->cantidad_pedida,
-                    'costo_unitario'        => $detalle->costo_unitario_estimado,
-                    'fecha_vencimiento'     => $detalle->fecha_vencimiento,
-                ]);
-
-                if ($detalle->fecha_vencimiento) {
-                    $loteService->upsert(
-                        (int) $detalle->producto_id,
-                        (int) $ordenCompra->sucursal_id,
-                        $detalle->fecha_vencimiento,
-                        (float) $detalle->cantidad_pedida
-                    );
-                }
-
-                $producto = $detalle->producto;
-                $costoAnterior = $producto->precio_costo;
-                $costoNuevo = $detalle->costo_unitario_estimado;
-                $precioVentaAnterior = $producto->precio_venta;
-
-                $stockLocked = DB::table('producto_sucursal')
-                    ->where('producto_id', $detalle->producto_id)
-                    ->where('sucursal_id', $ordenCompra->sucursal_id)
-                    ->lockForUpdate()
-                    ->first();
-
-                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
-                $stockTotal = $cantidadAnterior + $detalle->cantidad_pedida;
-
-                // PPP: Precio de Promedio Ponderado
-                $nuevoPPP = $stockTotal > 0
-                    ? round(($cantidadAnterior * $costoAnterior + $detalle->cantidad_pedida * $costoNuevo) / $stockTotal, 2)
-                    : $costoNuevo;
-
-                // Alerta de inflación (costo de compra vs costo anterior)
-                if ($costoNuevo > $costoAnterior && $costoAnterior > 0) {
-                    $alertasInflacion[] = [
-                        'producto'    => $producto->nombre,
-                        'costo_viejo' => $costoAnterior,
-                        'costo_nuevo' => $costoNuevo,
-                        'porcentaje'  => number_format((($costoNuevo - $costoAnterior) / $costoAnterior) * 100, 2),
-                    ];
-                }
-
-                // Actualizar producto si el PPP cambió
-                if ($nuevoPPP != $costoAnterior) {
-                    $producto->update(['precio_costo' => $nuevoPPP]);
-
-                    DB::table('historico_costos')->insert([
-                        'producto_id'           => $detalle->producto_id,
-                        'costo_anterior'        => $costoAnterior,
-                        'costo_nuevo'           => $nuevoPPP,
-                        'precio_venta_anterior' => $precioVentaAnterior,
-                        'precio_venta_nuevo'    => $precioVentaAnterior,
-                        'user_id'               => auth()->id(),
-                        'origen_tipo'           => 'Recepción OC',
-                        'origen_id'             => $ordenCompra->id,
-                        'created_at'            => now(),
-                        'updated_at'            => now(),
-                    ]);
-                }
-
-                DB::table('producto_sucursal')
-                    ->where('producto_id', $detalle->producto_id)
-                    ->where('sucursal_id', $ordenCompra->sucursal_id)
-                    ->update([
-                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad_pedida),
-                        'updated_at'     => now(),
-                    ]);
-
-                DB::table('movimientos_stock')->insert([
-                    'producto_id'         => $detalle->producto_id,
-                    'sucursal_id'         => $ordenCompra->sucursal_id,
-                    'user_id'             => auth()->id(),
-                    'tipo_movimiento'     => 'Ingreso OC',
-                    'cantidad_anterior'   => $cantidadAnterior,
-                    'cantidad_movimiento' => $detalle->cantidad_pedida,
-                    'cantidad_actual'     => $cantidadAnterior + $detalle->cantidad_pedida,
-                    'motivo'              => "OC #{$ordenCompra->id}",
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
-                ]);
-            }
-
-            $ordenCompra->update(['estado' => 'Recepcionada']);
-            DB::commit();
-
-            return redirect()->route('ingresos.index')->with([
-                'exito' => 'Mercadería recibida. Precios y Stock actualizados.',
-                'alertas_inflacion' => $alertasInflacion
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
-        }
-    }
-
-    public function cambiarEstado(Request $request, OrdenCompra $ordenCompra)
-    {
-        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
-            abort(403, 'Esta orden no pertenece a tu comercio.');
-        }
-
-        $validated = $request->validate([
-            'estado' => 'required|in:Sugerida,Borrador,Enviada,Cotizada,Aprobada,Recepcionada,Cancelada'
-        ]);
-        $ordenCompra->update(['estado' => $validated['estado']]);
-        return redirect()->back()->with('exito', "Estado actualizado.");
-    }
+    // =========================================================================
+    // ELIMINAR (solo Sugerida)
+    // =========================================================================
 
     public function destroy(OrdenCompra $ordenCompra)
     {
@@ -298,41 +569,65 @@ class OrdenCompraController extends Controller
             abort(403, 'Esta orden no pertenece a tu comercio.');
         }
 
-        if (in_array($ordenCompra->estado, ['Enviada', 'Recepcionada', 'Cotizada', 'Aprobada'])) {
-            return redirect()->back()->with('error', 'No se puede eliminar una orden con actividad.');
+        if ($ordenCompra->estado !== 'Sugerida') {
+            return redirect()->back()->with('error', 'Solo se pueden eliminar órdenes en estado Sugerida.');
         }
+
         $ordenCompra->delete();
         return redirect()->back()->with('exito', 'Orden eliminada.');
     }
+
+    // =========================================================================
+    // PDF
+    // =========================================================================
+
     public function descargarPDF(OrdenCompra $ordenCompra)
-        {
-            if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
-                abort(403, 'Esta orden no pertenece a tu comercio.');
-            }
-
-            $ordenCompra->load(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
-            $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
-
-            $logoBase64 = null;
-            if (!empty($config['logo_empresa'])) {
-                $pathLogo = storage_path('app/public/' . $config['logo_empresa']);
-                if (file_exists($pathLogo) && is_file($pathLogo)) {
-                    $logoBase64 = 'data:image/' . pathinfo($pathLogo, PATHINFO_EXTENSION) . ';base64,' . base64_encode(file_get_contents($pathLogo));
-                }
-            }
-
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.orden-compra', [
-                'orden'   => $ordenCompra,
-                'config'  => $config,
-                'logo'    => $logoBase64,
-                'usuario' => auth()->user()->name,
-                'fecha'   => now()->format('d/m/Y'),
-                'hora'    => now()->format('H:i')
-            ]);
-
-            // IMPORTANTE: Forzar A4 y habilitar PHP si fuera necesario
-            $pdf->setPaper('A4', 'portrait');
-
-            return $pdf->download('Orden_Compra_' . $ordenCompra->id . '.pdf');
+    {
+        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
         }
+
+        $ordenCompra->load(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
+        $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
+
+        $logoBase64 = null;
+        if (!empty($config['logo_empresa'])) {
+            $pathLogo = storage_path('app/public/' . $config['logo_empresa']);
+            if (file_exists($pathLogo) && is_file($pathLogo)) {
+                $logoBase64 = 'data:image/' . pathinfo($pathLogo, PATHINFO_EXTENSION) . ';base64,' . base64_encode(file_get_contents($pathLogo));
+            }
+        }
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.orden-compra', [
+            'orden'   => $ordenCompra,
+            'config'  => $config,
+            'logo'    => $logoBase64,
+            'usuario' => auth()->user()->name,
+            'fecha'   => now()->format('d/m/Y'),
+            'hora'    => now()->format('H:i'),
+        ]);
+
+        $pdf->setPaper('A4', 'portrait');
+
+        return $pdf->download('Orden_Compra_' . $ordenCompra->id . '.pdf');
+    }
+
+    // =========================================================================
+    // HELPERS PRIVADOS
+    // =========================================================================
+
+    private function registrarHistorial(
+        int $ordenId,
+        string $estado,
+        ?string $motivo = null,
+        ?array $detalle = null
+    ): void {
+        OrdenCompraHistorial::create([
+            'orden_compra_id' => $ordenId,
+            'estado'          => $estado,
+            'user_id'         => auth()->id(),
+            'motivo'          => $motivo,
+            'detalle'         => $detalle,
+        ]);
+    }
 }

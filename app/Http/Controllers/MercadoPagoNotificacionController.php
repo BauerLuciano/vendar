@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
+use App\Models\User;
 use Illuminate\Http\Request;
 use App\Models\Comercio;
 use App\Models\PedidoWeb;
@@ -55,54 +56,76 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['error' => 'No external reference in payment'], 400);
         }
 
-        $pedido = PedidoWeb::where('comercio_id', $comercio->id)->findOrFail($externalRef);
+        return DB::transaction(function () use ($externalRef, $comercio, $status, $paymentId) {
+            $pedido = PedidoWeb::lockForUpdate()
+                ->where('comercio_id', $comercio->id)
+                ->findOrFail($externalRef);
+            $pedido->load('items');
 
-        if ($pedido->pasarela_payment_id === $paymentId && $pedido->estado_pago === 'pagado') {
-            return response()->json(['status' => 'already_processed']);
-        }
+            if ($pedido->pasarela_payment_id === $paymentId && $pedido->estado_pago === 'pagado') {
+                return response()->json(['status' => 'already_processed']);
+            }
 
-        $pedido->pasarela_payment_id = $paymentId;
-        $estadoPagoAnterior = $pedido->estado_pago;
+            $estadoPagoAnterior = $pedido->estado_pago;
 
-        if ($status->status === PaymentStatus::APPROVED) {
-            $pedido->estado_pago = 'pagado';
-        } elseif (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::REFUNDED])) {
-            $pedido->estado_pago = 'rechazado';
-        }
+            $pedido->pasarela_payment_id = $paymentId;
 
-        $pedido->save();
+            if ($status->status === PaymentStatus::APPROVED) {
+                $pedido->estado_pago = 'pagado';
+            } elseif (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::REFUNDED])) {
+                $pedido->estado_pago = 'rechazado';
+            }
 
-        if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
-            && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
-            foreach ($pedido->items as $item) {
-                $ps = DB::table('producto_sucursal')
-                    ->where('sucursal_id', $pedido->sucursal_id)
-                    ->where('producto_id', $item->producto_id)
-                    ->lockForUpdate()
-                    ->first();
-                if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
-                    DB::table('producto_sucursal')
+            $pedido->save();
+
+            if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
+                && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+                foreach ($pedido->items as $item) {
+                    $ps = DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
-                        ->decrement('cantidad_reservada', $item->cantidad);
-                } elseif ($ps) {
-                    DB::table('producto_sucursal')
-                        ->where('sucursal_id', $pedido->sucursal_id)
-                        ->where('producto_id', $item->producto_id)
-                        ->update(['cantidad_reservada' => 0]);
+                        ->lockForUpdate()
+                        ->first();
+
+                    $reservadaAnterior = $ps ? (float) $ps->cantidad_reservada : 0;
+
+                    if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->decrement('cantidad_reservada', $item->cantidad);
+                    } elseif ($ps) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->update(['cantidad_reservada' => 0]);
+                    }
+
+                    DB::table('movimientos_stock')->insert([
+                        'producto_id'         => $item->producto_id,
+                        'sucursal_id'         => $pedido->sucursal_id,
+                        'user_id'             => auth()->id() ?? User::whereHas('roles', fn($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1,
+                        'tipo_movimiento'     => 'Liberación Reserva Web',
+                        'cantidad_anterior'   => $reservadaAnterior,
+                        'cantidad_movimiento' => (float) $item->cantidad,
+                        'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
+                        'motivo'              => "Rechazo de pago MercadoPago - pedido web #{$pedido->id}",
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
+                    ]);
                 }
             }
-        }
 
-        $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
-            gatewayTransactionId: $status->gatewayTransactionId,
-            status: $status->status,
-            referenceId: $status->referenceId,
-            amount: $status->amount,
-            raw: $status->raw,
-        ));
+            $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
+                gatewayTransactionId: $status->gatewayTransactionId,
+                status: $status->status,
+                referenceId: $status->referenceId,
+                amount: $status->amount,
+                raw: $status->raw,
+            ));
 
-        return response()->json(['status' => 'ok']);
+            return response()->json(['status' => 'ok']);
+        });
     }
 
     private function procesarUpgradePlan(string $paymentId, Request $request): \Illuminate\Http\JsonResponse

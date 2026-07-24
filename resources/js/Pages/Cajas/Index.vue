@@ -125,15 +125,13 @@
                                 <!-- Mensaje Sin Cajas Registradas -->
                                 <tr v-else-if="cajas.length === 0">
                                     <td colspan="4" class="py-20 text-center">
-                                        <div class="flex flex-col items-center gap-3 text-slate-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                            </svg>
-                                            <div>
-                                                <p class="text-sm font-medium text-slate-400">No hay cajas registradas</p>
-                                                <p class="text-xs text-slate-300 mt-1">Crea tu primera caja para comenzar a operar.</p>
-                                            </div>
-                                        </div>
+                                        <EmptyState
+                                            titulo="No hay cajas registradas"
+                                            descripcion="Creá tu primera caja para comenzar a operar."
+                                            icono="caja"
+                                            accionLabel="Crear Caja"
+                                            accionRoute="cajas.create"
+                                        />
                                     </td>
                                 </tr>
 
@@ -280,9 +278,10 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useForm, router, Head } from '@inertiajs/vue3';
+import { useForm, router, Head, Link } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
+import EmptyState from '@/Components/EmptyState.vue';
 
 const props = defineProps({
     cajas: Array,

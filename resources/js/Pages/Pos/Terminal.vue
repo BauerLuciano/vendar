@@ -620,7 +620,7 @@ const clickEnProducto = async (producto) => {
             title: 'Ingresar Cantidad',
             html: `
                 <div class="mb-4 text-slate-500 font-bold text-sm">Estás vendiendo: <span class="text-sky-600">${producto.nombre}</span></div>
-                <div class="text-[10px] text-amber-600 font-black mb-2 uppercase tracking-widest">Stock Disponible: ${producto.stock_actual} kg</div>
+                <div class="text-[10px] text-amber-600 font-black mb-2 uppercase tracking-widest">Disponible: ${producto.stock_actual} kg</div>
                 <div class="flex flex-col sm:flex-row gap-3 justify-center items-center">
                     <input id="swal-peso" type="number" step="0.001" min="0.001" class="w-32 border-slate-300 rounded-xl text-center text-xl font-black text-slate-800 focus:ring-sky-500 focus:border-sky-500" placeholder="Ej: 250">
                     <select id="swal-unidad" class="w-32 border-slate-300 rounded-xl text-slate-700 font-bold text-lg bg-slate-50 focus:ring-sky-500 focus:border-sky-500">
@@ -646,7 +646,7 @@ const clickEnProducto = async (producto) => {
                 }
                 
                 if (cantCalculada > producto.stock_actual && !permitirStockNegativo.value) {
-                    Swal.showValidationMessage(`Stock insuficiente (Disponible: ${producto.stock_actual}kg)`);
+                    Swal.showValidationMessage(`Sin stock suficiente (Disponible: ${producto.stock_actual}kg)`);
                     return false;
                 }
 
@@ -671,7 +671,7 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     const nuevaCantidad = existe ? existe.cantidad + cantidadAgregada : cantidadAgregada;
 
     if (nuevaCantidad > producto.stock_actual && !permitirStockNegativo.value) {
-        Swal.fire('Stock Insuficiente', `Solo hay ${producto.stock_actual} disponibles.`, 'warning');
+        Swal.fire('Stock Insuficiente', `Solo quedan ${producto.stock_actual} disponibles.`, 'warning');
         return;
     }
 
