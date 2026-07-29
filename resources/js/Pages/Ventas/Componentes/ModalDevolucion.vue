@@ -26,7 +26,7 @@ watch(() => props.mostrar, (val) => {
             producto: d.producto?.nombre || 'Producto',
             precio_unitario: d.precio_unitario,
             subtotal: d.subtotal,
-            max: Number(d.cantidad),
+            max: Number(d.cantidad) - Number(d.cantidad_devuelta || 0),
             cantidad: 0,
         }));
     }
