@@ -98,7 +98,7 @@ class PosController extends Controller
 
             $categorias = $productos->pluck('categoria')->filter()->unique('id')->values()->map(fn ($c) => [
                 'id' => $c->id,
-                'nombre' => $c->nombre,
+                'nombre' => $c->nombreCategoria,
             ]);
 
             return Inertia::render('Pos/Terminal', [
