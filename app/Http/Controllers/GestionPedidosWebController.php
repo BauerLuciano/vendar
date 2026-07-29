@@ -65,6 +65,13 @@ class GestionPedidosWebController extends Controller
 
             if ($nuevoEstado === 'entregado') {
                 foreach ($pedido->items as $item) {
+                    $ps = DB::table('producto_sucursal')
+                        ->where('sucursal_id', $pedido->sucursal_id)
+                        ->where('producto_id', $item->producto_id)
+                        ->lockForUpdate()
+                        ->first();
+                    $cantidadAnterior = $ps ? $ps->cantidad_fisica : 0;
+
                     DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
@@ -73,14 +80,47 @@ class GestionPedidosWebController extends Controller
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
                         ->decrement('cantidad_fisica', $item->cantidad);
+
+                    DB::table('movimientos_stock')->insert([
+                        'producto_id'       => $item->producto_id,
+                        'sucursal_id'       => $pedido->sucursal_id,
+                        'user_id'           => auth()->id(),
+                        'tipo_movimiento'   => 'Pedido Web Entregado',
+                        'cantidad_anterior' => $cantidadAnterior,
+                        'cantidad_movimiento' => -$item->cantidad,
+                        'cantidad_actual'   => $cantidadAnterior - $item->cantidad,
+                        'motivo'            => "Pedido web #{$pedido->id} entregado",
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ]);
                 }
             } elseif ($esCancel) {
                 if ($estadoActual === 'entregado') {
                     foreach ($pedido->items as $item) {
+                        $ps = DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->lockForUpdate()
+                            ->first();
+                        $cantidadAnterior = $ps ? $ps->cantidad_fisica : 0;
+
                         DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
                             ->where('producto_id', $item->producto_id)
                             ->increment('cantidad_fisica', $item->cantidad);
+
+                        DB::table('movimientos_stock')->insert([
+                            'producto_id'       => $item->producto_id,
+                            'sucursal_id'       => $pedido->sucursal_id,
+                            'user_id'           => auth()->id(),
+                            'tipo_movimiento'   => 'Cancelación Pedido Web',
+                            'cantidad_anterior' => $cantidadAnterior,
+                            'cantidad_movimiento' => $item->cantidad,
+                            'cantidad_actual'   => $cantidadAnterior + $item->cantidad,
+                            'motivo'            => "Pedido web #{$pedido->id} cancelado después de entrega",
+                            'created_at'        => now(),
+                            'updated_at'        => now(),
+                        ]);
                     }
                 } else {
                     foreach ($pedido->items as $item) {
@@ -159,6 +199,19 @@ class GestionPedidosWebController extends Controller
                     ->where('producto_id', $item->producto_id)
                     ->update(['cantidad_reservada' => 0]);
             }
+
+            DB::table('movimientos_stock')->insert([
+                'producto_id'       => $item->producto_id,
+                'sucursal_id'       => $pedido->sucursal_id,
+                'user_id'           => auth()->id(),
+                'tipo_movimiento'   => 'Liberación Reserva',
+                'cantidad_anterior' => $ps ? $ps->cantidad_fisica : 0,
+                'cantidad_movimiento' => 0,
+                'cantidad_actual'   => $ps ? $ps->cantidad_fisica : 0,
+                'motivo'            => "Reembolso - Pedido web #{$pedido->id}",
+                'created_at'        => now(),
+                'updated_at'        => now(),
+            ]);
         }
     }
 }

@@ -227,12 +227,12 @@ class VentaController extends Controller
                     ->lockForUpdate()
                     ->first();
 
-                $cantDisponible = $stockActual ? $stockActual->cantidad_fisica : 0;
+                $cantDisponible = $stockActual ? max(0, $stockActual->cantidad_fisica - $stockActual->cantidad_reservada) : 0;
 
                 if (!$permitirStockNegativo) {
                     if (!$stockActual || $cantDisponible < $item['cantidad']) {
                         $nombre = $item['nombre'] ?? "Producto ID: {$item['id']}";
-                        throw new \Exception("Stock insuficiente para: {$nombre}. Disponible: {$cantDisponible}");
+                        throw new \Exception("Stock insuficiente para: {$nombre}. Disponible: {$cantDisponible} (sin contar reservas de pedidos web).");
                     }
                 }
             }

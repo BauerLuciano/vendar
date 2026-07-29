@@ -254,6 +254,12 @@
                                                 Historial
                                             </button>
 
+                                            <button @click="abrirHistorialPrecios(p)"
+                                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-teal-600 hover:bg-teal-50 flex items-center gap-2.5">
+                                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" /></svg>
+                                                Hist. precios
+                                            </button>
+
                                             <button @click="abrirStock(p)"
                                                 class="w-full text-left px-4 py-2.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 flex items-center gap-2.5">
                                                 <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
@@ -535,6 +541,12 @@
             </div>
         </div>
 
+        <ModalHistorialPrecios
+            :mostrar="verHistorialPrecios"
+            :producto="seleccionado"
+            @cerrar="verHistorialPrecios = false"
+        />
+
     </AuthenticatedLayout>
 </template>
 
@@ -551,6 +563,7 @@ import ModalProducto from './Componentes/ModalProducto.vue';
 import DetalleProducto from './Componentes/DetalleProducto.vue';
 import ModalImportar from './Componentes/ModalImportar.vue';
 import ModalImprimirEtiquetas from './Componentes/ModalImprimirEtiquetas.vue';
+import ModalHistorialPrecios from './Componentes/ModalHistorialPrecios.vue';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch, computed } from 'vue';
 import Swal from 'sweetalert2';
@@ -574,6 +587,7 @@ const seleccionado = ref(null);
 
 const verAjuste = ref(false);
 const verAuditoria = ref(false);
+const verHistorialPrecios = ref(false);
 const movimientos = ref([]);
 const kardexPagina = ref(1);
 const kardexFiltros = ref({ fecha_desde: '', fecha_hasta: '', sucursal_id: '' });
@@ -745,6 +759,7 @@ const abrirNuevo = () => { seleccionado.value = null; verModal.value = true; };
 const abrirEditar = (p) => { seleccionado.value = p; cerrarMenu(); verModal.value = true; };
 const abrirDetalle = (p) => { seleccionado.value = p; cerrarMenu(); verDetalle.value = true; };
 const abrirStock = (p) => { seleccionado.value = p; cerrarMenu(); verStock.value = true; };
+const abrirHistorialPrecios = (p) => { seleccionado.value = p; cerrarMenu(); verHistorialPrecios.value = true; };
 const cerrarModalGlobal = () => { verModal.value = false; seleccionado.value = null; };
 
 const exportar = () => {

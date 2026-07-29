@@ -221,7 +221,7 @@ class PosController extends Controller
 
         return $query->get()->map(function($p) {
             $pivot = $p->sucursales->first();
-            $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
+            $p->stock_actual = $pivot ? max(0, (float)$pivot->pivot->cantidad_fisica - (float)$pivot->pivot->cantidad_reservada) : 0;
 
             $loteEnLiquidacion = $p->lotes->isNotEmpty();
 
@@ -370,7 +370,7 @@ class PosController extends Controller
             ->get()
             ->map(function($p) {
                 $pivot = $p->sucursales->first();
-                $p->stock_actual = $pivot ? (float)$pivot->pivot->cantidad_fisica : 0;
+                $p->stock_actual = $pivot ? max(0, (float)$pivot->pivot->cantidad_fisica - (float)$pivot->pivot->cantidad_reservada) : 0;
                 $p->en_liquidacion = false;
                 $p->porcentaje_descuento = 0;
                 $p->precio_rebajado = $p->precio_venta;

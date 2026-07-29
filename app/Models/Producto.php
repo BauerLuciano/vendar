@@ -26,6 +26,7 @@ class Producto extends Model
         'es_retornable',
         'precio_costo',
         'precio_venta',
+        'precio_venta_actualizado_en',
         'stock_minimo',
         'stock_objetivo',
         'imagen',
@@ -37,6 +38,7 @@ class Producto extends Model
         'estado' => 'boolean',
         'precio_costo' => 'decimal:2',
         'precio_venta' => 'decimal:2',
+        'precio_venta_actualizado_en' => 'datetime',
         'stock_minimo' => 'decimal:3',
         'stock_objetivo' => 'decimal:3',
         'cantidad_por_compra' => 'decimal:2',
@@ -92,5 +94,10 @@ class Producto extends Model
     public function lotes()
     {
         return $this->hasMany(Lote::class, 'producto_id');
+    }
+
+    public function historicoCostos()
+    {
+        return $this->hasMany(HistoricoCosto::class, 'producto_id');
     }
 }

@@ -1,58 +1,114 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <style>
-        * { font-family: 'Courier New', Courier, monospace; font-size: 12px; }
+        @page { margin: 0; }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        @media screen {
+            html { height: 100%; }
+            body {
+                background: #e5e7eb;
+                min-height: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 30px 10px;
+                font-family: 'Courier New', Courier, monospace;
+            }
+            .ticket-card {
+                background: white;
+                width: 58mm;
+                padding: 3mm 2mm;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                border-radius: 2px;
+            }
+        }
+        @media print {
+            html, body { background: white; }
+            body { width: 58mm; }
+            .ticket-card {
+                padding: 1mm 2mm;
+                box-shadow: none;
+            }
+        }
+        .font-small { font-size: 9px; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .bold { font-weight: bold; }
-        .border-top { border-top: 1px dashed black; margin-top: 5px; padding-top: 5px; }
-        .w-100 { width: 100%; }
-        @page { margin: 0; }
-        body { width: 48mm; margin: 5mm; } /* 58mm menos márgenes */
+        .line { border-top: 1px dashed #888; margin: 3px 0; }
+        .line-solid { border-top: 1px solid #000; margin: 3px 0; }
+        .logo-img { max-width: 30mm; margin-bottom: 2px; }
+        table { width: 100%; border-collapse: collapse; }
+        td { padding: 1px 0; vertical-align: top; }
+        .total-row td { padding-top: 2px; }
+        .total-label, .total-value { font-size: 15px; font-weight: bold; }
+        .total-value { text-align: right; }
     </style>
 </head>
-<body onload="window.print();"> <div class="text-center">
-        <span class="bold" style="font-size: 16px;">{{ $datosEmpresa['nombre'] }}</span><br>
-        {{ $datosEmpresa['direccion'] }}<br>
-        Tel: {{ $datosEmpresa['telefono'] }}<br>
-    </div>
+<body>
+    <div class="ticket-card">
+        <div class="text-center">
+            @if($ticket['empresa']['logo'])
+                <img src="{{ $ticket['empresa']['logo'] }}" class="logo-img">
+            @endif
+            <div class="bold" style="font-size: 12px;">{{ $ticket['empresa']['nombre'] }}</div>
+            @if($ticket['empresa']['cuit'])
+                <div class="font-small">CUIT: {{ $ticket['empresa']['cuit'] }}</div>
+            @endif
+            <div class="font-small">{{ $ticket['empresa']['direccion'] }}</div>
+            <div class="font-small">Tel: {{ $ticket['empresa']['telefono'] }}</div>
+        </div>
 
-    <div class="border-top">
-        Ticket: #{{ str_pad($venta->id, 8, '0', STR_PAD_LEFT) }}<br>
-        Fecha: {{ $venta->created_at->format('d/m/Y H:i') }}<br>
-        Cajero: {{ $venta->turno->cajero->name }}<br>
-        Cliente: {{ $venta->consumidor ? $venta->consumidor->nombre : 'Consumidor Final' }}
-    </div>
+        <div class="line"></div>
 
-    <table class="w-100 border-top">
-        <thead>
-            <tr>
-                <th class="text-left">DESCRIPCIÓN</th>
-                <th class="text-right">TOTAL</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach($venta->detalles as $detalle)
+        <table class="font-small">
+            <tr><td>Ticket #{{ $ticket['venta']['numero'] }}</td><td class="text-right">{{ $ticket['venta']['fecha'] }} {{ $ticket['venta']['hora'] }}</td></tr>
+            @if($ticket['sucursal']['nombre'])
+                <tr><td colspan="2">Sucursal: {{ $ticket['sucursal']['nombre'] }}</td></tr>
+            @endif
+            <tr><td colspan="2">Vendedor: {{ $ticket['vendedor']['nombre'] }}</td></tr>
+            <tr><td colspan="2">Cliente: {{ $ticket['cliente']['nombre'] }}@if($ticket['cliente']['documento']) ({{ $ticket['cliente']['documento'] }})@endif</td></tr>
+        </table>
+
+        <div class="line-solid"></div>
+
+        @foreach($ticket['items'] as $item)
+            <table class="font-small">
+                <tr><td colspan="2" class="bold">{{ \Illuminate\Support\Str::limit($item['nombre'], 26) }}</td></tr>
                 <tr>
-                    <td colspan="2">{{ substr($detalle->producto->nombre, 0, 20) }}</td>
+                    <td style="width: 60%;">{{ $item['cantidad'] }} x ${{ number_format($item['precio_unitario'], 2) }}</td>
+                    <td style="width: 40%; text-align: right;">${{ number_format($item['subtotal'], 2) }}</td>
                 </tr>
+            </table>
+        @endforeach
+
+        <div class="line-solid"></div>
+
+        <table>
+            <tr class="total-row">
+                <td class="total-label">TOTAL</td>
+                <td class="total-value">${{ number_format($ticket['totales']['total'], 2) }}</td>
+            </tr>
+            @foreach($ticket['pagos'] as $pago)
                 <tr>
-                    <td class="text-left">{{ $detalle->cantidad }} x {{ number_format($detalle->precio_unitario, 2) }}</td>
-                    <td class="text-right">${{ number_format($detalle->subtotal, 2) }}</td>
+                    <td class="font-small">{{ $pago['label'] }}</td>
+                    <td class="font-small text-right">${{ number_format($pago['monto'], 2) }}</td>
                 </tr>
             @endforeach
-        </tbody>
-    </table>
+        </table>
 
-    <div class="border-top text-right">
-        <span class="bold" style="font-size: 14px;">TOTAL: ${{ number_format($venta->total, 2) }}</span><br>
-        <small>Pago: {!! $venta->metodo_pago_display !!}</small>
+        <div class="text-center" style="margin-top: 6px;">
+            <div class="font-small">{{ $ticket['empresa']['mensaje_pie'] }}</div>
+        </div>
     </div>
-
-    <div class="text-center" style="margin-top: 20px;">
-        {{ $datosEmpresa['mensaje_pie'] }}<br>
-        <small>vendar.com.ar</small>
-    </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    window.print();
+});
+window.onafterprint = function() {
+    window.close();
+};
+</script>
 </body>
 </html>

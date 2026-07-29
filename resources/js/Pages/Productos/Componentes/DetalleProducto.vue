@@ -46,9 +46,14 @@ defineEmits(['cerrar']);
                     <p class="text-xs text-slate-600 leading-relaxed">{{ producto.descripcion }}</p>
                 </div>
 
-                <div class="bg-sky-50 border border-sky-100 p-4 rounded-xl flex justify-between items-center mb-6">
-                    <span class="text-xs font-black text-sky-800 uppercase tracking-widest">Precio Público:</span>
-                    <span class="text-2xl font-black text-sky-600 font-mono">${{ producto.precio_venta }}</span>
+                <div class="bg-sky-50 border border-sky-100 p-4 rounded-xl mb-6">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-black text-sky-800 uppercase tracking-widest">Precio Público:</span>
+                        <span class="text-2xl font-black text-sky-600 font-mono">${{ producto.precio_venta }}</span>
+                    </div>
+                    <p v-if="producto.precio_venta_actualizado_en" class="text-[10px] text-sky-500 text-right mt-1 font-medium">
+                        Actualizado: {{ new Date(producto.precio_venta_actualizado_en).toLocaleDateString('es-AR') }}
+                    </p>
                 </div>
 
                 <button @click="$emit('cerrar')" class="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition-all uppercase text-xs tracking-widest shadow-lg">

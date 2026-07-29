@@ -41,6 +41,11 @@
         .producto-precio .simbolo {
             font-size: 11pt;
         }
+        .producto-fecha {
+            font-size: 6.5pt;
+            color: #94a3b8;
+            margin-top: 1.5mm;
+        }
     </style>
 </head>
 <body>
@@ -63,6 +68,9 @@
                             <div class="producto-precio">
                                 <span class="simbolo">$</span> {{ number_format($p->precio_venta, 2, ',', '.') }}
                             </div>
+                            @if($p->precio_venta_actualizado_en)
+                                <div class="producto-fecha">Actualizado: {{ \Carbon\Carbon::parse($p->precio_venta_actualizado_en)->format('d/m/y') }}</div>
+                            @endif
                         </td>
                     @else
                         <td class="label" style="border: none;"></td>

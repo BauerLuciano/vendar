@@ -61,6 +61,19 @@ class ExpirarPedidosPendientes implements ShouldQueue
                             'a_liberar' => $item->cantidad,
                         ]);
                     }
+
+                    DB::table('movimientos_stock')->insert([
+                        'producto_id'       => $item->producto_id,
+                        'sucursal_id'       => $pedido->sucursal_id,
+                        'user_id'           => 1,
+                        'tipo_movimiento'   => 'Liberación Reserva',
+                        'cantidad_anterior' => $stockRow ? $stockRow->cantidad_fisica : 0,
+                        'cantidad_movimiento' => 0,
+                        'cantidad_actual'   => $stockRow ? $stockRow->cantidad_fisica : 0,
+                        'motivo'            => "Expiración automática - Pedido web #{$pedido->id}",
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ]);
                 }
 
                 $pedido->update([

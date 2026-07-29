@@ -211,6 +211,7 @@ Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos/{producto}/auditoria', [ProductoController::class, 'auditoria'])->name('productos.auditoria');
+    Route::get('/productos/{producto}/historial-precios', [ProductoController::class, 'historialPrecios'])->name('productos.historial-precios');
     Route::get('/auditoria', [App\Http\Controllers\AuditoriaController::class, 'index'])->name('auditoria.index');
 });
 
@@ -332,12 +333,17 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 // ------------------------------------------------------------------
 // TIENDA PÚBLICA POR SLUG
 // ------------------------------------------------------------------
-// Auth para consumidores en la tienda (API)
-Route::post('/api/tienda/login', [App\Http\Controllers\ConsumidorAuthController::class, 'login']);
-Route::post('/api/tienda/register', [App\Http\Controllers\ConsumidorAuthController::class, 'register']);
-Route::post('/api/tienda/logout', [App\Http\Controllers\ConsumidorAuthController::class, 'logout'])->middleware('auth:consumidor');
-Route::get('/api/tienda/me', [App\Http\Controllers\ConsumidorAuthController::class, 'me']);
-Route::post('/api/tienda/perfil', [App\Http\Controllers\ConsumidorAuthController::class, 'updateProfile'])->middleware('auth:consumidor');
+// Auth para consumidores en la tienda (API) - libre de VerificarEstadoCuenta
+Route::post('/api/tienda/login', [App\Http\Controllers\ConsumidorAuthController::class, 'login'])
+    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
+Route::post('/api/tienda/register', [App\Http\Controllers\ConsumidorAuthController::class, 'register'])
+    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
+Route::post('/api/tienda/logout', [App\Http\Controllers\ConsumidorAuthController::class, 'logout'])
+    ->middleware('auth:consumidor');
+Route::get('/api/tienda/me', [App\Http\Controllers\ConsumidorAuthController::class, 'me'])
+    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
+Route::post('/api/tienda/perfil', [App\Http\Controllers\ConsumidorAuthController::class, 'updateProfile'])
+    ->middleware('auth:consumidor');
 
 // Logout de consumidor (antes de la ruta {slug} para no colisionar)
 Route::get('/tienda/logout-consumidor', function () {

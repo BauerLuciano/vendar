@@ -129,6 +129,19 @@ class ProductoController extends Controller
 
             $producto = Producto::create($validados);
 
+            DB::table('historico_costos')->insert([
+                'producto_id'           => $producto->id,
+                'costo_anterior'        => 0,
+                'costo_nuevo'           => $validados['precio_costo'],
+                'precio_venta_anterior' => 0,
+                'precio_venta_nuevo'    => $validados['precio_venta'],
+                'user_id'               => auth()->id(),
+                'origen_tipo'           => 'Alta de producto',
+                'origen_id'             => $producto->id,
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ]);
+
             $lookup->createFromManual([
                 'codigo_barras' => $validados['codigo_barras'],
                 'nombre' => $validados['nombre'],
@@ -236,7 +249,32 @@ class ProductoController extends Controller
 
         unset($validados['imagen_url']);
 
+        $costoAnterior = (float) $producto->precio_costo;
+        $ventaAnterior = (float) $producto->precio_venta;
+
+        $cambioCosto = isset($validados['precio_costo']) && (float) $validados['precio_costo'] !== $costoAnterior;
+        $cambioVenta = isset($validados['precio_venta']) && (float) $validados['precio_venta'] !== $ventaAnterior;
+
+        if ($cambioVenta) {
+            $validados['precio_venta_actualizado_en'] = now();
+        }
+
         $producto->update($validados);
+
+        if ($cambioCosto || $cambioVenta) {
+            DB::table('historico_costos')->insert([
+                'producto_id'           => $producto->id,
+                'costo_anterior'        => $costoAnterior,
+                'costo_nuevo'           => $validados['precio_costo'] ?? $costoAnterior,
+                'precio_venta_anterior' => $ventaAnterior,
+                'precio_venta_nuevo'    => $validados['precio_venta'] ?? $ventaAnterior,
+                'user_id'               => auth()->id(),
+                'origen_tipo'           => 'Edición manual',
+                'origen_id'             => $producto->id,
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ]);
+        }
 
         return redirect()->back()->with('success', 'Producto actualizado correctamente.');
     }
@@ -932,6 +970,7 @@ class ProductoController extends Controller
                         'proveedor_id' => $proveedorId,
                         'precio_costo' => $precioCosto ?? 0,
                         'precio_venta' => $precioVenta ?? 0,
+                        'precio_venta_actualizado_en' => now(),
                         'stock_minimo' => $stockMinimo ?? 0,
                         'unidad_medida' => $unidadMedida,
                         'unidad_compra' => $unidadCompra,
@@ -949,6 +988,20 @@ class ProductoController extends Controller
                             'created_at' => now(),
                             'updated_at' => now(),
                         ]);
+
+                        DB::table('historico_costos')->insert([
+                            'producto_id'           => $nuevoProducto->id,
+                            'costo_anterior'        => 0,
+                            'costo_nuevo'           => $productoData['precio_costo'],
+                            'precio_venta_anterior' => 0,
+                            'precio_venta_nuevo'    => $productoData['precio_venta'],
+                            'user_id'               => auth()->id(),
+                            'origen_tipo'           => 'Importación Excel',
+                            'origen_id'             => $nuevoProducto->id,
+                            'created_at'            => now(),
+                            'updated_at'            => now(),
+                        ]);
+
                         $creados++;
                     } catch (\Illuminate\Database\QueryException $e) {
                         if (str_contains($e->getMessage(), 'duplicate key') || str_contains($e->getCode(), '23505')) {
@@ -960,12 +1013,16 @@ class ProductoController extends Controller
                     }
                 } else {
                     // ACTUALIZAR EXISTENTE — merge parcial
+                    $existenteProducto = Producto::where('id', $existente['id'])->first();
                     $mergeData = [];
                     if ($categoriaId !== null) $mergeData['categoria_id'] = $categoriaId;
                     if ($marcaId !== null) $mergeData['marca_id'] = $marcaId;
                     if ($proveedorId !== null) $mergeData['proveedor_id'] = $proveedorId;
                     if ($precioCosto !== null) $mergeData['precio_costo'] = round($precioCosto, 2);
-                    if ($precioVenta !== null) $mergeData['precio_venta'] = round($precioVenta, 2);
+                    if ($precioVenta !== null) {
+                        $mergeData['precio_venta'] = round($precioVenta, 2);
+                        $mergeData['precio_venta_actualizado_en'] = now();
+                    }
                     if ($stockMinimo !== null) $mergeData['stock_minimo'] = $stockMinimo;
                     if ($unidadMedida !== null) $mergeData['unidad_medida'] = $unidadMedida;
                     if ($cantidadCompra !== null) $mergeData['cantidad_por_compra'] = $cantidadCompra;
@@ -977,9 +1034,28 @@ class ProductoController extends Controller
                     $mergeData['es_retornable'] = $esRetornable;
                     $mergeData['estado'] = $estado;
 
+                    $cambioCostoImport = $precioCosto !== null && (float) $precioCosto !== (float) $existenteProducto->precio_costo;
+                    $cambioVentaImport = $precioVenta !== null && (float) $precioVenta !== (float) $existenteProducto->precio_venta;
+
                     if (!empty($mergeData)) {
                         Producto::where('id', $existente['id'])->update($mergeData);
                     }
+
+                    if ($cambioCostoImport || $cambioVentaImport) {
+                        DB::table('historico_costos')->insert([
+                            'producto_id'           => $existente['id'],
+                            'costo_anterior'        => $existenteProducto->precio_costo,
+                            'costo_nuevo'           => $cambioCostoImport ? round($precioCosto, 2) : $existenteProducto->precio_costo,
+                            'precio_venta_anterior' => $existenteProducto->precio_venta,
+                            'precio_venta_nuevo'    => $cambioVentaImport ? round($precioVenta, 2) : $existenteProducto->precio_venta,
+                            'user_id'               => auth()->id(),
+                            'origen_tipo'           => 'Importación Excel',
+                            'origen_id'             => $existente['id'],
+                            'created_at'            => now(),
+                            'updated_at'            => now(),
+                        ]);
+                    }
+
                     $actualizados++;
                 }
             }
@@ -1289,7 +1365,7 @@ class ProductoController extends Controller
             'copias' => 'required|integer|min:1|max:50',
         ]);
 
-        $query = Producto::query()->select(['id', 'nombre', 'precio_venta']);
+        $query = Producto::query()->select(['id', 'nombre', 'precio_venta', 'precio_venta_actualizado_en']);
 
         switch ($request->modo) {
             case 'todos':
@@ -1323,5 +1399,38 @@ class ProductoController extends Controller
         $pdf->setPaper('A4', 'portrait');
 
         return $pdf->download('etiquetas_' . now()->format('Ymd_His') . '.pdf');
+    }
+
+    public function historialPrecios(Request $request, Producto $producto)
+    {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+            abort(403, 'Este producto no pertenece a tu comercio.');
+        }
+
+        $request->validate([
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date|after_or_equal:fecha_desde',
+        ]);
+
+        $query = DB::table('historico_costos')
+            ->join('users', 'historico_costos.user_id', '=', 'users.id')
+            ->where('historico_costos.producto_id', $producto->id)
+            ->select(
+                'historico_costos.*',
+                'users.name as usuario'
+            )
+            ->orderBy('historico_costos.created_at', 'desc');
+
+        if ($request->filled('fecha_desde')) {
+            $query->where('historico_costos.created_at', '>=', $request->fecha_desde . ' 00:00:00');
+        }
+        if ($request->filled('fecha_hasta')) {
+            $query->where('historico_costos.created_at', '<=', $request->fecha_hasta . ' 23:59:59');
+        }
+
+        $historial = $query->paginate(8);
+
+        return response()->json($historial);
     }
 }

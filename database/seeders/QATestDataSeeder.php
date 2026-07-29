@@ -813,7 +813,7 @@ class QATestDataSeeder extends Seeder
         $tablesConExplicitIds = [
             'comercios', 'sucursales', 'categorias', 'marcas', 'proveedores',
             'consumidores', 'productos', 'lotes', 'cajas', 'turno_cajas',
-            'ventas', 'pedido_webs', 'orden_compras', 'transferencia_sugeridas',
+            'ventas', 'pedidos_web', 'orden_compras', 'transferencia_sugeridas',
         ];
 
         foreach ($tablesConExplicitIds as $table) {

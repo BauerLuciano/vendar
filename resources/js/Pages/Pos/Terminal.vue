@@ -837,7 +837,7 @@ const finalizarVenta = () => {
                 confirmButtonColor: '#0284c7',
             }).then((result) => {
                 if (result.isConfirmed && ventaId) {
-                    window.open(route('ventas.imprimir', ventaId), '_blank', 'width=450,height=600');
+                    window.open(route('ventas.imprimir', ventaId), 'print_ticket');
                 }
             });
 

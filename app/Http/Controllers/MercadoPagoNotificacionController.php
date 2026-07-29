@@ -57,41 +57,64 @@ class MercadoPagoNotificacionController extends Controller
 
         $pedido = PedidoWeb::where('comercio_id', $comercio->id)->findOrFail($externalRef);
 
-        if ($pedido->pasarela_payment_id === $paymentId && $pedido->estado_pago === 'pagado') {
-            return response()->json(['status' => 'already_processed']);
-        }
+        $resultado = DB::transaction(function () use ($pedido, $paymentId, $status) {
+            $pedido = PedidoWeb::lockForUpdate()->find($pedido->id);
 
-        $pedido->pasarela_payment_id = $paymentId;
-        $estadoPagoAnterior = $pedido->estado_pago;
+            if ($pedido->pasarela_payment_id === $paymentId && $pedido->estado_pago === 'pagado') {
+                return 'already_processed';
+            }
 
-        if ($status->status === PaymentStatus::APPROVED) {
-            $pedido->estado_pago = 'pagado';
-        } elseif (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::REFUNDED])) {
-            $pedido->estado_pago = 'rechazado';
-        }
+            $pedido->pasarela_payment_id = $paymentId;
+            $estadoPagoAnterior = $pedido->estado_pago;
 
-        $pedido->save();
+            if ($status->status === PaymentStatus::APPROVED) {
+                $pedido->estado_pago = 'pagado';
+            } elseif (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::REFUNDED])) {
+                $pedido->estado_pago = 'rechazado';
+            }
 
-        if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
-            && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
-            foreach ($pedido->items as $item) {
-                $ps = DB::table('producto_sucursal')
-                    ->where('sucursal_id', $pedido->sucursal_id)
-                    ->where('producto_id', $item->producto_id)
-                    ->lockForUpdate()
-                    ->first();
-                if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
-                    DB::table('producto_sucursal')
+            $pedido->save();
+
+            if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
+                && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+                foreach ($pedido->items as $item) {
+                    $ps = DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
                         ->where('producto_id', $item->producto_id)
-                        ->decrement('cantidad_reservada', $item->cantidad);
-                } elseif ($ps) {
-                    DB::table('producto_sucursal')
-                        ->where('sucursal_id', $pedido->sucursal_id)
-                        ->where('producto_id', $item->producto_id)
-                        ->update(['cantidad_reservada' => 0]);
+                        ->lockForUpdate()
+                        ->first();
+                    if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->decrement('cantidad_reservada', $item->cantidad);
+                    } elseif ($ps) {
+                        DB::table('producto_sucursal')
+                            ->where('sucursal_id', $pedido->sucursal_id)
+                            ->where('producto_id', $item->producto_id)
+                            ->update(['cantidad_reservada' => 0]);
+                    }
+
+                    DB::table('movimientos_stock')->insert([
+                        'producto_id'       => $item->producto_id,
+                        'sucursal_id'       => $pedido->sucursal_id,
+                        'user_id'           => $pedido->user_id ?? 1,
+                        'tipo_movimiento'   => 'Liberación Reserva',
+                        'cantidad_anterior' => $ps ? $ps->cantidad_fisica : 0,
+                        'cantidad_movimiento' => 0,
+                        'cantidad_actual'   => $ps ? $ps->cantidad_fisica : 0,
+                        'motivo'            => "Pago rechazado - Pedido web #{$pedido->id} (Mercado Pago)",
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ]);
                 }
             }
+
+            return 'ok';
+        });
+
+        if ($resultado === 'already_processed') {
+            return response()->json(['status' => 'already_processed']);
         }
 
         $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(

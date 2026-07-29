@@ -33,7 +33,15 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        $user = $request->user();
+        $user = $request->user() ?? auth('consumidor')->user();
+
+        if ($user instanceof \App\Models\Consumidor) {
+            $ultimaTienda = $request->session()->get('ultima_tienda_slug');
+            if ($ultimaTienda) {
+                return redirect()->intended(route('tienda.publica', ['slug' => $ultimaTienda]));
+            }
+            return redirect()->intended(route('cliente.inicio'));
+        }
 
         if ($user->hasRole('Administrador Global')) {
             return redirect()->intended(route('admin.comercios.index'));

@@ -108,6 +108,19 @@ class PedidoWebController extends Controller
                     ->where('producto_id', $productoId)
                     ->increment('cantidad_reservada', $cantidad);
 
+                DB::table('movimientos_stock')->insert([
+                    'producto_id'       => $productoId,
+                    'sucursal_id'       => $sucursalId,
+                    'user_id'           => auth()->id(),
+                    'tipo_movimiento'   => 'Reserva Pedido Web',
+                    'cantidad_anterior' => $productoStock->cantidad_fisica,
+                    'cantidad_movimiento' => 0,
+                    'cantidad_actual'   => $productoStock->cantidad_fisica,
+                    'motivo'            => "Reserva de {$cantidad} unidad(es) para pedido web",
+                    'created_at'        => now(),
+                    'updated_at'        => now(),
+                ]);
+
                 $precioUnitario = (float) $producto->precio_venta;
 
                 $enLiquidacion = false;

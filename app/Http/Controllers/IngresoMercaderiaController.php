@@ -160,6 +160,7 @@ class IngresoMercaderiaController extends Controller
                     $producto->update([
                         'precio_costo' => $nuevoPPP,
                         'precio_venta' => $nuevoPrecioVenta,
+                        'precio_venta_actualizado_en' => now(),
                     ]);
 
                     DB::table('historico_costos')->insert([

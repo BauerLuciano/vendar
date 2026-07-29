@@ -18,11 +18,25 @@ class ConsumidorAuthController extends Controller
 
         $comercioId = session('comercio_id_actual');
 
+        \Log::info('LOGIN_TIENDA', [
+            'email' => $request->email,
+            'comercio_id_session' => $comercioId,
+            'session_id' => $request->session()->getId(),
+        ]);
+
         $consumidor = Consumidor::where('email', $request->email)
             ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
             ->first();
 
-        if (!$consumidor || !Hash::check($request->password, $consumidor->password)) {
+        if (!$consumidor) {
+            \Log::info('LOGIN_TIENDA: consumidor no encontrado');
+            return response()->json([
+                'error' => 'Email o contraseña incorrectos.'
+            ], 401);
+        }
+
+        if (!Hash::check($request->password, $consumidor->password)) {
+            \Log::info('LOGIN_TIENDA: password mismatch', ['hash' => substr($consumidor->password, 0, 10)]);
             return response()->json([
                 'error' => 'Email o contraseña incorrectos.'
             ], 401);
