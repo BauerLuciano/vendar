@@ -105,6 +105,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
     Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
+    Route::post('/pos/crear-cliente', [PosController::class, 'crearCliente'])->name('pos.crear.cliente');
     Route::post('/pos/precios', [PosController::class, 'precios'])->name('pos.precios');
     Route::get('/pos/movimientos-turno', [PosController::class, 'movimientosTurno'])->name('pos.movimientos.turno');
     Route::post('/pos/guardar-carrito', [PosController::class, 'guardarCarrito'])->name('pos.guardar.carrito');
@@ -115,11 +116,13 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
     Route::patch('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar');
+    Route::post('/ventas/{venta}/devolver', [VentaController::class, 'devolver'])->name('ventas.devolver');
     Route::post('/ventas/{venta}/confirmar-pago', [VentaController::class, 'confirmarPago'])->name('ventas.confirmar-pago');
     Route::get('/ventas/pendientes', [VentaController::class, 'pendientes'])->name('ventas.pendientes');
 
     Route::get('/reportes', [ReporteController::class, 'index'])->name('reportes.index');
     Route::get('/reportes/pdf', [ReporteController::class, 'pdf'])->name('reportes.pdf');
+    Route::get('/reportes/excel', [ReporteController::class, 'excel'])->name('reportes.excel');
     Route::get('/reportes/rotacion', [ReporteController::class, 'rotacion'])->name('reportes.rotacion');
 
     Route::get('/cajas', [CajaController::class, 'index'])->name('cajas.index');
@@ -127,6 +130,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::put('/cajas/{caja}', [CajaController::class, 'update'])->name('cajas.update');
     Route::patch('/cajas/{caja}/status', [CajaController::class, 'toggleEstado'])->name('cajas.status');
     Route::delete('/cajas/{caja}', [CajaController::class, 'destroy'])->name('cajas.destroy');
+    Route::get('/cajas/cierre-diario', [CajaController::class, 'cierreDiario'])->name('cajas.cierre.diario');
 
     Route::get('/caja-diaria', function () {
         return Inertia::render('CajaDiaria/Index');

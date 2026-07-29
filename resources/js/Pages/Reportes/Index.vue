@@ -18,6 +18,7 @@ const fechaDesde = ref(props.filtros.fecha_desde);
 const fechaHasta = ref(props.filtros.fecha_hasta);
 
 const tabActual = ref('ventas');
+const cargandoReportes = ref(false);
 const rotacion = ref([]);
 const totalInmovilizado = ref(0);
 const cargandoRotacion = ref(false);
@@ -51,17 +52,26 @@ const aplicarPreset = (preset) => {
 };
 
 const filtrar = () => {
+    cargandoReportes.value = true;
     router.get(route('reportes.index'), {
         fecha_desde: fechaDesde.value,
         fecha_hasta: fechaHasta.value,
     }, {
         preserveState: true,
         preserveScroll: true,
+        onFinish: () => cargandoReportes.value = false,
     });
 };
 
 const descargarPdf = () => {
     window.open(route('reportes.pdf', {
+        fecha_desde: fechaDesde.value,
+        fecha_hasta: fechaHasta.value,
+    }), '_blank');
+};
+
+const descargarExcel = () => {
+    window.open(route('reportes.excel', {
         fecha_desde: fechaDesde.value,
         fecha_hasta: fechaHasta.value,
     }), '_blank');
@@ -83,6 +93,10 @@ const descargarPdf = () => {
                         <button @click="tabActual = 'ventas'" :class="['px-4 py-2 text-sm font-bold rounded-lg transition-all uppercase', tabActual === 'ventas' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700']">Ventas</button>
                         <button @click="tabActual = 'rotacion'; if (rotacion.length === 0) cargarRotacion()" :class="['px-4 py-2 text-sm font-bold rounded-lg transition-all uppercase', tabActual === 'rotacion' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700']">Rotación</button>
                     </div>
+                    <button v-if="tabActual === 'ventas'" @click="descargarExcel" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl shadow transition-all text-sm uppercase tracking-wider">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        Excel
+                    </button>
                     <button v-if="tabActual === 'ventas'" @click="descargarPdf" class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 px-5 rounded-xl shadow transition-all text-sm uppercase tracking-wider">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         Descargar PDF
@@ -108,7 +122,14 @@ const descargarPdf = () => {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div v-if="cargandoReportes" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div v-for="n in 6" :key="n" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 animate-pulse">
+                    <div class="h-3 w-24 bg-slate-100 rounded mb-3"></div>
+                    <div class="h-8 w-32 bg-slate-100 rounded"></div>
+                </div>
+            </div>
+
+            <div v-if="!cargandoReportes" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
                     <p class="text-xs font-black text-slate-400 uppercase tracking-wider">Total Vendido</p>
                     <p class="text-3xl font-black text-slate-800 mt-1">{{ formatearMoneda(resumen.total_ventas) }}</p>
@@ -120,6 +141,26 @@ const descargarPdf = () => {
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
                     <p class="text-xs font-black text-slate-400 uppercase tracking-wider">Ticket Promedio</p>
                     <p class="text-3xl font-black text-slate-800 mt-1">{{ formatearMoneda(resumen.ticket_promedio) }}</p>
+                </div>
+            </div>
+
+            <div v-if="!cargandoReportes" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-emerald-50 rounded-2xl border border-emerald-200 p-5">
+                    <p class="text-xs font-black text-emerald-600 uppercase tracking-wider">Costo Total</p>
+                    <p class="text-3xl font-black text-slate-800 mt-1">{{ formatearMoneda(resumen.costo_total) }}</p>
+                </div>
+                <div class="bg-sky-50 rounded-2xl border border-sky-200 p-5">
+                    <p class="text-xs font-black text-sky-600 uppercase tracking-wider">Ganancia Bruta</p>
+                    <p class="text-3xl font-black text-slate-800 mt-1">{{ formatearMoneda(resumen.ganancia_bruta) }}</p>
+                </div>
+                <div class="bg-indigo-50 rounded-2xl border border-indigo-200 p-5">
+                    <p class="text-xs font-black text-indigo-600 uppercase tracking-wider">Margen</p>
+                    <p class="text-3xl font-black text-slate-800 mt-1 flex items-baseline gap-1">
+                        <span>{{ resumen.margen }}%</span>
+                        <span :class="resumen.margen >= 20 ? 'text-emerald-500' : resumen.margen >= 10 ? 'text-amber-500' : 'text-red-500'" class="text-sm font-bold">
+                            ({{ resumen.margen >= 20 ? 'Saludable' : resumen.margen >= 10 ? 'Aceptable' : 'Bajo' }})
+                        </span>
+                    </p>
                 </div>
             </div>
 

@@ -96,12 +96,18 @@ class PosController extends Controller
                 ->sort()
                 ->values();
 
+            $categorias = $productos->pluck('categoria')->filter()->unique('id')->values()->map(fn ($c) => [
+                'id' => $c->id,
+                'nombre' => $c->nombre,
+            ]);
+
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
                 'clientes' => $clientesActivos,
                 'totalProductos' => $totalProductos,
                 'frecuentes' => $productosFrecuentes,
+                'categorias' => $categorias,
                 'paymentMethods' => $paymentMethods,
                 'metodosBase' => $metodosBase,
                 'recargos' => $recargos,
@@ -198,11 +204,12 @@ class PosController extends Controller
             $query->whereIn('id', $ids)->orderByRaw('array_position(ARRAY[' . implode(',', $ids) . ']::bigint[], id)');
         }
 
-        $query->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
+        $query->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida', 'categoria_id')
             ->with([
                 'sucursales' => function($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId);
                 },
+                'categoria',
                 'reglaLiquidacion',
                 'lotes' => function($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId)
@@ -448,6 +455,30 @@ class PosController extends Controller
             ->get();
 
         return response()->json($clientes);
+    }
+
+    public function crearCliente(Request $request)
+    {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+
+        $request->validate([
+            'nombre' => 'required|string|max:255',
+            'apellido' => 'nullable|string|max:255',
+            'telefono' => 'nullable|string|max:50',
+        ]);
+
+        $cliente = Consumidor::create([
+            'comercio_id' => $comercioId,
+            'nombre' => $request->nombre,
+            'apellido' => $request->apellido ?? '',
+            'telefono' => $request->telefono,
+            'estado' => true,
+        ]);
+
+        $cliente->load('cuentaCorriente');
+
+        return response()->json($cliente);
     }
 
     /**

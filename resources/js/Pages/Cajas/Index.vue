@@ -9,6 +9,10 @@
                     <p class="text-[10px] font-medium text-slate-400 uppercase tracking-widest">Módulo</p>
                     <h2 class="text-xl font-semibold text-slate-800 mt-0.5">Gestión de Cajas Físicas</h2>
                 </div>
+                <Link :href="route('cajas.cierre.diario')" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl hover:bg-sky-700 transition-colors flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Cierre Diario
+                </Link>
             </div>
         </template>
 

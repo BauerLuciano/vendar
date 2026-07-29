@@ -20,6 +20,7 @@ const props = defineProps({
     esJefe: { type: Boolean, default: false },
     sucursalUsuario: { type: String, default: 'Sin Asignar' },
     estadoOnboarding: { type: Object, default: () => ({ completo: false, porcentaje: 0, pasos: [] }) },
+    ordenesPendientes: { type: Array, default: () => [] },
 });
 
 const formatearDinero = (monto) => {
@@ -148,6 +149,25 @@ const generarOCS = () => {
                     <Link :href="route('onboarding.index')" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-sky-700 transition-colors shrink-0">
                         Completar
                     </Link>
+                </div>
+            </div>
+
+            <div v-if="ordenesPendientes.length > 0" class="bg-amber-50 border border-amber-200 rounded-3xl p-4 mb-6 shadow-sm">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                    <h3 class="text-xs font-black text-amber-800 uppercase tracking-widest">Órdenes de compra pendientes</h3>
+                </div>
+                <div class="divide-y divide-amber-200/50">
+                    <div v-for="oc in ordenesPendientes" :key="oc.id" class="flex items-center justify-between py-2">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2 h-2 bg-amber-500 rounded-full shrink-0"></span>
+                            <div>
+                                <p class="text-xs font-bold text-amber-900">{{ oc.nro_comprobante || 'OC #' + oc.id }}</p>
+                                <p class="text-[10px] text-amber-700">{{ oc.proveedor }} · {{ oc.dias }} días en {{ oc.estado }}</p>
+                            </div>
+                        </div>
+                        <Link :href="route('ordenes.index')" class="text-[10px] font-bold text-amber-700 hover:text-amber-900 uppercase tracking-widest shrink-0">Revisar</Link>
+                    </div>
                 </div>
             </div>
 
