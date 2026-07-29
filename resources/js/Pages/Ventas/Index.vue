@@ -88,35 +88,16 @@ const confirmarAnulacion = async (v) => {
         title: '¿CONFIRMAR ANULACIÓN?',
         text: `Se anulará el ticket #${v.id}.`,
         icon: 'warning',
-        input: 'select',
-        inputOptions: {
-            'Error en la carga': 'Error en la carga',
-            'Cliente desistió': 'Cliente desistió',
-            'otro': 'Otro...'
-        },
+        input: 'text',
+        inputPlaceholder: 'Motivo (ej: Error en la carga, Cliente desistió...)',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
         confirmButtonText: 'Sí, anular',
+        inputValidator: (val) => !val?.trim() && 'El motivo es obligatorio',
     });
 
-    if (!isConfirmed) return;
-
-    let motivoFinal = motivo;
-    if (motivo === 'otro') {
-        const { value, isConfirmed: confirmado } = await Swal.fire({
-            title: 'Describí el motivo',
-            input: 'text',
-            inputPlaceholder: 'Ej: Producto en mal estado...',
-            showCancelButton: true,
-            confirmButtonColor: '#ef4444',
-            confirmButtonText: 'Anular',
-            inputValidator: (val) => !val?.trim() && 'El motivo no puede estar vacío',
-        });
-        if (!confirmado || !value?.trim()) return;
-        motivoFinal = value.trim();
-    }
-
-    realizarAnulacion(v.id, motivoFinal);
+    if (!isConfirmed || !motivo?.trim()) return;
+    realizarAnulacion(v.id, motivo.trim());
 };
 </script>
 
