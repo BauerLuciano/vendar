@@ -38,8 +38,7 @@ class ReporteController extends Controller
                 'fecha_hasta' => $fechaHasta,
             ],
             'sucursales' => $this->scope->obtenerSucursalesPermitidas()
-                ->select('id', 'nombre')
-                ->get(),
+                ->map(fn ($s) => ['id' => $s->id, 'nombre' => $s->nombre])
         ]);
     }
 
