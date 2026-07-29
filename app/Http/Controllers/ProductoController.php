@@ -38,13 +38,13 @@ class ProductoController extends Controller
 
         return Inertia::render('Productos/Index', [
             'productos' => Producto::with(['categoria', 'marca', 'sucursales', 'proveedor'])
-                ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
                 ->orderBy('id', 'desc')
                 ->get(),
             'categorias' => Categoria::deComercio($comercioId)->get(),
             'marcas' => Marca::deComercio($comercioId)->get(),
             'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
-            'sucursales' => $sucursalIds->isNotEmpty()
+            'sucursales' => !empty($sucursalIds)
                 ? Sucursal::whereIn('id', $sucursalIds)->get()
                 : collect(),
         ]);
