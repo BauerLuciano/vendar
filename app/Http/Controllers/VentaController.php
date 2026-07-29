@@ -703,6 +703,11 @@ class VentaController extends Controller
             }
 
             $venta->update(['estado' => VentaStatus::CANCELLED, 'motivo_anulacion' => $request->motivo]);
+
+            foreach ($venta->detalles as $detalle) {
+                $detalle->update(['cantidad_devuelta' => $detalle->cantidad]);
+            }
+
             return redirect()->back();
         });
     }
@@ -748,7 +753,14 @@ class VentaController extends Controller
                 $detalle = $detallesMap->get($item['detalle_id']);
                 if (!$detalle) continue;
 
+                $detalle = DetalleVenta::lockForUpdate()->findOrFail($detalle->id);
+
                 $cantidadADevolver = (float) $item['cantidad'];
+                $yaDevuelto = (float) ($detalle->cantidad_devuelta ?? 0);
+
+                if ($yaDevuelto + $cantidadADevolver > (float) $detalle->cantidad) {
+                    return redirect()->back()->withErrors("Ya devolviste {$yaDevuelto} de {$detalle->cantidad} unidades de {$detalle->producto->nombre}. No podés devolver {$cantidadADevolver} más.");
+                }
                 $precioUnitario = (float) $detalle->precio_unitario;
                 $montoTotalDevuelto += $precioUnitario * $cantidadADevolver;
 
@@ -792,10 +804,12 @@ class VentaController extends Controller
                     'cantidad_anterior'   => $cantidadAnterior,
                     'cantidad_movimiento' => $cantidadADevolver,
                     'cantidad_actual'     => $cantidadAnterior + $cantidadADevolver,
-                    'motivo'              => "Devolución Venta #{$venta->id}",
+                    'motivo'              => "Devolución Venta #{$venta->id} (detalle #{$detalle->id})",
                     'created_at'          => now(),
                     'updated_at'          => now(),
                 ]);
+
+                $detalle->increment('cantidad_devuelta', $cantidadADevolver);
             }
 
             if ($montoTotalDevuelto > 0) {

@@ -296,7 +296,7 @@ const confirmarAnulacion = (v) => {
             :mostrar="verDevolucion"
             :venta="ventaADevolver"
             @cerrar="verDevolucion = false"
-            @completado="verDevolucion = false; router.reload()"
+            @completado="verDevolucion = false; router.reload(); Swal.fire({ title: '¡HECHO!', text: 'Devolución procesada y stock repuesto.', icon: 'success', confirmButtonColor: '#0284c7' })"
         />
     </AuthenticatedLayout>
 </template>
