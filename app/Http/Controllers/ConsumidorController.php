@@ -8,6 +8,7 @@ use App\Models\CuentaCorriente;
 use App\Models\MovimientoCuentaCorriente;
 use App\Models\MovimientoCaja;
 use App\Models\TurnoCaja;
+use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -16,12 +17,7 @@ use Illuminate\Validation\Rule;
 
 class ConsumidorController extends Controller
 {
-    private function getComercioId(): ?int
-    {
-        $user = auth()->user();
-        if (!$user || !$user->branch_id) return null;
-        return $user->branch?->comercio_id;
-    }
+    public function __construct(private SucursalScopeService $scope) {}
 
     public function index(Request $request)
     {
@@ -31,7 +27,7 @@ class ConsumidorController extends Controller
 
         $query = Consumidor::with('cuentaCorriente');
 
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId) {
             $query->deComercio($comercioId);
         }
@@ -82,7 +78,7 @@ class ConsumidorController extends Controller
     {
         $this->normalizeInput($request);
 
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
 
         $validated = $request->validate([
             'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
@@ -126,7 +122,7 @@ class ConsumidorController extends Controller
 
     public function update(Request $request, Consumidor $consumidor)
     {
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
             abort(403, 'Este cliente no pertenece a tu comercio.');
         }
@@ -177,7 +173,7 @@ class ConsumidorController extends Controller
 
     public function status(Consumidor $consumidor)
     {
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
             abort(403);
         }
@@ -190,7 +186,7 @@ class ConsumidorController extends Controller
 
     public function estadoCuenta(Consumidor $consumidor)
     {
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
             abort(403);
         }
@@ -210,7 +206,7 @@ class ConsumidorController extends Controller
 
     public function cobrarDeuda(Request $request, Consumidor $consumidor)
     {
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId && $consumidor->comercio_id && $consumidor->comercio_id !== $comercioId) {
             abort(403);
         }
@@ -292,7 +288,7 @@ class ConsumidorController extends Controller
 
         $query = Consumidor::where('documento', $request->documento);
 
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId) {
             $query->where('comercio_id', $comercioId);
         }
@@ -322,7 +318,7 @@ class ConsumidorController extends Controller
 
         $query = Consumidor::where('email', $request->email);
 
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId) {
             $query->where('comercio_id', $comercioId);
         }
@@ -351,7 +347,7 @@ class ConsumidorController extends Controller
             ->where('apellido', $request->apellido)
             ->select('id', 'nombre', 'apellido', 'documento', 'email', 'telefono', 'estado');
 
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         if ($comercioId) {
             $query->where('comercio_id', $comercioId);
         }
@@ -370,7 +366,7 @@ class ConsumidorController extends Controller
 
     public function apiIndex(): \Illuminate\Http\JsonResponse
     {
-        $comercioId = $this->getComercioId();
+        $comercioId = $this->scope->obtenerComercioId();
         $query = Consumidor::query();
 
         if ($comercioId) {

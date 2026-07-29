@@ -19,6 +19,8 @@ const props = defineProps({
     fechaHasta: { type: String, default: '' },
     esJefe: { type: Boolean, default: false },
     sucursalUsuario: { type: String, default: 'Sin Asignar' },
+    estadoOnboarding: { type: Object, default: () => ({ completo: false, porcentaje: 0, pasos: [] }) },
+    ordenesPendientes: { type: Array, default: () => [] },
 });
 
 const formatearDinero = (monto) => {
@@ -114,6 +116,57 @@ const generarOCS = () => {
                     <div class="flex items-center gap-2 bg-sky-100 text-sky-800 px-3 py-1.5 rounded-lg border border-sky-200 shadow-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                         <span class="text-[10px] font-black uppercase tracking-widest leading-none">SUCURSAL: <span class="text-sky-600">{{ sucursalUsuario }}</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="!estadoOnboarding.completo" class="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-3xl border border-sky-200 p-5 mb-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Bienvenido a VendAR</h3>
+                        <p class="text-xs text-slate-500 mt-1">Completá los pasos para empezar a vender:</p>
+                        <div class="mt-3">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Progreso</span>
+                                <span class="text-[10px] font-black text-sky-600">{{ estadoOnboarding.porcentaje }}%</span>
+                            </div>
+                            <div class="w-full bg-sky-100 rounded-full h-2">
+                                <div class="bg-sky-500 h-2 rounded-full transition-all duration-500" :style="{ width: estadoOnboarding.porcentaje + '%' }"></div>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <span v-for="paso in estadoOnboarding.pasos" :key="paso.key" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
+                                  :class="paso.completado ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'">
+                                <svg v-if="paso.completado" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+                                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                                {{ paso.titulo }}
+                            </span>
+                        </div>
+                    </div>
+                    <Link :href="route('onboarding.index')" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-sky-700 transition-colors shrink-0">
+                        Completar
+                    </Link>
+                </div>
+            </div>
+
+            <div v-if="ordenesPendientes.length > 0" class="bg-amber-50 border border-amber-200 rounded-3xl p-4 mb-6 shadow-sm">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                    <h3 class="text-xs font-black text-amber-800 uppercase tracking-widest">Órdenes de compra pendientes</h3>
+                </div>
+                <div class="divide-y divide-amber-200/50">
+                    <div v-for="oc in ordenesPendientes" :key="oc.id" class="flex items-center justify-between py-2">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2 h-2 bg-amber-500 rounded-full shrink-0"></span>
+                            <div>
+                                <p class="text-xs font-bold text-amber-900">{{ oc.nro_comprobante || 'OC #' + oc.id }}</p>
+                                <p class="text-[10px] text-amber-700">{{ oc.proveedor }} · {{ oc.dias }} días en {{ oc.estado }}</p>
+                            </div>
+                        </div>
+                        <Link :href="route('ordenes.index')" class="text-[10px] font-bold text-amber-700 hover:text-amber-900 uppercase tracking-widest shrink-0">Revisar</Link>
                     </div>
                 </div>
             </div>

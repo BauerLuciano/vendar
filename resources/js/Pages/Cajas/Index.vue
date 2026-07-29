@@ -9,6 +9,10 @@
                     <p class="text-[10px] font-medium text-slate-400 uppercase tracking-widest">Módulo</p>
                     <h2 class="text-xl font-semibold text-slate-800 mt-0.5">Gestión de Cajas Físicas</h2>
                 </div>
+                <Link :href="route('cajas.cierre.diario')" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl hover:bg-sky-700 transition-colors flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Cierre Diario
+                </Link>
             </div>
         </template>
 
@@ -125,15 +129,13 @@
                                 <!-- Mensaje Sin Cajas Registradas -->
                                 <tr v-else-if="cajas.length === 0">
                                     <td colspan="4" class="py-20 text-center">
-                                        <div class="flex flex-col items-center gap-3 text-slate-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                            </svg>
-                                            <div>
-                                                <p class="text-sm font-medium text-slate-400">No hay cajas registradas</p>
-                                                <p class="text-xs text-slate-300 mt-1">Crea tu primera caja para comenzar a operar.</p>
-                                            </div>
-                                        </div>
+                                        <EmptyState
+                                            titulo="No hay cajas registradas"
+                                            descripcion="Creá tu primera caja para comenzar a operar."
+                                            icono="caja"
+                                            accionLabel="Crear Caja"
+                                            accionRoute="cajas.create"
+                                        />
                                     </td>
                                 </tr>
 
@@ -280,9 +282,10 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useForm, router, Head } from '@inertiajs/vue3';
+import { useForm, router, Head, Link } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
+import EmptyState from '@/Components/EmptyState.vue';
 
 const props = defineProps({
     cajas: Array,

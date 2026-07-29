@@ -9,11 +9,13 @@ use App\Models\PedidoWeb;
 use App\Models\Sucursal;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
+use App\Models\OrdenCompra;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use App\Services\OnboardingService;
 
 class DashboardController extends Controller
 {
@@ -169,6 +171,25 @@ class DashboardController extends Controller
             ]);
         }
 
+        $onboardingService = new OnboardingService();
+        $estadoOnboarding = $onboardingService->estado();
+
+        $ordenesPendientes = OrdenCompra::whereIn('estado', ['Sugerida', 'Enviada'])
+            ->when($comercioId, fn ($q) => $q->whereHas('sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
+            ->where('created_at', '<', now()->subDays(2))
+            ->with('proveedor:id,nombre')
+            ->orderBy('created_at')
+            ->take(5)
+            ->get()
+            ->map(fn ($oc) => [
+                'id' => $oc->id,
+                'nro_comprobante' => $oc->nro_comprobante,
+                'proveedor' => $oc->proveedor?->nombre ?? '—',
+                'estado' => $oc->estado,
+                'dias' => $oc->created_at->diffInDays(now()),
+                'total' => (float) ($oc->total_estimado ?? 0),
+            ]);
+
         return Inertia::render('Dashboard', [
             'deudaTotal'          => (float) $deudaTotal,
             'ventasHoy'           => $ventasHoy,
@@ -184,6 +205,8 @@ class DashboardController extends Controller
             'fechaHasta'          => $fechaHasta,
             'esJefe'              => $esJefe,
             'sucursalUsuario'     => Sucursal::find($sucursalActivaId)?->nombre ?? ($user->branch?->nombre ?? 'Sede Central'),
+            'estadoOnboarding'    => $estadoOnboarding,
+            'ordenesPendientes'   => $ordenesPendientes,
         ]);
     }
 

@@ -12,6 +12,7 @@ const props = defineProps({
     productos: Array,
     clientes: Array,
     frecuentes: Array,
+    categorias: Array,
     paymentMethods: Array,
     metodosBase: Array,
     recargos: Object,
@@ -32,6 +33,10 @@ const clienteSeleccionado = ref(null);
 const busquedaCliente = ref('');
 const mostrarDropdownClientes = ref(false);
 const inputBusqueda = ref(null);
+
+const modalCrearCliente = ref(false);
+const formCliente = ref({ nombre: '', apellido: '', telefono: '' });
+const creandoCliente = ref(false);
 
 const mostrarEscaner = ref(false);
 
@@ -328,6 +333,11 @@ const productosBusqueda = ref([]);
 const buscandoProductos = ref(false);
 const productosIniciales = computed(() => props.productos || []);
 const totalProductos = computed(() => props.totalProductos || props.productos?.length || 0);
+const categoriaActiva = ref(null);
+const productosEnCategoria = computed(() => {
+    if (!categoriaActiva.value) return [];
+    return productosIniciales.value.filter(p => p.categoria_id === categoriaActiva.value);
+});
 
 // Show search results only when user types, not the full grid
 const productosFiltrados = computed(() => {
@@ -397,7 +407,28 @@ async function buscarClientesAjax(q) {
 const seleccionarCliente = (cliente) => {
     clienteSeleccionado.value = cliente ? cliente.id : null;
     mostrarDropdownClientes.value = false;
-    busquedaCliente.value = ''; 
+    busquedaCliente.value = '';
+};
+
+const abrirModalCliente = () => {
+    formCliente.value = { nombre: '', apellido: '', telefono: '' };
+    modalCrearCliente.value = true;
+};
+
+const guardarCliente = async () => {
+    if (!formCliente.value.nombre.trim()) return;
+    creandoCliente.value = true;
+    try {
+        const res = await axios.post(route('pos.crear.cliente'), formCliente.value);
+        const nuevo = res.data;
+        props.clientes.push(nuevo);
+        seleccionarCliente(nuevo);
+        modalCrearCliente.value = false;
+    } catch {
+        Swal.fire('Error', 'No se pudo crear el cliente.', 'error');
+    } finally {
+        creandoCliente.value = false;
+    }
 };
 
 const clienteActivoObj = computed(() => {
@@ -620,7 +651,7 @@ const clickEnProducto = async (producto) => {
             title: 'Ingresar Cantidad',
             html: `
                 <div class="mb-4 text-slate-500 font-bold text-sm">Estás vendiendo: <span class="text-sky-600">${producto.nombre}</span></div>
-                <div class="text-[10px] text-amber-600 font-black mb-2 uppercase tracking-widest">Stock Disponible: ${producto.stock_actual} kg</div>
+                <div class="text-[10px] text-amber-600 font-black mb-2 uppercase tracking-widest">Disponible: ${producto.stock_actual} kg</div>
                 <div class="flex flex-col sm:flex-row gap-3 justify-center items-center">
                     <input id="swal-peso" type="number" step="0.001" min="0.001" class="w-32 border-slate-300 rounded-xl text-center text-xl font-black text-slate-800 focus:ring-sky-500 focus:border-sky-500" placeholder="Ej: 250">
                     <select id="swal-unidad" class="w-32 border-slate-300 rounded-xl text-slate-700 font-bold text-lg bg-slate-50 focus:ring-sky-500 focus:border-sky-500">
@@ -646,7 +677,7 @@ const clickEnProducto = async (producto) => {
                 }
                 
                 if (cantCalculada > producto.stock_actual && !permitirStockNegativo.value) {
-                    Swal.showValidationMessage(`Stock insuficiente (Disponible: ${producto.stock_actual}kg)`);
+                    Swal.showValidationMessage(`Sin stock suficiente (Disponible: ${producto.stock_actual}kg)`);
                     return false;
                 }
 
@@ -671,7 +702,7 @@ const agregarItemAlCarrito = (producto, cantidadAgregada) => {
     const nuevaCantidad = existe ? existe.cantidad + cantidadAgregada : cantidadAgregada;
 
     if (nuevaCantidad > producto.stock_actual && !permitirStockNegativo.value) {
-        Swal.fire('Stock Insuficiente', `Solo hay ${producto.stock_actual} disponibles.`, 'warning');
+        Swal.fire('Stock Insuficiente', `Solo quedan ${producto.stock_actual} disponibles.`, 'warning');
         return;
     }
 
@@ -1019,8 +1050,61 @@ onUnmounted(() => {
                         </div>
                     </div>
 
-                    <!-- Productos frecuentes (solo cuando no hay búsqueda) -->
-                    <div v-if="buscar.length < 1 && frecuentes && frecuentes.length > 0">
+                    <!-- Categorías -->
+                    <div v-if="buscar.length < 1 && categorias && categorias.length > 0" class="mb-3">
+                        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                            <button
+                                v-if="categoriaActiva"
+                                @click="categoriaActiva = null"
+                                class="shrink-0 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border"
+                                :class="categoriaActiva === null ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'"
+                            >
+                                Todos
+                            </button>
+                            <button
+                                v-for="cat in categorias" :key="cat.id"
+                                @click="categoriaActiva = categoriaActiva === cat.id ? null : cat.id"
+                                class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border"
+                                :class="categoriaActiva === cat.id ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-sky-300 hover:text-sky-600'"
+                            >
+                                {{ cat.nombre }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Productos por categoría -->
+                    <div v-if="buscar.length < 1 && categoriaActiva && productosEnCategoria.length > 0"
+                         class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                        <div
+                            v-for="p in productosEnCategoria" :key="p.id"
+                            @click="clickEnProducto(p)"
+                            class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-500 hover:shadow-md transition-all cursor-pointer relative group"
+                        >
+                            <div v-if="p.en_liquidacion" class="absolute -top-1 -left-1 px-1.5 py-0.5 bg-rose-500 text-white rounded-lg text-[9px] font-black z-10 leading-none">
+                                -{{ p.porcentaje_descuento }}%
+                            </div>
+                            <div v-if="cantidadEnCarrito(p.id)" class="absolute -top-1 -right-1 bg-sky-100 text-sky-700 text-[10px] font-black px-1.5 py-0.5 rounded-full z-10">
+                                {{ cantidadEnCarrito(p.id) }}
+                            </div>
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-9 h-9 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
+                                    <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
+                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <p class="font-bold text-slate-800 text-xs leading-tight truncate">{{ p.nombre }}</p>
+                                    <div class="flex items-baseline gap-1 mt-0.5">
+                                        <p v-if="p.en_liquidacion" class="text-rose-600 font-black text-sm">${{ p.precio_rebajado }}</p>
+                                        <p :class="p.en_liquidacion ? 'text-slate-400 line-through text-[10px]' : 'text-slate-800 font-black text-sm'">${{ p.precio_venta }}</p>
+                                        <span v-if="p.unidad_medida === 'Kg'" class="text-[9px] text-slate-400">/kg</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Productos frecuentes (solo cuando no hay búsqueda ni categoría activa) -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva && frecuentes && frecuentes.length > 0">
                         <div class="flex items-center gap-2 mb-2">
                             <span class="text-xs font-black text-slate-500 uppercase tracking-widest">Más vendidos</span>
                         </div>
@@ -1118,9 +1202,18 @@ onUnmounted(() => {
                                             @input="onBuscarClienteInput"
                                             type="text"
                                             placeholder="Buscá por nombre o documento..."
-                                            class="w-full pl-9 text-sm font-medium border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 py-2"
+                                            class="w-full pl-9 pr-10 text-sm font-medium border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 py-2"
                                             autofocus
                                         >
+                                        <button
+                                            v-if="!buscandoClientes"
+                                            @click="abrirModalCliente"
+                                            type="button"
+                                            title="Crear cliente nuevo"
+                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-sky-500 hover:text-sky-700 transition-colors"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                                        </button>
                                         <div v-if="buscandoClientes" class="absolute right-3 top-1/2 -translate-y-1/2">
                                             <svg class="animate-spin h-3.5 w-3.5 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                         </div>
@@ -1147,6 +1240,43 @@ onUnmounted(() => {
                                 </div>
                             </div>
                         </div>
+
+                        <!-- MODAL CREAR CLIENTE -->
+                        <Teleport to="body">
+                            <div v-if="modalCrearCliente" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" @click.self="modalCrearCliente = false">
+                                <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+                                    <div class="p-5">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Nuevo Cliente</h3>
+                                            <button @click="modalCrearCliente = false" class="text-slate-400 hover:text-slate-600 transition-colors">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        </div>
+                                        <div class="space-y-3">
+                                            <div>
+                                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Nombre *</label>
+                                                <input v-model="formCliente.nombre" type="text" placeholder="Nombre" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500" autofocus>
+                                            </div>
+                                            <div>
+                                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Apellido</label>
+                                                <input v-model="formCliente.apellido" type="text" placeholder="Apellido" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                            </div>
+                                            <div>
+                                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Teléfono</label>
+                                                <input v-model="formCliente.telefono" type="text" placeholder="Teléfono" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                            </div>
+                                        </div>
+                                        <div class="flex gap-2 mt-5">
+                                            <button @click="modalCrearCliente = false" class="flex-1 border border-slate-300 text-slate-600 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:bg-slate-50 transition-colors">Cancelar</button>
+                                            <button @click="guardarCliente" :disabled="creandoCliente || !formCliente.nombre.trim()" class="flex-1 bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:bg-sky-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                                                <svg v-if="creandoCliente" class="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                Crear
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </Teleport>
 
                         <!-- 2. CARRITO (compacto, flex-1) -->
                         <div class="flex-1 overflow-y-auto px-3 py-2 space-y-1">

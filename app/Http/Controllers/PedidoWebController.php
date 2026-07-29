@@ -103,22 +103,29 @@ class PedidoWebController extends Controller
                     throw new \Exception("Solo quedan {$stockDisponible} unidades de \"{$producto->nombre}\".");
                 }
 
+                $reservadaAnterior = (float) $productoStock->cantidad_reservada;
+
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $productoId)
                     ->increment('cantidad_reservada', $cantidad);
 
+                $psDespues = DB::table('producto_sucursal')
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('producto_id', $productoId)
+                    ->first();
+
                 DB::table('movimientos_stock')->insert([
-                    'producto_id'       => $productoId,
-                    'sucursal_id'       => $sucursalId,
-                    'user_id'           => auth()->id(),
-                    'tipo_movimiento'   => 'Reserva Pedido Web',
-                    'cantidad_anterior' => $productoStock->cantidad_fisica,
-                    'cantidad_movimiento' => 0,
-                    'cantidad_actual'   => $productoStock->cantidad_fisica,
-                    'motivo'            => "Reserva de {$cantidad} unidad(es) para pedido web",
-                    'created_at'        => now(),
-                    'updated_at'        => now(),
+                    'producto_id'         => $productoId,
+                    'sucursal_id'         => $sucursalId,
+                    'user_id'             => $user?->id,
+                    'tipo_movimiento'     => 'Reserva Pedido Web',
+                    'cantidad_anterior'   => $reservadaAnterior,
+                    'cantidad_movimiento' => -$cantidad,
+                    'cantidad_actual'     => (float) $psDespues->cantidad_fisica,
+                    'motivo'              => "Reserva para pedido web (pendiente de confirmar)",
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
                 ]);
 
                 $precioUnitario = (float) $producto->precio_venta;

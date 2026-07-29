@@ -14,21 +14,23 @@ class OrdenCompra extends Model
     protected $table = 'orden_compras';
 
     protected $fillable = [
-        'proveedor_id', 
-        'sucursal_id', 
-        'user_id', 
-        'nro_comprobante', 
-        'fecha_emision', 
-        'fecha_entrega_esperada', 
+        'proveedor_id',
+        'sucursal_id',
+        'user_id',
+        'nro_comprobante',
+        'fecha_emision',
+        'fecha_entrega_esperada',
         'estado',
-        'token_cotizacion', 
-        'total_estimado', 
-        'observaciones'
+        'token_cotizacion',
+        'fecha_envio',
+        'total_estimado',
+        'observaciones',
     ];
 
     protected $casts = [
         'fecha_emision'          => 'datetime',
         'fecha_entrega_esperada' => 'date',
+        'fecha_envio'            => 'datetime',
         'total_estimado'         => 'decimal:2',
     ];
 
@@ -49,8 +51,13 @@ class OrdenCompra extends Model
         return $this->belongsTo(User::class, 'user_id'); 
     }
     
-    public function detalles() 
-    { 
-        return $this->hasMany(OrdenCompraDetalle::class); 
+    public function detalles()
+    {
+        return $this->hasMany(OrdenCompraDetalle::class);
+    }
+
+    public function historial()
+    {
+        return $this->hasMany(OrdenCompraHistorial::class)->orderBy('created_at', 'asc');
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
+use App\Models\User;
 use Illuminate\Http\Request;
 use App\Models\Comercio;
 use App\Models\PedidoWeb;
@@ -55,17 +56,19 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['error' => 'No external reference in payment'], 400);
         }
 
-        $pedido = PedidoWeb::where('comercio_id', $comercio->id)->findOrFail($externalRef);
-
-        $resultado = DB::transaction(function () use ($pedido, $paymentId, $status) {
-            $pedido = PedidoWeb::lockForUpdate()->find($pedido->id);
+        return DB::transaction(function () use ($externalRef, $comercio, $status, $paymentId) {
+            $pedido = PedidoWeb::lockForUpdate()
+                ->where('comercio_id', $comercio->id)
+                ->findOrFail($externalRef);
+            $pedido->load('items');
 
             if ($pedido->pasarela_payment_id === $paymentId && $pedido->estado_pago === 'pagado') {
-                return 'already_processed';
+                return response()->json(['status' => 'already_processed']);
             }
 
-            $pedido->pasarela_payment_id = $paymentId;
             $estadoPagoAnterior = $pedido->estado_pago;
+
+            $pedido->pasarela_payment_id = $paymentId;
 
             if ($status->status === PaymentStatus::APPROVED) {
                 $pedido->estado_pago = 'pagado';
@@ -83,6 +86,9 @@ class MercadoPagoNotificacionController extends Controller
                         ->where('producto_id', $item->producto_id)
                         ->lockForUpdate()
                         ->first();
+
+                    $reservadaAnterior = $ps ? (float) $ps->cantidad_reservada : 0;
+
                     if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
                         DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
@@ -96,36 +102,30 @@ class MercadoPagoNotificacionController extends Controller
                     }
 
                     DB::table('movimientos_stock')->insert([
-                        'producto_id'       => $item->producto_id,
-                        'sucursal_id'       => $pedido->sucursal_id,
-                        'user_id'           => $pedido->user_id ?? 1,
-                        'tipo_movimiento'   => 'Liberación Reserva',
-                        'cantidad_anterior' => $ps ? $ps->cantidad_fisica : 0,
-                        'cantidad_movimiento' => 0,
-                        'cantidad_actual'   => $ps ? $ps->cantidad_fisica : 0,
-                        'motivo'            => "Pago rechazado - Pedido web #{$pedido->id} (Mercado Pago)",
-                        'created_at'        => now(),
-                        'updated_at'        => now(),
+                        'producto_id'         => $item->producto_id,
+                        'sucursal_id'         => $pedido->sucursal_id,
+                        'user_id'             => auth()->id() ?? User::whereHas('roles', fn($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1,
+                        'tipo_movimiento'     => 'Liberación Reserva Web',
+                        'cantidad_anterior'   => $reservadaAnterior,
+                        'cantidad_movimiento' => (float) $item->cantidad,
+                        'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
+                        'motivo'              => "Rechazo de pago MercadoPago - pedido web #{$pedido->id}",
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
                     ]);
                 }
             }
 
-            return 'ok';
+            $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
+                gatewayTransactionId: $status->gatewayTransactionId,
+                status: $status->status,
+                referenceId: $status->referenceId,
+                amount: $status->amount,
+                raw: $status->raw,
+            ));
+
+            return response()->json(['status' => 'ok']);
         });
-
-        if ($resultado === 'already_processed') {
-            return response()->json(['status' => 'already_processed']);
-        }
-
-        $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
-            gatewayTransactionId: $status->gatewayTransactionId,
-            status: $status->status,
-            referenceId: $status->referenceId,
-            amount: $status->amount,
-            raw: $status->raw,
-        ));
-
-        return response()->json(['status' => 'ok']);
     }
 
     private function procesarUpgradePlan(string $paymentId, Request $request): \Illuminate\Http\JsonResponse

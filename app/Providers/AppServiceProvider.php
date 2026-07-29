@@ -20,6 +20,7 @@ use App\Services\Promotion\PromotionRuleService;
 use App\Services\Promotion\PromotionEngineService;
 use App\Services\Promotion\PromotionConflictResolver;
 use App\Services\Promotion\Contracts\PromotionRuleEvaluator;
+use App\Services\SucursalScopeService;
 use App\Models\Promotion;
 use App\Models\StoreConfig;
 use App\Observers\PromotionObserver;
@@ -61,6 +62,8 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(PromotionConflictResolver::class);
+
+        $this->app->singleton(SucursalScopeService::class);
 
         $this->app->singleton(PromotionService::class);
         $this->app->singleton(PromotionRuleService::class);

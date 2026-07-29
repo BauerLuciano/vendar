@@ -91,17 +91,22 @@ const pagosResumen = (venta) => {
                                     <th class="p-3">Producto</th>
                                     <th class="p-3 text-right">Precio</th>
                                     <th class="p-3 text-right">Subtotal</th>
+                                    <th class="p-3 text-right w-16">Dev.</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y">
                                 <tr v-for="item in venta?.detalles" :key="item.id" class="hover:bg-slate-50 transition-colors">
-                                    <td class="p-3 font-bold text-sky-600">{{ item.cantidad }}</td>
+                                    <td class="p-3 font-bold text-sky-600">{{ Number(item.cantidad) }}</td>
                                     <td class="p-3">
                                         <p class="font-bold text-slate-700 leading-tight">{{ item.producto?.nombre }}</p>
                                         <p class="text-[10px] text-slate-400 font-mono">{{ item.producto?.sku }}</p>
                                     </td>
                                     <td class="p-3 text-right text-slate-500">{{ formatearDinero(item.precio_unitario) }}</td>
                                     <td class="p-3 text-right font-black text-slate-800">{{ formatearDinero(item.subtotal) }}</td>
+                                    <td class="p-3 text-right">
+                                        <span v-if="Number(item.cantidad_devuelta) > 0" class="text-amber-600 font-bold text-xs">{{ Number(item.cantidad_devuelta) }}</span>
+                                        <span v-else class="text-slate-200 text-xs">—</span>
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>

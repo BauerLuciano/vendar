@@ -227,12 +227,14 @@ class VentaController extends Controller
                     ->lockForUpdate()
                     ->first();
 
-                $cantDisponible = $stockActual ? max(0, $stockActual->cantidad_fisica - $stockActual->cantidad_reservada) : 0;
+                $cantDisponible = $stockActual
+                    ? $stockActual->cantidad_fisica - $stockActual->cantidad_reservada
+                    : 0;
 
                 if (!$permitirStockNegativo) {
                     if (!$stockActual || $cantDisponible < $item['cantidad']) {
                         $nombre = $item['nombre'] ?? "Producto ID: {$item['id']}";
-                        throw new \Exception("Stock insuficiente para: {$nombre}. Disponible: {$cantDisponible} (sin contar reservas de pedidos web).");
+                        throw new \Exception("Stock insuficiente para: {$nombre}. Disponible: {$cantDisponible}");
                     }
                 }
             }
@@ -611,25 +613,39 @@ class VentaController extends Controller
 
             $sucursalId = $venta->turno->caja->sucursal_id;
 
+            $loteIds = $venta->detalles->flatMap(fn ($d) => $d->lotes->pluck('id'))->unique()->sort()->values()->all();
+            if (!empty($loteIds)) {
+                DB::table('lotes')->whereIn('id', $loteIds)->lockForUpdate()->get();
+            }
+
             foreach ($venta->detalles as $detalle) {
                 foreach ($detalle->lotes as $lote) {
                     $cantidad = (float) $lote->pivot->cantidad;
-                    $lote->increment('stock_actual', $cantidad);
+                    DB::table('lotes')
+                        ->where('id', $lote->id)
+                        ->update([
+                            'stock_actual' => DB::raw("stock_actual + " . $cantidad),
+                            'updated_at'  => now(),
+                        ]);
                 }
             }
 
             foreach ($venta->detalles as $detalle) {
-                $registroActual = DB::table('producto_sucursal')
+                $stockLocked = DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $detalle->producto_id)
+                    ->lockForUpdate()
                     ->first();
 
-                $cantidadAnterior = $registroActual ? $registroActual->cantidad_fisica : 0;
+                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
 
                 DB::table('producto_sucursal')
                     ->where('sucursal_id', $sucursalId)
                     ->where('producto_id', $detalle->producto_id)
-                    ->increment('cantidad_fisica', $detalle->cantidad);
+                    ->update([
+                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad),
+                        'updated_at'     => now(),
+                    ]);
 
                 DB::table('movimientos_stock')->insert([
                     'producto_id'         => $detalle->producto_id,
@@ -687,7 +703,152 @@ class VentaController extends Controller
             }
 
             $venta->update(['estado' => VentaStatus::CANCELLED, 'motivo_anulacion' => $request->motivo]);
+
+            foreach ($venta->detalles as $detalle) {
+                $detalle->update(['cantidad_devuelta' => $detalle->cantidad]);
+            }
+
             return redirect()->back();
+        });
+    }
+
+    public function devolver(Request $request, Venta $venta)
+    {
+        $request->validate([
+            'items'                       => 'required|array|min:1',
+            'items.*.detalle_id'          => 'required|integer|exists:detalle_ventas,id',
+            'items.*.cantidad'            => 'required|numeric|min:0.01',
+        ]);
+
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId) {
+            $existe = Venta::where('id', $venta->id)
+                ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
+                ->exists();
+            if (!$existe) {
+                abort(403, 'Esta venta no pertenece a tu comercio.');
+            }
+        }
+
+        return DB::transaction(function () use ($venta, $request) {
+            $venta = Venta::lockForUpdate()->with('turno.caja', 'detalles.lotes', 'detalles.producto')->findOrFail($venta->id);
+
+            if ($venta->estado !== VentaStatus::COMPLETED) {
+                return redirect()->back()->withErrors('Solo se pueden devolver ventas completadas.');
+            }
+
+            $sucursalId = $venta->turno->caja->sucursal_id;
+            $montoTotalDevuelto = 0;
+
+            $detallesMap = $venta->detalles->keyBy('id');
+
+            $loteIds = collect($request->items)
+                ->flatMap(fn ($i) => ($d = $detallesMap->get($i['detalle_id'])) ? $d->lotes->pluck('id') : collect())
+                ->unique()->sort()->values()->all();
+            if (!empty($loteIds)) {
+                DB::table('lotes')->whereIn('id', $loteIds)->lockForUpdate()->get();
+            }
+
+            foreach ($request->items as $item) {
+                $detalle = $detallesMap->get($item['detalle_id']);
+                if (!$detalle) continue;
+
+                $detalle = DetalleVenta::lockForUpdate()->findOrFail($detalle->id);
+
+                $cantidadADevolver = (float) $item['cantidad'];
+                $yaDevuelto = (float) ($detalle->cantidad_devuelta ?? 0);
+
+                if ($yaDevuelto + $cantidadADevolver > (float) $detalle->cantidad) {
+                    return redirect()->back()->withErrors("Ya devolviste {$yaDevuelto} de {$detalle->cantidad} unidades de {$detalle->producto->nombre}. No podés devolver {$cantidadADevolver} más.");
+                }
+                $precioUnitario = (float) $detalle->precio_unitario;
+                $montoTotalDevuelto += $precioUnitario * $cantidadADevolver;
+
+                $cantidadRestante = $cantidadADevolver;
+                foreach ($detalle->lotes as $lote) {
+                    $cantidadLote = (float) $lote->pivot->cantidad;
+                    $aRestaurar = min($cantidadRestante, $cantidadLote);
+                    if ($aRestaurar > 0) {
+                        DB::table('lotes')
+                            ->where('id', $lote->id)
+                            ->update([
+                                'stock_actual' => DB::raw("stock_actual + " . $aRestaurar),
+                                'updated_at'   => now(),
+                            ]);
+                        $cantidadRestante -= $aRestaurar;
+                    }
+                    if ($cantidadRestante <= 0) break;
+                }
+
+                $stockLocked = DB::table('producto_sucursal')
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('producto_id', $detalle->producto_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
+
+                DB::table('producto_sucursal')
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('producto_id', $detalle->producto_id)
+                    ->update([
+                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . $cantidadADevolver),
+                        'updated_at'      => now(),
+                    ]);
+
+                DB::table('movimientos_stock')->insert([
+                    'producto_id'         => $detalle->producto_id,
+                    'sucursal_id'         => $sucursalId,
+                    'user_id'             => auth()->id(),
+                    'tipo_movimiento'     => 'Devolución',
+                    'cantidad_anterior'   => $cantidadAnterior,
+                    'cantidad_movimiento' => $cantidadADevolver,
+                    'cantidad_actual'     => $cantidadAnterior + $cantidadADevolver,
+                    'motivo'              => "Devolución Venta #{$venta->id} (detalle #{$detalle->id})",
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ]);
+
+                $detalle->increment('cantidad_devuelta', $cantidadADevolver);
+            }
+
+            if ($montoTotalDevuelto > 0) {
+                $pagos = $venta->pagos_display;
+                $totalPagos = collect($pagos)->sum('monto');
+
+                foreach ($pagos as $pago) {
+                    $proporcion = $totalPagos > 0 ? $pago['monto'] / $totalPagos : 0;
+                    $montoADevolver = round($montoTotalDevuelto * $proporcion, 2);
+                    if ($montoADevolver <= 0) continue;
+
+                    if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
+                        $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
+                            ->lockForUpdate()
+                            ->first();
+                        if ($cuenta) {
+                            $cuenta->decrement('saldo_deudor', $montoADevolver);
+                            MovimientoCuentaCorriente::create([
+                                'cuenta_corriente_id' => $cuenta->id,
+                                'venta_id'            => $venta->id,
+                                'monto'               => $montoADevolver,
+                                'tipo'                => 'abono',
+                                'descripcion'         => 'Devolución Venta #' . $venta->id,
+                            ]);
+                        }
+                    } else {
+                        MovimientoCaja::create([
+                            'turno_caja_id' => $venta->turno_caja_id,
+                            'tipo'          => 'EGRESO',
+                            'concepto'      => 'DEVOLUCION',
+                            'metodo_pago'   => $pago['metodo_pago'],
+                            'monto'         => $montoADevolver,
+                            'descripcion'   => 'Devolución Venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
+                        ]);
+                    }
+                }
+            }
+
+            return redirect()->back()->with('success', 'Devolución procesada correctamente.');
         });
     }
 

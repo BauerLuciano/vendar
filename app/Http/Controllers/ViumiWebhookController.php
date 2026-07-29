@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
 use App\Models\PedidoWeb;
+use App\Models\User;
 use App\Models\Comercio;
 use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
@@ -44,14 +45,14 @@ class ViumiWebhookController extends Controller
             return response()->json(['error' => 'Invalid payload'], 400);
         }
 
-        $resultado = DB::transaction(function () use ($pedido, $payload) {
+        return DB::transaction(function () use ($pedido, $payload) {
             $pedido = PedidoWeb::lockForUpdate()->find($pedido->id);
+            $pedido->load('items');
 
             if ($pedido->estado_pago === 'pagado') {
-                return 'already_processed';
+                return response()->json(['status' => 'already_processed']);
             }
 
-            $pedido->pasarela_payment_id = $payload->gatewayTransactionId;
             $estadoPagoAnterior = $pedido->estado_pago;
 
             match ($payload->status) {
@@ -70,6 +71,9 @@ class ViumiWebhookController extends Controller
                         ->where('producto_id', $item->producto_id)
                         ->lockForUpdate()
                         ->first();
+
+                    $reservadaAnterior = $ps ? (float) $ps->cantidad_reservada : 0;
+
                     if ($ps && $ps->cantidad_reservada >= $item->cantidad) {
                         DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
@@ -83,39 +87,33 @@ class ViumiWebhookController extends Controller
                     }
 
                     DB::table('movimientos_stock')->insert([
-                        'producto_id'       => $item->producto_id,
-                        'sucursal_id'       => $pedido->sucursal_id,
-                        'user_id'           => $pedido->user_id ?? 1,
-                        'tipo_movimiento'   => 'Liberación Reserva',
-                        'cantidad_anterior' => $ps ? $ps->cantidad_fisica : 0,
-                        'cantidad_movimiento' => 0,
-                        'cantidad_actual'   => $ps ? $ps->cantidad_fisica : 0,
-                        'motivo'            => "Pago rechazado - Pedido web #{$pedido->id} (Viumi)",
-                        'created_at'        => now(),
-                        'updated_at'        => now(),
+                        'producto_id'         => $item->producto_id,
+                        'sucursal_id'         => $pedido->sucursal_id,
+                        'user_id'             => auth()->id() ?? User::whereHas('roles', fn($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1,
+                        'tipo_movimiento'     => 'Liberación Reserva Web',
+                        'cantidad_anterior'   => $reservadaAnterior,
+                        'cantidad_movimiento' => (float) $item->cantidad,
+                        'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
+                        'motivo'              => "Rechazo de pago Viumi - pedido web #{$pedido->id}",
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
                     ]);
                 }
             }
 
-            return 'ok';
+            $this->paymentRecorder->recordWebhook($pedido, 'viumi', $payload);
+
+            activity()
+                ->performedOn($pedido)
+                ->causedByAnonymous()
+                ->withProperties([
+                    'via' => 'webhook_viumi',
+                    'payment_id' => $payload->gatewayTransactionId,
+                    'status' => $payload->status->value,
+                ])
+                ->log('pedido_actualizado_via_webhook');
+
+            return response()->json(['status' => 'ok']);
         });
-
-        if ($resultado === 'already_processed') {
-            return response()->json(['status' => 'already_processed']);
-        }
-
-        $this->paymentRecorder->recordWebhook($pedido, 'viumi', $payload);
-
-        activity()
-            ->performedOn($pedido)
-            ->causedByAnonymous()
-            ->withProperties([
-                'via' => 'webhook_viumi',
-                'payment_id' => $payload->gatewayTransactionId,
-                'status' => $payload->status->value,
-            ])
-            ->log('pedido_actualizado_via_webhook');
-
-        return response()->json(['status' => 'ok']);
     }
 }

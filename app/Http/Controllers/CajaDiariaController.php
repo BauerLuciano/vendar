@@ -6,9 +6,9 @@ use App\Enums\MetodoPago;
 use App\Models\TurnoCaja;
 use App\Models\MovimientoCaja;
 use App\Models\Caja;
-use App\Models\User;
 use App\Models\Configuracion;
 use App\Models\Sucursal;
+use App\Services\SucursalScopeService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +21,10 @@ class CajaDiariaController extends Controller
     private const METODOS_TRANSFERENCIA = [MetodoPago::MERCADO_PAGO, MetodoPago::VIUMI, MetodoPago::TRANSFERENCIA];
     private const METODOS_TARJETA = [MetodoPago::DEBITO, MetodoPago::CREDITO];
 
+    public function __construct(
+        private readonly SucursalScopeService $scope
+    ) {}
+
     private function clasificarMetodo(string $metodoPago): string
     {
         $enum = MetodoPago::from($metodoPago);
@@ -29,29 +33,29 @@ class CajaDiariaController extends Controller
         return 'transferencias';
     }
 
+    /**
+     * Valida que un turno pertenezca a una sucursal permitida por el usuario.
+     */
     private function autorizarTurno(int $turnoId): void
     {
-        $user = auth()->user();
-        $comercioId = $user->branch?->comercio_id;
-        if (!$comercioId) return;
-
         $turno = TurnoCaja::with('caja.sucursal')->findOrFail($turnoId);
-        if ($turno->caja->sucursal->comercio_id !== $comercioId) {
-            abort(403);
+
+        if ($this->scope->puedeAccederSucursal((int) $turno->sucursal_id)) {
+            return;
         }
+
+        abort(403, 'No tenés acceso a esta sesión de caja.');
     }
 
     /**
-     * Obtiene el historial de todas las sesiones de caja de la sucursal del usuario
-     * (incluye las cerradas y la actual si la hubiera)
+     * Obtiene el historial de todas las sesiones de caja
      */
     public function index(Request $request)
     {
-        $user = $request->user();
-        $sucursalId = session('sucursal_activa_id', $user->branch_id);
+        $query = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre']);
+        $this->scope->aplicarFiltroSucursal($query);
 
-        $sesiones = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])
-            ->when($sucursalId, fn ($q) => $q->where('sucursal_id', $sucursalId))
+        $sesiones = $query
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function ($turno) {
@@ -67,7 +71,7 @@ class CajaDiariaController extends Controller
                     'saldo_final_mp_real' => $turno->saldo_final_mp_real ?? 0,
                     'saldo_final_transf_real' => $turno->saldo_final_transf_real ?? 0,
                     'saldo_final_tarjetas_real' => $turno->saldo_final_tarjetas_real ?? 0,
-                    'observaciones' => $turno->observaciones_cierre ?? '', 
+                    'observaciones' => $turno->observaciones_cierre ?? '',
                 ];
             });
 
@@ -111,14 +115,14 @@ class CajaDiariaController extends Controller
                 'saldo_inicial_mp' => 'nullable|numeric|min:0',
             ]);
 
-            $user = auth()->user();
-            $comercioId = $user->branch?->comercio_id;
-
-            $cajaFisica = Caja::whereHas('sucursal', fn ($q) => $q->when($comercioId, fn ($sq) => $sq->where('comercio_id', $comercioId)))
-                ->find($request->caja);
+            $cajaFisica = Caja::with('sucursal')->find($request->caja);
 
             if (!$cajaFisica) {
                 return response()->json(['error' => 'La caja seleccionada no existe.'], 404);
+            }
+
+            if (!$this->scope->puedeAccederSucursal((int) $cajaFisica->sucursal_id)) {
+                return response()->json(['error' => 'No tenés acceso a la sucursal de esta caja.'], 403);
             }
 
             if (!$cajaFisica->estado) {
@@ -137,13 +141,13 @@ class CajaDiariaController extends Controller
             $mp = (float) $request->input('saldo_inicial_mp', 0);
 
             DB::beginTransaction();
-            
+
             $turno = TurnoCaja::create([
                 'caja_id'        => $cajaFisica->id,
-                'user_id'        => $user->id,
-                'sucursal_id'    => $cajaFisica->sucursal_id, 
-                'saldo_inicial'  => $efectivo, 
-                'monto_apertura' => $efectivo, 
+                'user_id'        => auth()->id(),
+                'sucursal_id'    => $cajaFisica->sucursal_id,
+                'saldo_inicial'  => $efectivo,
+                'monto_apertura' => $efectivo,
                 'fecha_apertura' => now(),
                 'estado'         => 'Abierto',
             ]);
@@ -216,13 +220,12 @@ class CajaDiariaController extends Controller
      */
     public function getCajasDisponibles(Request $request)
     {
-        $user = $request->user();
-        $sucursalId = session('sucursal_activa_id', $user->branch_id);
-        
+        $sucursalId = $this->scope->obtenerSucursalActiva();
+
         $cajas = Caja::where('estado', true)
             ->when($sucursalId, fn ($q) => $q->where('sucursal_id', $sucursalId))
             ->get();
-                     
+
         return response()->json($cajas);
     }
 
@@ -231,16 +234,14 @@ class CajaDiariaController extends Controller
      */
     public function getCajasDisponiblesAdmin(Request $request)
     {
-        $user = $request->user();
-        if (!$user->hasRole(['SuperAdmin', 'Administrador Global'])) {
+        if (!$this->scope->esJefe()) {
             abort(403);
         }
 
-        $comercioId = $user->branch?->comercio_id;
-        $cajas = Caja::where('estado', true)
-            ->whereHas('sucursal', fn ($q) => $q->when($comercioId, fn ($sq) => $sq->where('comercio_id', $comercioId)))
-            ->with('sucursal')
-            ->get()
+        $query = Caja::where('estado', true)->with('sucursal');
+        $this->scope->aplicarFiltroSucursal($query, 'sucursal_id');
+
+        $cajas = $query->get()
             ->map(fn ($c) => [
                 'id' => $c->id,
                 'nombre' => $c->nombre,
@@ -256,27 +257,25 @@ class CajaDiariaController extends Controller
      */
     public function getSesionesAbiertasGlobal(Request $request)
     {
-        $user = $request->user();
-        if (!$user->hasRole(['SuperAdmin', 'Administrador Global'])) {
+        if (!$this->scope->esJefe()) {
             abort(403);
         }
 
-        $comercioId = $user->branch?->comercio_id;
-        if (!$comercioId) {
-            return response()->json([]);
-        }
+        $query = TurnoCaja::with(['caja.sucursal', 'usuarioApertura'])
+            ->where('estado', 'Abierto');
+        $this->scope->aplicarFiltroSucursal($query);
 
-        $sucursales = Sucursal::where('comercio_id', $comercioId)->select('id', 'nombre')->get();
+        $sucursales = $this->scope->obtenerSucursalesDelComercio()
+            ->select('id', 'nombre')
+            ->get();
 
-        $sucursalIds = $sucursales->pluck('id');
-
-        $sesiones = TurnoCaja::with(['caja.sucursal', 'usuarioApertura'])
-            ->where('estado', 'Abierto')
-            ->whereIn('sucursal_id', $sucursalIds)
-            ->get()
+        $sesiones = $query->get()
             ->map(function ($turno) {
                 $movs = MovimientoCaja::where('turno_caja_id', $turno->id)->get();
-                $efectivo = 0; $transferencias = 0; $tarjetas = 0;
+                $efectivo = 0;
+                $transferencias = 0;
+                $tarjetas = 0;
+
                 foreach ($movs as $mov) {
                     $monto = ($mov->tipo === 'INGRESO') ? $mov->monto : -$mov->monto;
                     $categoria = $this->clasificarMetodo($mov->metodo_pago);
@@ -286,6 +285,7 @@ class CajaDiariaController extends Controller
                         default => $transferencias += $monto,
                     };
                 }
+
                 return [
                     'id'                    => $turno->id,
                     'caja_nombre'           => $turno->caja->nombre ?? '—',
@@ -349,8 +349,8 @@ class CajaDiariaController extends Controller
     {
         $this->autorizarTurno($id);
 
-        $user = auth()->user();
-        $comercioId = $user->branch?->comercio_id;
+        $turno = TurnoCaja::findOrFail($id);
+        $comercioId = $this->scope->obtenerComercioId();
         $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
 
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)
@@ -378,60 +378,52 @@ class CajaDiariaController extends Controller
             'observaciones' => 'nullable|string|max:500',
         ]);
 
-        $user = $request->user();
-        $turno = TurnoCaja::where('id', $id)
-            ->when($user->branch?->comercio_id, function ($q) use ($user) {
-                $sucursalIds = \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id');
-                $q->whereIn('sucursal_id', $sucursalIds);
-            })
-            ->firstOrFail();
+        $turno = TurnoCaja::findOrFail($id);
+
+        if (!$this->scope->puedeAccederSucursal((int) $turno->sucursal_id)) {
+            return response()->json(['error' => 'No tenés acceso a esta sesión de caja.'], 403);
+        }
 
         if ($turno->estado !== 'Abierto') {
             return response()->json(['error' => 'Esta caja ya está cerrada'], 400);
         }
 
-        $dataUpdate = [
+        $turno->update([
             'estado' => 'Cerrado',
             'fecha_cierre' => Carbon::now(),
-            'user_cierre_id' => $request->user()->id,
+            'user_cierre_id' => auth()->id(),
             'saldo_final_efectivo_real' => $request->saldo_final_efectivo_real,
             'saldo_final_mp_real' => $request->saldo_final_transferencias_real,
             'saldo_final_transf_real' => 0,
             'saldo_final_tarjetas_real' => $request->saldo_final_tarjetas_real,
             'observaciones_cierre' => $request->observaciones,
-        ];
-
-        $dataUpdate['monto_cierre'] = $request->saldo_final_efectivo_real;
-
-        $turno->update($dataUpdate);
+            'monto_cierre' => $request->saldo_final_efectivo_real,
+        ]);
 
         return response()->json(['message' => 'Caja cerrada exitosamente']);
     }
 
     /**
-     * GENERAR PDF EN A4 - PARAMETRIZACIÓN COMPLETA Y CONVERSOR DE COMPATIBILIDAD
+     * GENERAR PDF EN A4
      */
     public function descargarPdf(Request $request, $id)
     {
-        $user = $request->user();
+        $this->autorizarTurno($id);
+
         $turno = TurnoCaja::with(['caja', 'usuarioApertura', 'usuarioCierre'])
-            ->where('id', $id)
-            ->when($user->branch?->comercio_id, function ($q) use ($user) {
-                $sucursalIds = \App\Models\Sucursal::where('comercio_id', $user->branch->comercio_id)->pluck('id');
-                $q->whereIn('sucursal_id', $sucursalIds);
-            })
-            ->firstOrFail();
+            ->findOrFail($id);
+
         $sucursal = Sucursal::find($turno->sucursal_id);
-        
-        $comercioId = $user->branch?->comercio_id;
+
+        $comercioId = $this->scope->obtenerComercioId();
         $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
 
         $movimientos = MovimientoCaja::where('turno_caja_id', $id)
             ->orderBy('created_at', 'asc')
             ->get();
 
-        $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
-        
+        $config = Configuracion::pluck('valor', 'clave')->toArray();
+
         $efectivoEsperado = 0;
         $transferenciasEsperado = 0;
         $tarjetasEsperado = 0;
@@ -457,16 +449,14 @@ class CajaDiariaController extends Controller
             'efectivo_real' => (float) $turno->saldo_final_efectivo_real,
             'transferencias_real' => $transferenciasReal,
             'tarjetas_real' => $tarjetasReal,
-            'total_real' => (float)$turno->saldo_final_efectivo_real + $transferenciasReal + $tarjetasReal,
+            'total_real' => (float) $turno->saldo_final_efectivo_real + $transferenciasReal + $tarjetasReal,
         ];
 
-        // 🔥 EXTRAE LA RUTA REAL SIN MAPEAR CADENAS FIJAS
         $logo = null;
         if (!empty($config['logo_empresa'])) {
-            // Buscamos la ruta física usando la API de discos de Laravel de forma 100% dinámica
             if (Storage::disk('public')->exists($config['logo_empresa'])) {
                 $path = Storage::disk('public')->path($config['logo_empresa']);
-                
+
                 if (file_exists($path) && is_file($path)) {
                     $type = pathinfo($path, PATHINFO_EXTENSION);
                     $data = @file_get_contents($path);
@@ -479,7 +469,7 @@ class CajaDiariaController extends Controller
 
         $pdf = Pdf::loadView('pdf.caja_a4', compact('turno', 'movimientos', 'config', 'totales', 'logo', 'sucursal', 'labelMap'));
         $pdf->setPaper('a4', 'portrait');
-        
+
         return $pdf->stream("reporte_caja_sesion_{$id}.pdf");
     }
 }

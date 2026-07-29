@@ -6,28 +6,19 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\SucursalScopeService;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class ReporteController extends Controller
 {
-    private function getComercioId(Request $request): int
-    {
-        $user = $request->user();
-        return $user->comercio_id ?? $user->branch?->comercio_id
-            ?? throw new \RuntimeException('Usuario sin comercio asignado');
-    }
-
-    private function getSucursalesIds(int $comercioId): array
-    {
-        return DB::table('sucursales')
-            ->where('comercio_id', $comercioId)
-            ->pluck('id')
-            ->toArray();
-    }
+    public function __construct(private SucursalScopeService $scope) {}
 
     public function index(Request $request)
     {
-        $comercioId = $this->getComercioId($request);
-        $sucursalesIds = $this->getSucursalesIds($comercioId);
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
 
         $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
         $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
@@ -46,18 +37,16 @@ class ReporteController extends Controller
                 'fecha_desde' => $fechaDesde,
                 'fecha_hasta' => $fechaHasta,
             ],
-            'sucursales' => DB::table('sucursales')
-                ->where('comercio_id', $comercioId)
-                ->where('estado', true)
-                ->select('id', 'nombre')
-                ->get(),
+            'sucursales' => $this->scope->obtenerSucursalesPermitidas()
+                ->map(fn ($s) => ['id' => $s->id, 'nombre' => $s->nombre])
         ]);
     }
 
     public function rotacion(Request $request)
     {
-        $comercioId = $this->getComercioId($request);
-        $sucursalesIds = $this->getSucursalesIds($comercioId);
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
 
         if (empty($sucursalesIds)) {
             return response()->json(['data' => [], 'total_valor' => 0]);
@@ -128,8 +117,9 @@ class ReporteController extends Controller
 
     public function pdf(Request $request)
     {
-        $comercioId = $this->getComercioId($request);
-        $sucursalesIds = $this->getSucursalesIds($comercioId);
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
 
         $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
         $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
@@ -155,10 +145,83 @@ class ReporteController extends Controller
         return $pdf->download("reporte-ventas_{$fechaDesde}_{$fechaHasta}.pdf");
     }
 
+    public function excel(Request $request)
+    {
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
+
+        $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
+        $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
+
+        $resumen = $this->calcularResumen($sucursalesIds, $fechaDesde, $fechaHasta);
+        $metodosPago = $this->calcularMetodosPago($sucursalesIds, $fechaDesde, $fechaHasta);
+        $topProductos = $this->obtenerTopProductos($sucursalesIds, $fechaDesde, $fechaHasta);
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle("Reporte {$fechaDesde}");
+
+        $sheet->setCellValue('A1', "Reporte de Ventas — {$fechaDesde} al {$fechaHasta}");
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->mergeCells('A1:E1');
+
+        $sheet->setCellValue('A3', 'Resumen');
+        $sheet->getStyle('A3')->getFont()->setBold(true);
+        $sheet->setCellValue('A4', 'Total Ventas');
+        $sheet->setCellValue('B4', $resumen['total_ventas'] ?? 0);
+        $sheet->setCellValue('A5', 'Ingreso Total');
+        $sheet->setCellValue('B5', $resumen['ingreso_total'] ?? 0);
+        $sheet->setCellValue('A6', 'Costo Total');
+        $sheet->setCellValue('B6', $resumen['costo_total'] ?? 0);
+        $sheet->setCellValue('A7', 'Ganancia Bruta');
+        $sheet->setCellValue('B7', $resumen['ganancia_bruta'] ?? 0);
+        $sheet->setCellValue('A8', 'Margen');
+        $sheet->setCellValue('B8', ($resumen['margen'] ?? '0') . '%');
+
+        $sheet->setCellValue('A10', 'Medios de Pago');
+        $sheet->getStyle('A10')->getFont()->setBold(true);
+        $sheet->setCellValue('A11', 'Método');
+        $sheet->setCellValue('B11', 'Monto');
+        $sheet->getStyle('A11:B11')->getFont()->setBold(true);
+        $row = 12;
+        foreach ($metodosPago as $mp) {
+            $sheet->setCellValue("A{$row}", $mp['metodo_pago'] ?? $mp['metodo']);
+            $sheet->setCellValue("B{$row}", $mp['monto'] ?? $mp['total']);
+            $row++;
+        }
+
+        $sheet->setCellValue("A{$row}", 'Top Productos');
+        $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+        $row++;
+        $sheet->setCellValue("A{$row}", 'Producto');
+        $sheet->setCellValue("B{$row}", 'Cantidad');
+        $sheet->setCellValue("C{$row}", 'Total');
+        $sheet->getStyle("A{$row}:C{$row}")->getFont()->setBold(true);
+        $row++;
+        foreach ($topProductos as $tp) {
+            $sheet->setCellValue("A{$row}", $tp['nombre'] ?? $tp['producto']);
+            $sheet->setCellValue("B{$row}", $tp['cantidad'] ?? 0);
+            $sheet->setCellValue("C{$row}", $tp['total'] ?? 0);
+            $row++;
+        }
+
+        foreach (range('A', 'E') as $c) {
+            $sheet->getColumnDimension($c)->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        $filename = "reporte-ventas_{$fechaDesde}_{$fechaHasta}.xlsx";
+        $tempFile = tempnam(sys_get_temp_dir(), 'xlsx_');
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename)->deleteFileAfterSend(true);
+    }
+
     private function calcularResumen(array $sucursalesIds, string $desde, string $hasta): array
     {
         if (empty($sucursalesIds)) {
-            return ['total_ventas' => 0, 'cantidad_ventas' => 0, 'ticket_promedio' => 0];
+            return ['total_ventas' => 0, 'cantidad_ventas' => 0, 'ticket_promedio' => 0, 'costo_total' => 0, 'ganancia_bruta' => 0, 'margen' => 0];
         }
 
         $data = DB::table('ventas')
@@ -174,10 +237,27 @@ class ReporteController extends Controller
         $total = (float) ($data->total_ventas ?? 0);
         $cantidad = (int) ($data->cantidad_ventas ?? 0);
 
+        $costoTotal = (float) DB::table('detalle_ventas')
+            ->join('ventas', 'detalle_ventas.venta_id', '=', 'ventas.id')
+            ->join('turno_cajas', 'ventas.turno_caja_id', '=', 'turno_cajas.id')
+            ->join('productos', 'detalle_ventas.producto_id', '=', 'productos.id')
+            ->whereIn('turno_cajas.sucursal_id', $sucursalesIds)
+            ->where('ventas.estado', 'Completada')
+            ->whereDate('ventas.created_at', '>=', $desde)
+            ->whereDate('ventas.created_at', '<=', $hasta)
+            ->selectRaw('COALESCE(SUM(detalle_ventas.cantidad * productos.precio_costo), 0) as costo_total')
+            ->value('costo_total');
+
+        $ganancia = $total - $costoTotal;
+        $margen = $total > 0 ? round(($ganancia / $total) * 100, 1) : 0;
+
         return [
             'total_ventas' => $total,
             'cantidad_ventas' => $cantidad,
             'ticket_promedio' => $cantidad > 0 ? round($total / $cantidad, 2) : 0,
+            'costo_total' => $costoTotal,
+            'ganancia_bruta' => round($ganancia, 2),
+            'margen' => $margen,
         ];
     }
 

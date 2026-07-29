@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -17,6 +18,11 @@ class ExpirarPedidosPendientes implements ShouldQueue
 
     public function __construct()
     {
+    }
+
+    private function getSistemaUserId(): int
+    {
+        return User::whereHas('roles', fn($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1;
     }
 
     public function handle(): void
@@ -43,6 +49,8 @@ class ExpirarPedidosPendientes implements ShouldQueue
                         ->lockForUpdate()
                         ->first();
 
+                    $reservadaAnterior = $stockRow ? (float) $stockRow->cantidad_reservada : 0;
+
                     if ($stockRow && $stockRow->cantidad_reservada >= $item->cantidad) {
                         DB::table('producto_sucursal')
                             ->where('sucursal_id', $pedido->sucursal_id)
@@ -63,16 +71,16 @@ class ExpirarPedidosPendientes implements ShouldQueue
                     }
 
                     DB::table('movimientos_stock')->insert([
-                        'producto_id'       => $item->producto_id,
-                        'sucursal_id'       => $pedido->sucursal_id,
-                        'user_id'           => 1,
-                        'tipo_movimiento'   => 'Liberación Reserva',
-                        'cantidad_anterior' => $stockRow ? $stockRow->cantidad_fisica : 0,
-                        'cantidad_movimiento' => 0,
-                        'cantidad_actual'   => $stockRow ? $stockRow->cantidad_fisica : 0,
-                        'motivo'            => "Expiración automática - Pedido web #{$pedido->id}",
-                        'created_at'        => now(),
-                        'updated_at'        => now(),
+                        'producto_id'         => $item->producto_id,
+                        'sucursal_id'         => $pedido->sucursal_id,
+                        'user_id'             => $this->getSistemaUserId(),
+                        'tipo_movimiento'     => 'Liberación Reserva Web',
+                        'cantidad_anterior'   => $reservadaAnterior,
+                        'cantidad_movimiento' => (float) $item->cantidad,
+                        'cantidad_actual'     => $stockRow ? (float) $stockRow->cantidad_fisica : 0,
+                        'motivo'              => "Expiración automática del pedido web #{$pedido->id}",
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
                     ]);
                 }
 

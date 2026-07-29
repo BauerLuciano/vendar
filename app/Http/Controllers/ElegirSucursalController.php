@@ -10,10 +10,15 @@ class ElegirSucursalController extends Controller
     public function create(Request $request)
     {
         $user = $request->user();
-        $sucursales = $user->sucursales()->get();
 
-        if ($sucursales->count() === 0 && $user->branch_id) {
-            $sucursales = collect([$user->branch]);
+        if ($user->hasRole('SuperAdmin') && $user->comercio) {
+            $sucursales = $user->comercio->sucursales()->get();
+        } else {
+            $sucursales = $user->sucursales()->get();
+
+            if ($sucursales->count() === 0 && $user->branch_id) {
+                $sucursales = collect([$user->branch]);
+            }
         }
 
         return Inertia::render('Auth/ElegirSucursal', [
@@ -28,8 +33,13 @@ class ElegirSucursalController extends Controller
         ]);
 
         $user = $request->user();
-        $tieneAcceso = $user->sucursales()->where('sucursal_id', $request->sucursal_id)->exists()
-            || $user->branch_id == $request->sucursal_id;
+
+        if ($user->hasRole('SuperAdmin') && $user->comercio) {
+            $tieneAcceso = $user->comercio->sucursales()->where('id', $request->sucursal_id)->exists();
+        } else {
+            $tieneAcceso = $user->sucursales()->where('sucursal_id', $request->sucursal_id)->exists()
+                || $user->branch_id == $request->sucursal_id;
+        }
 
         if (!$tieneAcceso) {
             return redirect()->back()->withErrors(['sucursal_id' => 'No tenés acceso a esa sucursal.']);
