@@ -13,6 +13,12 @@ const emit = defineEmits(['cerrar', 'completado']);
 const itemsADevolver = ref([]);
 const enviando = ref(false);
 
+function sanitizar(input) {
+    let val = parseFloat(input);
+    if (isNaN(val) || val < 0) val = 0;
+    return val;
+}
+
 watch(() => props.mostrar, (val) => {
     if (val && props.venta?.detalles) {
         itemsADevolver.value = props.venta.detalles.map(d => ({
@@ -20,7 +26,7 @@ watch(() => props.mostrar, (val) => {
             producto: d.producto?.nombre || 'Producto',
             precio_unitario: d.precio_unitario,
             subtotal: d.subtotal,
-            max: d.cantidad,
+            max: Number(d.cantidad),
             cantidad: 0,
         }));
     }
@@ -97,8 +103,9 @@ onUnmounted(() => document.removeEventListener('keydown', cerrarConEscape));
                                             type="number"
                                             min="0"
                                             :max="item.max"
-                                            step="0.01"
+                                            step="1"
                                             v-model.number="item.cantidad"
+                                            @input="item.cantidad = Math.min(Math.max(sanitizar($event.target.value), 0), item.max)"
                                             class="w-20 text-right border border-slate-200 rounded-lg px-2 py-1 font-bold text-slate-800 focus:ring-amber-500 focus:border-amber-500 text-sm"
                                         />
                                     </td>
