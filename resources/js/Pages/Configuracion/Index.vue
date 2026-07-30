@@ -277,7 +277,6 @@ const guardarConfiguracion = () => {
                                     <select v-model="form.formato_impresion" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                         <option value="58mm">Impresora Térmica (58mm)</option>
                                         <option value="80mm">Impresora Térmica (80mm)</option>
-                                        <option value="A4">Hoja Grande (A4)</option>
                                     </select>
                                 </div>
                                 <div>

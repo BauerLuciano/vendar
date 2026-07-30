@@ -93,6 +93,36 @@ const togglePedido = (id) => {
     pedidoExpandido.value = pedidoExpandido.value === id ? null : id;
 };
 
+const subiendoComprobante = ref(null);
+const comprobanteFile = ref(null);
+
+const seleccionarComprobante = (pedidoId, event) => {
+    comprobanteFile.value = event.target.files[0];
+    if (comprobanteFile.value) {
+        subirComprobante(pedidoId);
+    }
+};
+
+const subirComprobante = async (pedidoId) => {
+    if (!comprobanteFile.value) return;
+    subiendoComprobante.value = pedidoId;
+    const formData = new FormData();
+    formData.append('comprobante', comprobanteFile.value);
+    try {
+        const res = await axios.post(`/api/pedidos/${pedidoId}/comprobante`, formData);
+        if (res.data.success) {
+            Swal.fire({ icon: 'success', title: 'Comprobante subido', text: 'El local lo verificará pronto.', toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, background: '#0f1929', color: '#fff' });
+            const pedido = pedidos.find(p => p.id === pedidoId);
+            if (pedido) pedido.comprobante_transferencia_url = res.data.url;
+        }
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Error', text: error.response?.data?.error || 'No se pudo subir el comprobante.', background: '#0f1929', color: '#fff' });
+    } finally {
+        subiendoComprobante.value = null;
+        comprobanteFile.value = null;
+    }
+};
+
 const formatearDinero = (monto) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto || 0);
 };
@@ -294,6 +324,21 @@ const iconoEstado = (estado) => {
                                     <div v-if="pedido.cliente_direccion && pedido.cliente_direccion !== 'Retiro en local'" class="bg-white/3 border border-white/5 rounded-xl px-4 py-2.5">
                                         <p class="text-[8px] font-black tracking-widest text-slate-500 uppercase">Dirección</p>
                                         <p class="text-xs font-bold text-white mt-0.5">{{ pedido.cliente_direccion }}</p>
+                                    </div>
+                                </div>
+
+                                <div v-if="pedido.metodo_pago === 'transferencia' && pedido.estado_pago === 'pendiente'" class="pt-2">
+                                    <div v-if="pedido.comprobante_transferencia_url" class="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 text-center">
+                                        <p class="text-[10px] font-black text-emerald-400">✅ Comprobante subido</p>
+                                        <p class="text-[9px] text-slate-500 mt-1">El local verificará el pago.</p>
+                                    </div>
+                                    <div v-else class="bg-[#080f1e] border border-white/5 rounded-xl p-4 text-center">
+                                        <p class="text-[10px] font-black text-[#f7941e] mb-2">🏦 Pagaste por transferencia?</p>
+                                        <p class="text-[9px] text-slate-500 mb-3">Subí el comprobante para que verifiquen el pago.</p>
+                                        <label class="inline-flex items-center gap-2 bg-[#f7941e] hover:bg-[#f7941e]/80 text-white font-black px-5 py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all cursor-pointer">
+                                            {{ subiendoComprobante === pedido.id ? 'Subiendo...' : '📎 Subir comprobante' }}
+                                            <input type="file" accept="image/*,.pdf" @change="seleccionarComprobante(pedido.id, $event)" class="hidden" :disabled="subiendoComprobante === pedido.id">
+                                        </label>
                                     </div>
                                 </div>
 

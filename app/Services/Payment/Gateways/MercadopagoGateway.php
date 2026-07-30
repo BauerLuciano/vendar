@@ -37,7 +37,7 @@ class MercadopagoGateway implements PaymentGateway
     {
         $params = $comercio ? "?comercio_id={$comercio->id}" : '';
 
-        return url('/api/mercadopago/notificacion' . $params);
+        return config('app.url') . '/api/mercadopago/notificacion' . $params;
     }
 
     public function supportsCheckout(): bool
@@ -80,18 +80,21 @@ class MercadopagoGateway implements PaymentGateway
         $payload = [
             'items' => $request->items,
             'external_reference' => $request->referenceId,
-            'back_urls' => array_filter([
+            'back_urls' => [
                 'success' => $request->successUrl,
                 'pending' => $request->pendingUrl,
                 'failure' => $request->failureUrl,
-            ]),
-            'auto_return' => 'approved',
+            ],
             'notification_url' => $request->notificationUrl
                 ?? $this->getWebhookUrl(
                     isset($request->metadata['comercio']) ? $request->metadata['comercio'] : null
                 ),
             'binary_mode' => true,
         ];
+
+        if ($request->successUrl) {
+            $payload['auto_return'] = 'approved';
+        }
 
         $response = Http::withToken($token)
             ->post(self::API_BASE . '/checkout/preferences', $payload);

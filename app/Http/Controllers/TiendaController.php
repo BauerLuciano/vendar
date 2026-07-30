@@ -67,6 +67,9 @@ class TiendaController extends Controller
             ] : null,
             'geoapifyKey'          => config('services.geoapify.key'),
             'storeConfig'          => $storeConfig,
+            'pedidoExitoso'        => request()->boolean('pedido_exitoso'),
+            'pedidoId'             => request('pedido_id'),
+            'mpPaymentId'          => request('payment_id'),
         ]);
     }
 

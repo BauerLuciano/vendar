@@ -63,7 +63,7 @@ const toggleTheme = inject('toggleTheme');
                 </button>
 
                 <button
-                    v-if="carritoLength > 0 && estaLogueado"
+                    v-if="carritoLength > 0"
                     @click="emit('toggle-carrito')"
                     class="relative flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
                     :style="{ backgroundColor: 'var(--color-secondary)', color: 'var(--text-on-accent)' }"

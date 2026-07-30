@@ -110,6 +110,37 @@ class TransferenciaSugeridaController extends Controller
         ]);
     }
 
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'origen_id'  => 'required|integer|exists:sucursales,id',
+            'destino_id' => 'required|integer|exists:sucursales,id|different:origen_id',
+            'producto_id' => 'required|integer|exists:productos,id',
+            'cantidad'    => 'required|numeric|min:0.01',
+        ]);
+
+        if (!$this->scope->puedeAccederSucursal((int) $validated['origen_id'])) {
+            return redirect()->back()->with('error', 'No estás autorizado para usar esta sucursal como origen.');
+        }
+        if (!$this->scope->puedeAccederSucursal((int) $validated['destino_id'])) {
+            return redirect()->back()->with('error', 'No estás autorizado para usar esta sucursal como destino.');
+        }
+
+        $existe = TransferenciaSugerida::where('origen_id', $validated['origen_id'])
+            ->where('destino_id', $validated['destino_id'])
+            ->where('producto_id', $validated['producto_id'])
+            ->whereIn('estado', ['pendiente', 'en_transito'])
+            ->exists();
+
+        if ($existe) {
+            return redirect()->back()->with('error', 'Ya existe una transferencia activa del mismo producto entre estas sucursales.');
+        }
+
+        TransferenciaSugerida::create($validated);
+
+        return redirect()->back()->with('success', 'Transferencia creada correctamente.');
+    }
+
     /**
      * Despacha stock desde la sucursal origen.
      * Cambia estado: pendiente -> en_transito

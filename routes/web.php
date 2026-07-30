@@ -86,10 +86,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/onboarding/estado', [OnboardingController::class, 'estado'])->name('onboarding.estado');
 });
 
-// Ruta para pedidos web: acepta admin (User) y consumidores
+// Ruta para pedidos web: acepta admin, consumidores y guest (sin login)
 Route::post('/api/pedidos-web', [PedidoWebController::class, 'store'])
-    ->middleware(['auth:web,consumidor', 'throttle:pedidos-web'])
+    ->middleware(['throttle:pedidos-web'])
     ->name('pedidos.web.store');
+
+// Subir comprobante de pago (consumidor autenticado)
+Route::post('/api/pedidos/{pedido}/comprobante', [PedidoWebController::class, 'subirComprobante'])
+    ->middleware('auth:consumidor')
+    ->name('pedidos.comprobante.subir');
 
 // ==========================================
 // RUTAS PARA LOGIN CON GOOGLE
@@ -106,6 +111,9 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
     Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
     Route::post('/pos/crear-cliente', [PosController::class, 'crearCliente'])->name('pos.crear.cliente');
+    Route::post('/pos/toggle-favorito', [PosController::class, 'toggleFavorito'])->name('pos.toggle.favorito');
+    Route::get('/pos/favoritos', [PosController::class, 'listarFavoritos'])->name('pos.favoritos');
+    Route::get('/pos/ultimos-vendidos', [PosController::class, 'ultimosVendidos'])->name('pos.ultimos.vendidos');
     Route::post('/pos/precios', [PosController::class, 'precios'])->name('pos.precios');
     Route::get('/pos/movimientos-turno', [PosController::class, 'movimientosTurno'])->name('pos.movimientos.turno');
     Route::post('/pos/guardar-carrito', [PosController::class, 'guardarCarrito'])->name('pos.guardar.carrito');
@@ -124,6 +132,8 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/reportes/pdf', [ReporteController::class, 'pdf'])->name('reportes.pdf');
     Route::get('/reportes/excel', [ReporteController::class, 'excel'])->name('reportes.excel');
     Route::get('/reportes/rotacion', [ReporteController::class, 'rotacion'])->name('reportes.rotacion');
+    Route::get('/reportes/compras', [ReporteController::class, 'compras'])->name('reportes.compras');
+    Route::get('/reportes/cuentas-corrientes', [ReporteController::class, 'cuentasCorrientes'])->name('reportes.cuentas-corrientes');
 
     Route::get('/cajas', [CajaController::class, 'index'])->name('cajas.index');
     Route::post('/cajas', [CajaController::class, 'store'])->name('cajas.store');
@@ -216,6 +226,8 @@ Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
     Route::post('/transferencias-sugeridas/{transferencia}/despachar', [TransferenciaSugeridaController::class, 'despachar'])->name('transferencias.despachar');
     Route::post('/transferencias-sugeridas/{transferencia}/recibir', [TransferenciaSugeridaController::class, 'recibir'])->name('transferencias.recibir');
     Route::post('/transferencias-sugeridas/{transferencia}/cancelar', [TransferenciaSugeridaController::class, 'cancelar'])->name('transferencias.cancelar');
+    Route::post('/transferencias-sugeridas/{transferencia}/rechazar', [TransferenciaSugeridaController::class, 'rechazar'])->name('transferencias.rechazar');
+    Route::post('/transferencias-sugeridas/store', [TransferenciaSugeridaController::class, 'store'])->name('transferencias.store');
 });
 
 // ------------------------------------------------------------------
@@ -426,6 +438,11 @@ Route::get('/api/tienda/pedido/{pedido}/estado', function (PedidoWeb $pedido) {
         'estado_pedido' => $pedido->estado_pedido,
     ]);
 })->name('api.pedido.estado');
+
+// Confirmar pago manual desde frontend (post-pago exitoso)
+Route::post('/api/pedidos/{pedido}/confirmar-pago', [\App\Http\Controllers\PedidoWebController::class, 'confirmarPago'])
+    ->middleware('throttle:10,1')
+    ->name('api.pedidos.confirmar-pago');
 
 // Tienda pública (slug catch-all debe ir último)
 Route::get('/tienda/{slug}', \App\Http\Controllers\TiendaController::class)->name('tienda.publica');

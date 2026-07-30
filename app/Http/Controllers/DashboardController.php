@@ -177,14 +177,14 @@ class DashboardController extends Controller
         $ordenesPendientes = OrdenCompra::whereIn('estado', ['Sugerida', 'Enviada'])
             ->when($comercioId, fn ($q) => $q->whereHas('sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
             ->where('created_at', '<', now()->subDays(2))
-            ->with('proveedor:id,nombre')
+            ->with('proveedor:id,razon_social')
             ->orderBy('created_at')
             ->take(5)
             ->get()
             ->map(fn ($oc) => [
                 'id' => $oc->id,
                 'nro_comprobante' => $oc->nro_comprobante,
-                'proveedor' => $oc->proveedor?->nombre ?? '—',
+                'proveedor' => $oc->proveedor?->razon_social ?? '—',
                 'estado' => $oc->estado,
                 'dias' => $oc->created_at->diffInDays(now()),
                 'total' => (float) ($oc->total_estimado ?? 0),

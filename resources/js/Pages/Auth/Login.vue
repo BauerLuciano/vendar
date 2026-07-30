@@ -56,6 +56,11 @@ const submit = () => {
 
         <div class="w-full sm:w-[45%] flex flex-col justify-between items-center p-8 sm:p-16 bg-[#0e172a] z-10 relative border-l border-slate-800/50 shadow-[-20px_0_50px_-15px_rgba(0,0,0,0.3)]">
             
+            <a href="/" class="self-start inline-flex items-center gap-2 text-sky-400 font-bold hover:text-sky-300 transition-colors text-xs uppercase tracking-widest mb-4 sm:mb-0 group">
+                <svg class="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
+                Volver al inicio
+            </a>
+            
             <div class="w-full max-w-sm flex-1 flex flex-col justify-center">
                 
                 <div class="sm:hidden flex justify-center mb-12">

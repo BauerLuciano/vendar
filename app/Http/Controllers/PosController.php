@@ -176,6 +176,66 @@ class PosController extends Controller
         });
     }
 
+    public function toggleFavorito(Request $request)
+    {
+        $request->validate(['producto_id' => 'required|integer|exists:productos,id']);
+        $userId = auth()->id();
+        $existe = DB::table('producto_user_favoritos')
+            ->where('user_id', $userId)
+            ->where('producto_id', $request->producto_id)
+            ->exists();
+
+        if ($existe) {
+            DB::table('producto_user_favoritos')
+                ->where('user_id', $userId)
+                ->where('producto_id', $request->producto_id)
+                ->delete();
+            return response()->json(['favorito' => false]);
+        }
+
+        DB::table('producto_user_favoritos')->insert([
+            'user_id' => $userId,
+            'producto_id' => $request->producto_id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json(['favorito' => true]);
+    }
+
+    public function listarFavoritos(Request $request)
+    {
+        $sucursalId = session('sucursal_activa_id', auth()->user()->branch_id);
+        $ids = DB::table('producto_user_favoritos')
+            ->where('user_id', auth()->id())
+            ->pluck('producto_id');
+
+        if ($ids->isEmpty()) return response()->json([]);
+
+        return $this->cargarProductosSucursal($sucursalId, 50, $ids->toArray());
+    }
+
+    public function ultimosVendidos(Request $request)
+    {
+        $userId = auth()->id();
+        $turno = TurnoCaja::where('user_id', $userId)->where('estado', 'Abierto')->first();
+        if (!$turno) return response()->json([]);
+
+        $sucursalId = session('sucursal_activa_id', auth()->user()->branch_id);
+        $ids = DetalleVenta::select('producto_id', DB::raw('MAX(ventas.created_at) as ultima_venta'))
+            ->join('ventas', 'ventas.id', '=', 'detalle_ventas.venta_id')
+            ->where('ventas.estado', 'Completada')
+            ->where('ventas.turno_id', $turno->id)
+            ->groupBy('producto_id')
+            ->orderByDesc('ultima_venta')
+            ->limit(20)
+            ->pluck('producto_id');
+
+        if ($ids->isEmpty()) return response()->json([]);
+
+        return $this->cargarProductosSucursal($sucursalId, 20, $ids->toArray());
+    }
+
     private function cargarProductosFrecuentes(int $sucursalId, int $limit = 12)
     {
         $topIds = DetalleVenta::select('producto_id', DB::raw('COUNT(*) as total'))

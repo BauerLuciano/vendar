@@ -115,6 +115,188 @@ class ReporteController extends Controller
         ]);
     }
 
+    public function compras(Request $request)
+    {
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
+
+        if (empty($sucursalesIds)) {
+            return response()->json(['total_gastado' => 0, 'por_estado' => [], 'por_proveedor' => [], 'pendientes' => [], 'tendencia' => []]);
+        }
+
+        $fechaDesde = $request->input('fecha_desde', now()->startOfMonth()->toDateString());
+        $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
+
+        $totalGastado = DB::table('orden_compras')
+            ->whereNull('deleted_at')
+            ->whereIn('sucursal_id', $sucursalesIds)
+            ->whereDate('created_at', '>=', $fechaDesde)
+            ->whereDate('created_at', '<=', $fechaHasta)
+            ->whereIn('estado', ['Recepcionada', 'Enviada', 'Borrador'])
+            ->sum('total_estimado');
+
+        $porEstado = DB::table('orden_compras')
+            ->whereNull('deleted_at')
+            ->whereIn('sucursal_id', $sucursalesIds)
+            ->whereDate('created_at', '>=', $fechaDesde)
+            ->whereDate('created_at', '<=', $fechaHasta)
+            ->selectRaw('estado, COUNT(*) as cantidad, COALESCE(SUM(total_estimado), 0) as total')
+            ->groupBy('estado')
+            ->get()
+            ->toArray();
+
+        $porProveedor = DB::table('orden_compras')
+            ->join('proveedores', 'orden_compras.proveedor_id', '=', 'proveedores.id')
+            ->whereNull('orden_compras.deleted_at')
+            ->whereIn('orden_compras.sucursal_id', $sucursalesIds)
+            ->whereDate('orden_compras.created_at', '>=', $fechaDesde)
+            ->whereDate('orden_compras.created_at', '<=', $fechaHasta)
+            ->whereIn('orden_compras.estado', ['Recepcionada', 'Enviada', 'Borrador'])
+            ->selectRaw('proveedores.razon_social, COUNT(*) as cantidad, COALESCE(SUM(orden_compras.total_estimado), 0) as total')
+            ->groupBy('proveedores.razon_social')
+            ->orderByDesc('total')
+            ->limit(10)
+            ->get()
+            ->toArray();
+
+        $pendientes = DB::table('orden_compras')
+            ->join('proveedores', 'orden_compras.proveedor_id', '=', 'proveedores.id')
+            ->whereNull('orden_compras.deleted_at')
+            ->whereIn('orden_compras.sucursal_id', $sucursalesIds)
+            ->whereIn('orden_compras.estado', ['Sugerida', 'Borrador', 'Enviada'])
+            ->selectRaw('orden_compras.id, orden_compras.nro_comprobante, orden_compras.total_estimado, orden_compras.estado, orden_compras.created_at, proveedores.razon_social')
+            ->orderBy('orden_compras.created_at')
+            ->limit(20)
+            ->get()
+            ->map(fn ($o) => [
+                'id' => $o->id,
+                'nro_comprobante' => $o->nro_comprobante,
+                'proveedor' => $o->razon_social,
+                'total' => (float) $o->total_estimado,
+                'estado' => $o->estado,
+                'dias' => now()->diffInDays(\Carbon\Carbon::parse($o->created_at)),
+            ])
+            ->toArray();
+
+        $tendencia = DB::table('orden_compras')
+            ->whereNull('deleted_at')
+            ->whereIn('sucursal_id', $sucursalesIds)
+            ->whereDate('created_at', '>=', now()->subMonths(6)->startOfMonth()->toDateString())
+            ->whereIn('estado', ['Recepcionada', 'Enviada', 'Borrador'])
+            ->selectRaw("TO_CHAR(created_at, 'YYYY-MM') as mes, COUNT(*) as cantidad, COALESCE(SUM(total_estimado), 0) as total")
+            ->groupBy('mes')
+            ->orderBy('mes')
+            ->get()
+            ->toArray();
+
+        return response()->json([
+            'total_gastado' => (float) $totalGastado,
+            'por_estado' => $porEstado,
+            'por_proveedor' => $porProveedor,
+            'pendientes' => $pendientes,
+            'tendencia' => $tendencia,
+        ]);
+    }
+
+    public function cuentasCorrientes(Request $request)
+    {
+        $sucursalesIds = $this->scope->esAdminGlobal()
+            ? $this->scope->obtenerSucursalesDelComercioIds()
+            : $this->scope->obtenerSucursalesPermitidasIds();
+
+        if (empty($sucursalesIds)) {
+            return response()->json(['resumen' => [], 'top_deudores' => [], 'movimientos_recientes' => [], 'cobros_periodo' => 0]);
+        }
+
+        $fechaDesde = $request->input('fecha_desde', now()->startOfMonth()->toDateString());
+        $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
+
+        $deudaTotal = DB::table('cuentas_corrientes')
+            ->join('consumidores', 'cuentas_corrientes.consumidor_id', '=', 'consumidores.id')
+            ->where('consumidores.estado', true)
+            ->where('cuentas_corrientes.estado', true)
+            ->where('consumidores.comercio_id', auth()->user()->comercio_id ?? auth()->user()->branch?->comercio_id)
+            ->sum('cuentas_corrientes.saldo_deudor');
+
+        $clientesActivos = DB::table('cuentas_corrientes')
+            ->join('consumidores', 'cuentas_corrientes.consumidor_id', '=', 'consumidores.id')
+            ->where('consumidores.estado', true)
+            ->where('cuentas_corrientes.estado', true)
+            ->where('consumidores.comercio_id', auth()->user()->comercio_id ?? auth()->user()->branch?->comercio_id)
+            ->where('cuentas_corrientes.saldo_deudor', '>', 0)
+            ->count();
+
+        $alLimite = DB::table('cuentas_corrientes')
+            ->join('consumidores', 'cuentas_corrientes.consumidor_id', '=', 'consumidores.id')
+            ->where('consumidores.estado', true)
+            ->where('cuentas_corrientes.estado', true)
+            ->where('consumidores.comercio_id', auth()->user()->comercio_id ?? auth()->user()->branch?->comercio_id)
+            ->where('cuentas_corrientes.saldo_deudor', '>', 0)
+            ->whereRaw('cuentas_corrientes.saldo_deudor >= consumidores.limite_cuenta_corriente * 0.8')
+            ->count();
+
+        $topDeudores = DB::table('cuentas_corrientes')
+            ->join('consumidores', 'cuentas_corrientes.consumidor_id', '=', 'consumidores.id')
+            ->where('consumidores.estado', true)
+            ->where('cuentas_corrientes.estado', true)
+            ->where('consumidores.comercio_id', auth()->user()->comercio_id ?? auth()->user()->branch?->comercio_id)
+            ->where('cuentas_corrientes.saldo_deudor', '>', 0)
+            ->selectRaw('consumidores.id, consumidores.nombre, consumidores.apellido, consumidores.limite_cuenta_corriente, cuentas_corrientes.saldo_deudor, cuentas_corrientes.fecha_ultimo_movimiento')
+            ->orderByDesc('cuentas_corrientes.saldo_deudor')
+            ->limit(15)
+            ->get()
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'cliente' => trim($c->nombre . ' ' . $c->apellido),
+                'deuda' => (float) $c->saldo_deudor,
+                'limite' => (float) $c->limite_cuenta_corriente,
+                'uso_porcentaje' => $c->limite_cuenta_corriente > 0 ? round(($c->saldo_deudor / $c->limite_cuenta_corriente) * 100, 1) : 0,
+                'ultimo_mov' => $c->fecha_ultimo_movimiento,
+            ])
+            ->toArray();
+
+        $cobrosPeriodo = DB::table('movimientos_cuenta_corrientes')
+            ->join('cuentas_corrientes', 'movimientos_cuenta_corrientes.cuenta_corriente_id', '=', 'cuentas_corrientes.id')
+            ->join('consumidores', 'cuentas_corrientes.consumidor_id', '=', 'consumidores.id')
+            ->where('consumidores.comercio_id', auth()->user()->comercio_id ?? auth()->user()->branch?->comercio_id)
+            ->where('movimientos_cuenta_corrientes.tipo', 'pago')
+            ->whereDate('movimientos_cuenta_corrientes.created_at', '>=', $fechaDesde)
+            ->whereDate('movimientos_cuenta_corrientes.created_at', '<=', $fechaHasta)
+            ->sum('movimientos_cuenta_corrientes.monto');
+
+        $movimientosRecientes = DB::table('movimientos_cuenta_corrientes')
+            ->join('cuentas_corrientes', 'movimientos_cuenta_corrientes.cuenta_corriente_id', '=', 'cuentas_corrientes.id')
+            ->join('consumidores', 'cuentas_corrientes.consumidor_id', '=', 'consumidores.id')
+            ->where('consumidores.comercio_id', auth()->user()->comercio_id ?? auth()->user()->branch?->comercio_id)
+            ->whereDate('movimientos_cuenta_corrientes.created_at', '>=', $fechaDesde)
+            ->whereDate('movimientos_cuenta_corrientes.created_at', '<=', $fechaHasta)
+            ->selectRaw('movimientos_cuenta_corrientes.id, movimientos_cuenta_corrientes.monto, movimientos_cuenta_corrientes.tipo, movimientos_cuenta_corrientes.descripcion, movimientos_cuenta_corrientes.created_at, consumidores.nombre, consumidores.apellido')
+            ->orderByDesc('movimientos_cuenta_corrientes.created_at')
+            ->limit(30)
+            ->get()
+            ->map(fn ($m) => [
+                'id' => $m->id,
+                'cliente' => trim($m->nombre . ' ' . $m->apellido),
+                'monto' => (float) $m->monto,
+                'tipo' => $m->tipo,
+                'descripcion' => $m->descripcion,
+                'fecha' => $m->created_at,
+            ])
+            ->toArray();
+
+        return response()->json([
+            'resumen' => [
+                'deuda_total' => (float) $deudaTotal,
+                'clientes_activos' => $clientesActivos,
+                'al_limite' => $alLimite,
+                'cobros_periodo' => (float) $cobrosPeriodo,
+            ],
+            'top_deudores' => $topDeudores,
+            'movimientos_recientes' => $movimientosRecientes,
+        ]);
+    }
+
     public function pdf(Request $request)
     {
         $sucursalesIds = $this->scope->esAdminGlobal()

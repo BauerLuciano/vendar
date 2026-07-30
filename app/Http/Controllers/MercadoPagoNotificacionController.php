@@ -11,12 +11,14 @@ use App\Models\Plan;
 use Illuminate\Support\Facades\DB;
 use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
+use App\Services\Payment\PaymentConfirmationService;
 
 class MercadoPagoNotificacionController extends Controller
 {
     public function __construct(
         private readonly PaymentService $paymentService,
         private readonly PaymentRecorder $paymentRecorder,
+        private readonly PaymentConfirmationService $confirmationService,
     ) {}
 
     public function notificacion(Request $request)
@@ -71,7 +73,9 @@ class MercadoPagoNotificacionController extends Controller
             $pedido->pasarela_payment_id = $paymentId;
 
             if ($status->status === PaymentStatus::APPROVED) {
-                $pedido->estado_pago = 'pagado';
+                $this->confirmationService->approve($pedido, $paymentId, 'webhook');
+
+                return response()->json(['status' => 'ok']);
             } elseif (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::REFUNDED])) {
                 $pedido->estado_pago = 'rechazado';
             }

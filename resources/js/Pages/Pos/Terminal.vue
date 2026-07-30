@@ -339,6 +339,53 @@ const productosEnCategoria = computed(() => {
     return productosIniciales.value.filter(p => p.categoria_id === categoriaActiva.value);
 });
 
+const tabLista = ref('frecuentes');
+const favoritosLista = ref([]);
+const ultimosVendidosLista = ref([]);
+const cargandoFavoritos = ref(false);
+const cargandoUltimos = ref(false);
+const favoritosIds = ref(new Set());
+
+async function toggleFavorito(productoId) {
+    try {
+        const res = await axios.post('/pos/toggle-favorito', { producto_id: productoId });
+        if (res.data.favorito) {
+            favoritosIds.value = new Set([...favoritosIds.value, productoId]);
+        } else {
+            const s = new Set(favoritosIds.value);
+            s.delete(productoId);
+            favoritosIds.value = s;
+            favoritosLista.value = favoritosLista.value.filter(p => p.id !== productoId);
+        }
+    } catch (e) { console.error(e); }
+}
+
+async function cargarFavoritos() {
+    cargandoFavoritos.value = true;
+    try {
+        const res = await fetch('/pos/favoritos');
+        if (res.ok) {
+            favoritosLista.value = await res.json();
+            favoritosIds.value = new Set(favoritosLista.value.map(p => p.id));
+        }
+    } catch (e) { console.error(e); }
+    finally { cargandoFavoritos.value = false; }
+}
+
+async function cargarUltimosVendidos() {
+    cargandoUltimos.value = true;
+    try {
+        const res = await fetch('/pos/ultimos-vendidos');
+        if (res.ok) ultimosVendidosLista.value = await res.json();
+    } catch (e) { console.error(e); }
+    finally { cargandoUltimos.value = false; }
+}
+
+watch(tabLista, (val) => {
+    if (val === 'favoritos' && favoritosLista.value.length === 0) cargarFavoritos();
+    if (val === 'ultimos' && ultimosVendidosLista.value.length === 0) cargarUltimosVendidos();
+});
+
 // Show search results only when user types, not the full grid
 const productosFiltrados = computed(() => {
     if (buscar.value.length < 1) return [];
@@ -1075,21 +1122,14 @@ onUnmounted(() => {
                     <!-- Productos por categoría -->
                     <div v-if="buscar.length < 1 && categoriaActiva && productosEnCategoria.length > 0"
                          class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
-                        <div
-                            v-for="p in productosEnCategoria" :key="p.id"
-                            @click="clickEnProducto(p)"
-                            class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-500 hover:shadow-md transition-all cursor-pointer relative group"
-                        >
-                            <div v-if="p.en_liquidacion" class="absolute -top-1 -left-1 px-1.5 py-0.5 bg-rose-500 text-white rounded-lg text-[9px] font-black z-10 leading-none">
-                                -{{ p.porcentaje_descuento }}%
-                            </div>
-                            <div v-if="cantidadEnCarrito(p.id)" class="absolute -top-1 -right-1 bg-sky-100 text-sky-700 text-[10px] font-black px-1.5 py-0.5 rounded-full z-10">
-                                {{ cantidadEnCarrito(p.id) }}
-                            </div>
+                        <div v-for="p in productosEnCategoria" :key="p.id" @click="clickEnProducto(p)"
+                            class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-500 hover:shadow-md transition-all cursor-pointer relative group">
+                            <div v-if="p.en_liquidacion" class="absolute -top-1 -left-1 px-1.5 py-0.5 bg-rose-500 text-white rounded-lg text-[9px] font-black z-10">-{{ p.porcentaje_descuento }}%</div>
+                            <div v-if="cantidadEnCarrito(p.id)" class="absolute -top-1 -right-1 bg-sky-100 text-sky-700 text-[10px] font-black px-1.5 py-0.5 rounded-full z-10">{{ cantidadEnCarrito(p.id) }}</div>
                             <div class="flex items-center gap-2.5">
                                 <div class="w-9 h-9 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
                                     <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
-                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                                    <svg v-else class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                                 </div>
                                 <div class="min-w-0 flex-1">
                                     <p class="font-bold text-slate-800 text-xs leading-tight truncate">{{ p.nombre }}</p>
@@ -1103,21 +1143,129 @@ onUnmounted(() => {
                         </div>
                     </div>
 
-                    <!-- Productos frecuentes (solo cuando no hay búsqueda ni categoría activa) -->
-                    <div v-if="buscar.length < 1 && !categoriaActiva && frecuentes && frecuentes.length > 0">
-                        <div class="flex items-center gap-2 mb-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-widest">Más vendidos</span>
+                    <!-- Tabs: cuando no hay búsqueda ni categoría activa -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva" class="mb-3">
+                        <div class="flex items-center gap-1 border-b border-slate-200 pb-1">
+                            <button @click="tabLista = 'frecuentes'"
+                                class="px-3 py-1.5 rounded-t-lg text-[10px] font-black uppercase tracking-wider transition-all"
+                                :class="tabLista === 'frecuentes' ? 'bg-sky-600 text-white' : 'text-slate-500 hover:text-sky-600'">
+                                ⭐ Más vendidos
+                            </button>
+                            <button @click="tabLista = 'favoritos'; cargarFavoritos()"
+                                class="px-3 py-1.5 rounded-t-lg text-[10px] font-black uppercase tracking-wider transition-all"
+                                :class="tabLista === 'favoritos' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:text-rose-600'">
+                                ❤️ Favoritos
+                            </button>
+                            <button @click="tabLista = 'ultimos'; cargarUltimosVendidos()"
+                                class="px-3 py-1.5 rounded-t-lg text-[10px] font-black uppercase tracking-wider transition-all"
+                                :class="tabLista === 'ultimos' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-amber-600'">
+                                🕐 Últimos vendidos
+                            </button>
+                            <button @click="tabLista = 'todos'"
+                                class="px-3 py-1.5 rounded-t-lg text-[10px] font-black uppercase tracking-wider transition-all"
+                                :class="tabLista === 'todos' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700'">
+                                📦 Todos
+                            </button>
                         </div>
+                    </div>
+
+                    <!-- Tab: Más vendidos -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva && tabLista === 'frecuentes' && frecuentes && frecuentes.length > 0">
                         <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
-                            <div
-                                v-for="p in frecuentes" :key="'freq-' + p.id"
+                            <div v-for="p in frecuentes" :key="'freq-' + p.id"
                                 @click="clickEnProducto(p)"
                                 class="bg-amber-50 border border-amber-200 hover:border-amber-400 hover:shadow-md rounded-xl px-3 py-2.5 cursor-pointer transition-all"
                             >
                                 <div class="text-sm font-bold text-amber-800 truncate">{{ p.nombre }}</div>
-                                <div class="text-base font-black text-amber-900 mt-0.5">
-                                    ${{ Number(p.precio_rebajado || p.precio_venta).toLocaleString() }}
+                                <div class="text-base font-black text-amber-900 mt-0.5">${{ Number(p.precio_rebajado || p.precio_venta).toLocaleString() }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Favoritos -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva && tabLista === 'favoritos'">
+                        <div v-if="cargandoFavoritos" class="flex items-center justify-center py-8 text-slate-400">
+                            <svg class="animate-spin h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            Cargando...
+                        </div>
+                        <div v-else-if="favoritosLista.length === 0" class="text-center py-8 text-slate-400 text-sm font-bold">
+                            No tenés productos favoritos. Hacé clic en el ❤️ de un producto para marcarlo.
+                        </div>
+                        <div v-else class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                            <div v-for="p in favoritosLista" :key="'fav-' + p.id"
+                                @click="clickEnProducto(p)"
+                                class="bg-white p-3 rounded-xl border border-rose-200 hover:border-rose-500 hover:shadow-md transition-all cursor-pointer relative group"
+                            >
+                                <button @click.stop="toggleFavorito(p.id)" class="absolute -top-1.5 -right-1.5 w-6 h-6 flex items-center justify-center bg-rose-500 text-white rounded-full text-xs shadow z-10 hover:scale-110 transition-transform">
+                                    ❤️
+                                </button>
+                                <div class="flex items-center gap-2.5">
+                                    <div class="w-9 h-9 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
+                                        <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
+                                        <svg v-else class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="font-bold text-slate-800 text-xs leading-tight truncate">{{ p.nombre }}</p>
+                                        <p v-if="p.en_liquidacion" class="text-rose-600 font-black text-sm">${{ p.precio_rebajado }}</p>
+                                        <p :class="p.en_liquidacion ? 'text-slate-400 line-through text-[10px]' : 'text-slate-800 font-black text-sm'">${{ p.precio_venta }}</p>
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Últimos vendidos -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva && tabLista === 'ultimos'">
+                        <div v-if="cargandoUltimos" class="flex items-center justify-center py-8 text-slate-400">
+                            <svg class="animate-spin h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            Cargando...
+                        </div>
+                        <div v-else-if="ultimosVendidosLista.length === 0" class="text-center py-8 text-slate-400 text-sm font-bold">
+                            No hay ventas en este turno todavía.
+                        </div>
+                        <div v-else class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                            <div v-for="p in ultimosVendidosLista" :key="'ult-' + p.id"
+                                @click="clickEnProducto(p)"
+                                class="bg-white p-3 rounded-xl border border-amber-200 hover:border-amber-500 hover:shadow-md transition-all cursor-pointer relative group"
+                            >
+                                <div class="flex items-center gap-2.5">
+                                    <div class="w-9 h-9 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
+                                        <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
+                                        <svg v-else class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="font-bold text-slate-800 text-xs leading-tight truncate">{{ p.nombre }}</p>
+                                        <p class="text-slate-800 font-black text-sm">${{ p.precio_venta }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Todos -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva && tabLista === 'todos'">
+                        <div v-if="productosIniciales.length > 0" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                            <div v-for="p in productosIniciales" :key="'all-' + p.id"
+                                @click="clickEnProducto(p)"
+                                class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-500 hover:shadow-md transition-all cursor-pointer relative group"
+                            >
+                                <div v-if="p.en_liquidacion" class="absolute -top-1 -left-1 px-1.5 py-0.5 bg-rose-500 text-white rounded-lg text-[9px] font-black z-10">-{{ p.porcentaje_descuento }}%</div>
+                                <div class="flex items-center gap-2.5">
+                                    <div class="w-9 h-9 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 shrink-0">
+                                        <img v-if="p.imagen" :src="'/storage/' + p.imagen" class="w-full h-full object-cover" />
+                                        <svg v-else class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="font-bold text-slate-800 text-xs leading-tight truncate">{{ p.nombre }}</p>
+                                        <p v-if="p.en_liquidacion" class="text-rose-600 font-black text-sm">${{ p.precio_rebajado }}</p>
+                                        <p :class="p.en_liquidacion ? 'text-slate-400 line-through text-[10px]' : 'text-slate-800 font-black text-sm'">${{ p.precio_venta }}</p>
+                                    </div>
+                                </div>
+                                <button @click.stop="toggleFavorito(p.id)"
+                                    class="absolute top-1 right-1 text-xs transition-all hover:scale-125"
+                                    :class="favoritosIds.has(p.id) ? 'text-rose-500' : 'text-slate-300 hover:text-rose-400'">
+                                    {{ favoritosIds.has(p.id) ? '❤️' : '🤍' }}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1165,8 +1313,8 @@ onUnmounted(() => {
                         <p class="text-sm">Probá con otro término de búsqueda</p>
                     </div>
 
-                    <!-- Estado inicial (sin búsqueda, sin frecuentes) -->
-                    <div v-if="buscar.length < 1 && (!frecuentes || frecuentes.length === 0)"
+                    <!-- Estado inicial (sin búsqueda, sin tabs) -->
+                    <div v-if="buscar.length < 1 && !categoriaActiva && (!frecuentes || frecuentes.length === 0)"
                          class="flex flex-col items-center justify-center py-16 text-slate-300">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                         <p class="font-bold text-lg">Escanéá o buscá un producto</p>

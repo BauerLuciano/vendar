@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, watch, computed, nextTick } from 'vue';
 import { usePage, useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import Swal from 'sweetalert2';
@@ -23,6 +23,9 @@ const props = defineProps({
     consumidorLogueado: Object,
     geoapifyKey: String,
     storeConfig: Object,
+    pedidoExitoso: Boolean,
+    pedidoId: Number,
+    mpPaymentId: String,
 });
 
 const page = usePage();
@@ -50,6 +53,7 @@ const coordenadasGps = ref(null);
 
 const carrito = ref([]);
 const mostrarCarrito = ref(false);
+
 
 const formPedido = useForm({
     tipo_entrega: 'local',
@@ -179,6 +183,8 @@ const handleCartQuantity = ({ index, delta, value }) => {
     guardarCarritoMemoria();
 };
 
+
+
 const confirmarPedido = async () => {
     if (carrito.value.length === 0) return;
 
@@ -187,8 +193,13 @@ const confirmarPedido = async () => {
         return;
     }
 
-    if (formPedido.tipo_entrega === 'delivery' && (!formPedido.telefono_contacto || formPedido.telefono_contacto.trim() === '')) {
-        Swal.fire({ icon: 'warning', title: 'Falta tu teléfono', text: 'Necesitamos un número para coordinar la entrega.', background: 'var(--bg-elevated)', color: 'var(--text-primary)' });
+    if (!estaLogueado.value && (!formPedido.cliente_nombre || formPedido.cliente_nombre.trim() === '')) {
+        Swal.fire({ icon: 'warning', title: 'Falta tu nombre', text: 'Decinos tu nombre para registrar el pedido.', background: 'var(--bg-elevated)', color: 'var(--text-primary)' });
+        return;
+    }
+
+    if ((!estaLogueado.value || formPedido.tipo_entrega === 'delivery') && (!formPedido.telefono_contacto || formPedido.telefono_contacto.trim() === '')) {
+        Swal.fire({ icon: 'warning', title: 'Falta tu teléfono', text: 'Necesitamos un número para contactarte.', background: 'var(--bg-elevated)', color: 'var(--text-primary)' });
         return;
     }
 
@@ -238,6 +249,8 @@ const confirmarPedido = async () => {
 
         const response = await axios.post('/api/pedidos-web', payload);
 
+        Swal.close();
+
         if (formPedido.metodo_pago === 'mercadopago' && response.data.url_pago) {
             window.location.href = response.data.url_pago;
         } else {
@@ -248,6 +261,7 @@ const confirmarPedido = async () => {
                 background: 'var(--bg-elevated)',
                 color: 'var(--text-primary)',
                 confirmButtonColor: '#8cc63f',
+                confirmButtonText: 'Volver al catálogo',
             }).then(() => {
                 carrito.value = [];
                 guardarCarritoMemoria();
@@ -256,9 +270,11 @@ const confirmarPedido = async () => {
                 formPedido.reset();
             });
         }
+        Swal.close();
     } catch (error) {
+        Swal.close();
         console.error('Error al enviar pedido:', error);
-        const msg = error.response?.data?.error || 'No se pudo procesar el pedido. Intentá de nuevo.';
+        const msg = error.response?.data?.mensaje || error.response?.data?.error || 'No se pudo procesar el pedido. Intentá de nuevo.';
         Swal.fire({ icon: 'error', title: 'Oops...', text: msg, background: 'var(--bg-elevated)', color: 'var(--text-primary)' });
     }
 };
@@ -357,14 +373,59 @@ watch(busqueda, () => {
     timeoutBusquedaProductos = setTimeout(() => { cargarProductos(1); }, 350);
 });
 
-onUnmounted(() => {
-    if (timeoutBusquedaProductos) clearTimeout(timeoutBusquedaProductos);
-});
-
 onMounted(() => {
     setTimeout(() => {
         cargarCarritoMemoria();
     }, 500);
+
+    if (props.pedidoExitoso && props.pedidoId) {
+        axios.post(`/api/pedidos/${props.pedidoId}/confirmar-pago`, {
+            payment_id: props.mpPaymentId || undefined,
+        });
+        carrito.value = [];
+        guardarCarritoMemoria();
+        if (props.comercio) localStorage.removeItem(`vendar_suc_${props.comercio.id}`);
+        mostrarCarrito.value = false;
+        formPedido.reset();
+        const slug = props.tienda_slug || props.comercio?.slug || '';
+        Swal.fire({
+            icon: 'success',
+            title: '¡Pago confirmado!',
+            text: 'Tu pedido ya fue registrado. El local te va a notificar cuando esté listo.',
+            background: 'var(--bg-elevated)',
+            color: 'var(--text-primary)',
+            confirmButtonColor: '#8cc63f',
+            confirmButtonText: 'Volver al catálogo',
+            iconColor: '#8cc63f',
+            timer: 10000,
+            timerProgressBar: true,
+        }).then((r) => {
+            if (r.isConfirmed || r.dismiss === Swal.DismissReason.timer) {
+                window.location.href = `/tienda/${slug}`;
+            }
+        });
+        return;
+    }
+
+    if (props.pedidoExitoso && !props.pedidoId) {
+        const slug2 = props.tienda_slug || props.comercio?.slug || '';
+        Swal.fire({
+            icon: 'success',
+            title: '¡Pedido realizado!',
+            text: 'Tu pedido fue registrado correctamente. El local te va a notificar cuando esté listo.',
+            background: 'var(--bg-elevated)',
+            color: 'var(--text-primary)',
+            confirmButtonColor: '#8cc63f',
+            confirmButtonText: 'Volver al catálogo',
+            iconColor: '#8cc63f',
+            timer: 10000,
+            timerProgressBar: true,
+        }).then((r) => {
+            if (r.isConfirmed || r.dismiss === Swal.DismissReason.timer) {
+                window.location.href = `/tienda/${slug2}`;
+            }
+        });
+    }
 });
 </script>
 
@@ -504,24 +565,23 @@ onMounted(() => {
                                 @usar-gps="usarGpsHero"
                             />
 
+                            <div v-if="!estaLogueado && formPedido.tipo_entrega === 'local'" class="space-y-2 p-3 rounded-xl" :style="{ backgroundColor: 'color-mix(in srgb, var(--color-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-accent) 20%, transparent)' }">
+                                <p class="text-[10px] font-black tracking-widest uppercase" :style="{ color: 'var(--text-secondary)' }">Tus datos</p>
+                                <input v-model="formPedido.cliente_nombre" type="text" placeholder="Tu nombre *" class="w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
+                                <input v-model="formPedido.telefono_contacto" type="text" placeholder="Teléfono de contacto *" class="w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
+                                <input v-model="formPedido.cliente_email" type="email" placeholder="Correo electrónico (opcional)" class="w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none" :style="{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }">
+                            </div>
+
                             <div>
                                 <p class="text-[10px] font-black tracking-widest uppercase mb-2 transition-colors" :style="{ color: 'var(--text-secondary)' }">Método de pago</p>
                                 <div class="flex flex-col gap-2">
                                     <div class="grid grid-cols-2 gap-2">
                                         <button v-if="comercio?.acepta_efectivo" @click="formPedido.metodo_pago = 'efectivo'" :style="formPedido.metodo_pago === 'efectivo' ? { backgroundColor: 'var(--color-success)', color: '#fff', borderColor: 'var(--color-success)' } : { backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }" class="py-2.5 border-2 rounded-xl text-[11px] font-black uppercase transition-all">💵 Efectivo</button>
-                                        <button v-if="comercio?.transferencia_cbu || comercio?.transferencia_alias" @click="formPedido.metodo_pago = 'transferencia'" :style="formPedido.metodo_pago === 'transferencia' ? { backgroundColor: 'var(--color-accent)', color: '#fff', borderColor: 'var(--color-accent)' } : { backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }" class="py-2.5 border-2 rounded-xl text-[11px] font-black uppercase transition-all">🏦 Transf.</button>
+                                        <button v-if="comercio?.tiene_mp" @click="formPedido.metodo_pago = 'mercadopago'" :style="formPedido.metodo_pago === 'mercadopago' ? { backgroundColor: '#009ee3', color: '#fff', borderColor: '#009ee3' } : { backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }" class="py-2.5 border-2 rounded-xl text-[11px] font-black uppercase transition-all flex justify-center items-center gap-1">
+                                            <span>💳</span> Mercado Pago
+                                        </button>
                                     </div>
-                                    <button v-if="comercio?.tiene_mp" @click="formPedido.metodo_pago = 'mercadopago'" :style="formPedido.metodo_pago === 'mercadopago' ? { backgroundColor: '#009ee3', color: '#fff', borderColor: '#009ee3' } : { backgroundColor: 'var(--bg-card)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }" class="w-full py-2.5 border-2 rounded-xl text-[11px] font-black uppercase transition-all flex justify-center items-center gap-1">
-                                        <span>💳</span> Pagar con Mercado Pago
-                                    </button>
                                 </div>
-                            </div>
-
-                            <div v-if="formPedido.metodo_pago === 'transferencia'" class="p-3 rounded-xl mt-2" :style="{ backgroundColor: 'color-mix(in srgb, var(--color-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-accent) 25%, transparent)' }">
-                                <p class="text-[9px] font-black tracking-widest uppercase mb-1" :style="{ color: 'var(--color-accent)' }">Datos Bancarios del Local</p>
-                                <p class="text-xs transition-colors" :style="{ color: 'var(--text-secondary)' }"><b>CBU/CVU:</b> {{ comercio.transferencia_cbu || 'No definido' }}</p>
-                                <p class="text-xs transition-colors" :style="{ color: 'var(--text-secondary)' }"><b>Alias:</b> {{ comercio.transferencia_alias || 'No definido' }}</p>
-                                <p class="text-xs transition-colors" :style="{ color: 'var(--text-secondary)' }"><b>Titular:</b> {{ comercio.transferencia_titular || 'No definido' }}</p>
                             </div>
 
                             <div class="border-2 rounded-xl p-4 space-y-2 mt-4 transition-colors" :style="{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }">
@@ -556,6 +616,8 @@ onMounted(() => {
         >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>
         </button>
+
+
     </StoreLayout>
 </template>
 

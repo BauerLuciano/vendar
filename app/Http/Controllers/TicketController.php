@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Venta;
 use App\Services\Ticket\TicketBuilder;
-use Barryvdh\DomPDF\Facade\Pdf;
 
 class TicketController extends Controller
 {
@@ -17,12 +16,6 @@ class TicketController extends Controller
         }
 
         $ticket = TicketBuilder::build($venta);
-
-        if ($ticket->formato === 'A4') {
-            $pdf = Pdf::loadView('tickets.a4', ['ticket' => $ticket->toArray()]);
-            $pdf->setPaper('a4', 'portrait');
-            return $pdf->stream("factura_{$venta->id}.pdf");
-        }
 
         $vistaTermica = strtolower($ticket->formato);
         return view("tickets.{$vistaTermica}", ['ticket' => $ticket->toArray()]);

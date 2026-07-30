@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
+use App\Services\Payment\PaymentConfirmationService;
 use App\Services\Payment\Contracts\CheckoutRequest;
 
 class PedidoWebController extends Controller
@@ -19,6 +20,7 @@ class PedidoWebController extends Controller
     public function __construct(
         private readonly PaymentService $paymentService,
         private readonly PaymentRecorder $paymentRecorder,
+        private readonly PaymentConfirmationService $confirmationService,
     ) {}
 
     public function store(Request $request)
@@ -227,10 +229,7 @@ class PedidoWebController extends Controller
             }
 
             if ($this->paymentService->isGatewayProvider($request->metodo_pago)) {
-                $backUrlBase = route('tienda.pedido.confirmacion', [
-                    'slug'   => $comercio->slug ?? 'default',
-                    'pedido' => $pedido->id,
-                ]);
+                $backUrlBase = config('app.url') . '/tienda/' . ($comercio->slug ?? 'default');
 
                 $gateway = $this->paymentService
                     ->forCommerce($comercio)
@@ -242,9 +241,9 @@ class PedidoWebController extends Controller
                     title: 'Pedido #' . $pedido->id,
                     description: 'Pedido en ' . ($comercio->nombre ?? 'VendAR'),
                     items: $itemsParaPasarela,
-                    successUrl: $backUrlBase . '?status=approved',
-                    failureUrl: $backUrlBase . '?status=rejected',
-                    pendingUrl: $backUrlBase . '?status=pending',
+                    successUrl: $backUrlBase . '?pedido_exitoso=1&pedido_id=' . $pedido->id,
+                    failureUrl: $backUrlBase . '?pago_rechazado=1',
+                    pendingUrl: $backUrlBase . '?pago_pendiente=1',
                     notificationUrl: $gateway->getWebhookUrl($comercio),
                 );
 
@@ -266,6 +265,7 @@ class PedidoWebController extends Controller
                     DB::commit();
                     return response()->json([
                         'url_pago' => $response->checkoutUrl,
+                        'pedido_id' => $pedido->id,
                     ]);
                 } catch (\Throwable $e) {
                     throw new \Exception('Error al procesar el pago: ' . $e->getMessage());
@@ -287,5 +287,75 @@ class PedidoWebController extends Controller
                 'mensaje' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function subirComprobante(Request $request, $id)
+    {
+        $request->validate([
+            'comprobante' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+        ]);
+
+        $pedido = PedidoWeb::findOrFail($id);
+
+        $consumidor = auth('consumidor')->user();
+        if ($consumidor && $pedido->consumidor_id !== $consumidor->id) {
+            return response()->json(['error' => 'No autorizado.'], 403);
+        }
+
+        $path = $request->file('comprobante')->store('comprobantes', 'public');
+
+        $pedido->comprobante_transferencia_url = $path;
+        $pedido->save();
+
+        return response()->json([
+            'success' => true,
+            'url' => $path,
+        ]);
+    }
+
+    public function confirmarPago(PedidoWeb $pedido, Request $request)
+    {
+        if ($pedido->estado_pago !== 'pendiente') {
+            return response()->json(['success' => true, 'idempotent' => true]);
+        }
+        if ($pedido->metodo_pago !== 'mercadopago') {
+            return response()->json(['error' => 'Método de pago no soportado'], 400);
+        }
+
+        $paymentId = $request->input('payment_id');
+
+        if (!$paymentId) {
+            if (app()->environment('local')) {
+                $this->confirmationService->approve($pedido, 'dev_' . $pedido->id, 'dev_fallback');
+                return response()->json(['success' => true, 'source' => 'dev_fallback']);
+            }
+            return response()->json(['error' => 'payment_id requerido'], 400);
+        }
+
+        try {
+            $gateway = $this->paymentService
+                ->forCommerce($pedido->comercio)
+                ->gateway('mercadopago');
+
+            $status = $gateway->getPaymentStatus($paymentId);
+        } catch (\Throwable $e) {
+            if (app()->environment('local')) {
+                $this->confirmationService->approve($pedido, $paymentId, 'dev_fallback_sin_api');
+                return response()->json(['success' => true, 'source' => 'dev_fallback_sin_api']);
+            }
+            return response()->json(['error' => 'Error al verificar pago en Mercado Pago'], 502);
+        }
+
+        if ((string) $status->referenceId !== (string) $pedido->id) {
+            return response()->json(['error' => 'El pago no corresponde a este pedido'], 400);
+        }
+
+        if ($status->status !== \App\Enums\PaymentStatus::APPROVED) {
+            return response()->json(['error' => 'El pago no está aprobado'], 400);
+        }
+
+        $this->confirmationService->approve($pedido, $paymentId, 'confirmar_pago');
+
+        return response()->json(['success' => true, 'source' => 'mp_api']);
     }
 }

@@ -79,7 +79,7 @@ const generarOCS = () => {
         reverseButtons: true,
     }).then((result) => {
         if (result.isConfirmed) {
-            router.post(route('ordenes.generarSugerencias'), {}, {
+            router.post(route('ordenes-compra.sugerencias'), {}, {
                 onSuccess: () => {
                     Swal.fire({
                         title: '¡Proceso Exitoso!',
@@ -90,7 +90,7 @@ const generarOCS = () => {
                         cancelButtonText: 'Quedarme acá',
                         confirmButtonColor: '#0284c7',
                     }).then((res) => {
-                        if (res.isConfirmed) router.get(route('ordenes.index'));
+                        if (res.isConfirmed) router.get(route('ordenes-compra.index'));
                     });
                 },
                 onError: () => {
@@ -166,7 +166,7 @@ const generarOCS = () => {
                                 <p class="text-[10px] text-amber-700">{{ oc.proveedor }} · {{ oc.dias }} días en {{ oc.estado }}</p>
                             </div>
                         </div>
-                        <Link :href="route('ordenes.index')" class="text-[10px] font-bold text-amber-700 hover:text-amber-900 uppercase tracking-widest shrink-0">Revisar</Link>
+                        <Link :href="route('ordenes-compra.index')" class="text-[10px] font-bold text-amber-700 hover:text-amber-900 uppercase tracking-widest shrink-0">Revisar</Link>
                     </div>
                 </div>
             </div>
