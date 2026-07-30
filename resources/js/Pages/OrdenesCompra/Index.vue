@@ -449,7 +449,7 @@ const tienePendientes = (orden) =>
                             <button v-if="puedeAccion(ordenSeleccionada, 'enviar')" @click="accionEnvio(ordenSeleccionada)" class="bg-sky-500 hover:bg-sky-600 text-white font-black py-3 px-5 rounded-xl shadow-lg flex items-center gap-2 transition-all text-sm">Enviar al Proveedor</button>
                             <button v-if="puedeAccion(ordenSeleccionada, 'confirmar')" @click="accionConfirmar(ordenSeleccionada)" class="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 px-5 rounded-xl shadow-lg flex items-center gap-2 transition-all text-sm">Confirmar Pedido</button>
                             <button v-if="puedeAccion(ordenSeleccionada, 'recibir')" @click="accionRecibir(ordenSeleccionada)" class="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-5 rounded-xl shadow-lg flex items-center gap-2 transition-all text-sm">Recibir Mercadería</button>
-                            <button v-if="puedeAccion(ordenSeleccionada, 'editar')" @click="cerrarDetalles(); abrirEditar(ordenSeleccionada)" class="bg-amber-500 hover:bg-amber-600 text-white font-black py-3 px-5 rounded-xl shadow-lg flex items-center gap-2 transition-all text-sm">Editar Orden</button>
+                            <button v-if="puedeAccion(ordenSeleccionada, 'editar')" @click="abrirEditar(ordenSeleccionada); cerrarDetalles()" class="bg-amber-500 hover:bg-amber-600 text-white font-black py-3 px-5 rounded-xl shadow-lg flex items-center gap-2 transition-all text-sm">Editar Orden</button>
                         </div>
                     </div>
                 </div>

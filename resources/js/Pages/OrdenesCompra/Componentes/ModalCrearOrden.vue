@@ -26,7 +26,6 @@ const form = useForm({
 const productoSeleccionado = ref('');
 const cantidadInput = ref(1);
 const costoInput = ref(0);
-const vencimientoInput = ref('');
 
 watch(() => props.mostrar, (val) => {
     if (val) {
@@ -41,7 +40,6 @@ watch(() => props.mostrar, (val) => {
                 codigo: d.producto?.codigo_barras || '',
                 cantidad_pedida: d.cantidad_pedida,
                 costo_unitario: d.costo_unitario_estimado,
-                fecha_vencimiento: d.fecha_vencimiento?.split('T')[0] || null,
             }));
         } else {
             form.reset();
@@ -52,7 +50,6 @@ watch(() => props.mostrar, (val) => {
         productoSeleccionado.value = '';
         cantidadInput.value = 1;
         costoInput.value = 0;
-        vencimientoInput.value = '';
     }
 });
 
@@ -82,13 +79,11 @@ const agregarProducto = () => {
         codigo: prod.codigo_barras,
         cantidad_pedida: Number(cantidadInput.value),
         costo_unitario: Number(costoInput.value),
-        fecha_vencimiento: vencimientoInput.value || null,
     });
 
     productoSeleccionado.value = '';
     cantidadInput.value = 1;
     costoInput.value = 0;
-    vencimientoInput.value = '';
 };
 
 const quitarProducto = (index) => form.items.splice(index, 1);
@@ -174,17 +169,13 @@ const guardar = () => {
                                         <option v-for="p in productosDisponibles" :key="p.id" :value="p.id">[{{ p.codigo_barras }}] {{ p.nombre }}</option>
                                     </select>
                                 </div>
-                                <div class="col-span-4 md:col-span-2">
+                                <div class="col-span-4 md:col-span-3">
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Cant.</label>
                                     <input v-model="cantidadInput" type="number" min="1" class="w-full rounded-lg border-slate-200 text-sm font-bold text-center focus:ring-indigo-500">
                                 </div>
-                                <div class="col-span-4 md:col-span-3">
+                                <div class="col-span-4 md:col-span-4">
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo U.</label>
                                     <input v-model="costoInput" type="number" step="0.01" min="0" class="w-full rounded-lg border-slate-200 text-sm font-bold text-rose-700 focus:ring-indigo-500">
-                                </div>
-                                <div class="col-span-4 md:col-span-2">
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Vence</label>
-                                    <input v-model="vencimientoInput" type="date" class="w-full rounded-lg border-slate-200 text-sm font-bold text-slate-700 focus:ring-indigo-500">
                                 </div>
                                 <div class="col-span-12 md:col-span-12">
                                     <button @click="agregarProducto" type="button" class="w-full bg-slate-800 text-white font-bold rounded-lg py-2 hover:bg-slate-700 transition-colors uppercase text-xs">
@@ -198,7 +189,6 @@ const guardar = () => {
                                     <thead class="sticky top-0 bg-slate-100 z-10">
                                         <tr class="text-[10px] uppercase tracking-widest text-slate-500 border-b border-slate-200">
                                             <th class="p-2 font-black">Producto</th>
-                                            <th class="p-2 font-black text-center">Vence</th>
                                             <th class="p-2 font-black text-center">Cant.</th>
                                             <th class="p-2 font-black text-right">Costo U.</th>
                                             <th class="p-2 font-black text-right">Subtotal</th>
@@ -207,18 +197,12 @@ const guardar = () => {
                                     </thead>
                                     <tbody>
                                         <tr v-if="form.items.length === 0">
-                                            <td colspan="6" class="p-4 text-center text-slate-400 italic text-xs">Sin productos</td>
+                                            <td colspan="5" class="p-4 text-center text-slate-400 italic text-xs">Sin productos</td>
                                         </tr>
                                         <tr v-for="(item, index) in form.items" :key="index" class="border-b border-slate-50">
                                             <td class="p-2 font-bold text-slate-700 text-xs">
                                                 {{ item.nombre }}
                                                 <span class="block text-[9px] text-slate-400 font-mono">{{ item.codigo }}</span>
-                                            </td>
-                                            <td class="p-2 text-center text-xs">
-                                                <span v-if="item.fecha_vencimiento" class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-[10px] font-bold">
-                                                    {{ item.fecha_vencimiento.split('-').reverse().join('/') }}
-                                                </span>
-                                                <span v-else class="text-slate-300">—</span>
                                             </td>
                                             <td class="p-2 text-center font-bold text-indigo-600 text-xs">{{ item.cantidad_pedida }}</td>
                                             <td class="p-2 text-right font-mono font-bold text-slate-700 text-xs">${{ Number(item.costo_unitario).toFixed(2) }}</td>

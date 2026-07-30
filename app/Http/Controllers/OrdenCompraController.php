@@ -137,7 +137,7 @@ class OrdenCompraController extends Controller
             $this->registrarHistorial($orden->id, 'Sugerida', 'Orden creada manualmente.');
 
             DB::commit();
-            return redirect()->back()->with('exito', 'Orden de compra creada correctamente.');
+            return redirect()->route('ordenes-compra.index')->with('exito', 'Orden de compra creada correctamente.');
         } catch (\Exception $e) {
             DB::rollBack();
             return redirect()->back()->with('error', 'Error al crear la orden: ' . $e->getMessage());
@@ -150,10 +150,6 @@ class OrdenCompraController extends Controller
 
     public function update(Request $request, OrdenCompra $ordenCompra)
     {
-        if (!$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
-            abort(403, 'Esta orden no pertenece a tu comercio.');
-        }
-
         if ($ordenCompra->estado !== 'Sugerida') {
             return redirect()->back()->with('error', 'Solo se pueden editar órdenes en estado Sugerida.');
         }
@@ -169,6 +165,10 @@ class OrdenCompraController extends Controller
             'items.*.costo_unitario'    => 'required|numeric|min:0',
             'items.*.fecha_vencimiento' => 'nullable|date',
         ]);
+
+        if ($ordenCompra->sucursal_id && !$this->scope->puedeAccederSucursal($ordenCompra->sucursal_id)) {
+            abort(403, 'Esta orden no pertenece a tu comercio.');
+        }
 
         DB::beginTransaction();
         try {
@@ -202,7 +202,7 @@ class OrdenCompraController extends Controller
             $this->registrarHistorial($ordenCompra->id, $ordenCompra->estado, 'Orden editada.');
 
             DB::commit();
-            return redirect()->back()->with('exito', 'Orden actualizada correctamente.');
+            return redirect()->route('ordenes-compra.index')->with('exito', 'Orden actualizada correctamente.');
         } catch (\Exception $e) {
             DB::rollBack();
             return redirect()->back()->with('error', 'Error al actualizar: ' . $e->getMessage());

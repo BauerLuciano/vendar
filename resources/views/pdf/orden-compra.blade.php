@@ -21,9 +21,9 @@
         .company-info { font-size: 8.5pt; color: #475569; line-height: 1.4; }
 
         /* Metadata Derecha (Compacta) */
-        .doc-title { font-size: 18pt; font-weight: bold; color: #1e293b; text-transform: uppercase; margin: 0; text-align: right; }
-        .meta-table { width: auto; float: right; margin-top: 5px; }
-        .meta-table td { padding: 1px 0 1px 15px; text-align: right; font-size: 9pt; white-space: nowrap; }
+        .doc-title { font-size: 16pt; font-weight: bold; color: #1e293b; text-transform: uppercase; margin: 0 0 8px 0; text-align: right; }
+        .meta-table { width: 100%; }
+        .meta-table td { padding: 3px 0; text-align: right; font-size: 9pt; }
         .nro-orden { color: #e11d48; font-weight: bold; font-size: 11pt; }
 
         /* Cajas de Información (Proveedor / Entrega) */
