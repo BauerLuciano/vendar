@@ -77,7 +77,7 @@ class ConsumidorAuthController extends Controller
                     ? Rule::unique('consumidores', 'email')->where(fn ($q) => $q->where('comercio_id', $comercioId))
                     : Rule::unique('consumidores', 'email'),
             ],
-            'telefono' => 'nullable|string|max:15',
+            'telefono' => 'nullable|string|max:15|regex:/^\d+$/',
             'direccion' => 'nullable|string|max:255',
             'password' => 'required|string|min:6|confirmed',
         ]);
@@ -148,7 +148,7 @@ class ConsumidorAuthController extends Controller
         $request->validate([
             'nombre'    => 'required|string|max:50',
             'apellido'  => 'required|string|max:50',
-            'telefono'  => 'nullable|string|max:15',
+'telefono' => 'nullable|string|max:15|regex:/^\d+$/',
             'direccion' => 'nullable|string|max:255',
             'password'  => 'nullable|string|min:6|confirmed',
         ]);

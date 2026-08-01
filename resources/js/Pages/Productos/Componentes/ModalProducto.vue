@@ -31,8 +31,8 @@ const formulario = useForm({
     unidad_compra: null,
     cantidad_por_compra: null,
     es_retornable: false,
-    precio_costo: '',
-    precio_venta: '',
+    precio_costo: 0,
+    precio_venta: 0,
     stock_minimo: 0,
     stock_minimo_visual: 0,
     stock_objetivo: '',
@@ -427,7 +427,7 @@ const guardar = () => {
                         <div class="lg:col-span-8 space-y-2.5">
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Nombre <span class="text-rose-500">*</span></label>
-                                <input v-model="formulario.nombre" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500 ring-rose-100': formulario.errors.nombre}" placeholder="Ej: Coca Cola 2.25L Retornable" required>
+                                <input v-model="formulario.nombre" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500 ring-rose-100': formulario.errors.nombre}" placeholder="Ej: Coca Cola 2.25L Retornable" required>
                                 <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.nombre }}</p>
 
                                 <div v-if="productosSimilares.length" class="bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-1.5">
@@ -614,7 +614,7 @@ const guardar = () => {
                             </div>
                             <div class="sm:col-span-4">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cantidad</label>
-                                <input v-model="formulario.cantidad_por_compra" type="number" step="0.01" min="1" placeholder="Ej: 12" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.cantidad_por_compra}">
+                                <input v-model="formulario.cantidad_por_compra" type="number" step="1" min="1" placeholder="Ej: 12" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.cantidad_por_compra}">
                                 <p v-if="formulario.errors.cantidad_por_compra" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.cantidad_por_compra }}</p>
                             </div>
                         </div>

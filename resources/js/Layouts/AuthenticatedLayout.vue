@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import Sidebar from '@/Components/Sidebar.vue';
 import Header from '@/Components/Header.vue';
+import OnboardingBanner from '@/Pages/Onboarding/Banner.vue';
 import { useAtajosTeclado } from '@/Composables/useAtajosTeclado';
 
 useAtajosTeclado();
@@ -30,6 +31,8 @@ const cerrarMenu = () => { mostrarMenuMovil.value = false; };
             <Header @abrirMenu="mostrarMenuMovil = true" />
 
             <div class="flex-1 overflow-y-auto">
+                <OnboardingBanner />
+
                 <header v-if="$slots.header" class="bg-white shadow-sm border-b border-slate-200 px-4 lg:px-8 py-4 sticky top-0 z-30">
                     <div class="text-slate-500 font-bold uppercase text-[10px] lg:text-xs tracking-widest truncate">
                         <slot name="header" />

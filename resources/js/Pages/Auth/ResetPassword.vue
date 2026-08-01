@@ -61,6 +61,7 @@ const submit = () => {
                     class="mt-1 block w-full"
                     v-model="form.password"
                     required
+                    minlength="8"
                     autocomplete="new-password"
                 />
 
@@ -79,6 +80,7 @@ const submit = () => {
                     class="mt-1 block w-full"
                     v-model="form.password_confirmation"
                     required
+                    minlength="8"
                     autocomplete="new-password"
                 />
 

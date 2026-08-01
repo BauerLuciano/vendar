@@ -860,7 +860,7 @@ const calcularDisponible = (limite, deuda) => {
                             <input 
                                 v-model="form.limite_cuenta_corriente" 
                                 type="number" 
-                                step="100" 
+                                step="0.01" 
                                 min="0" 
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
                                 :class="{'border-rose-500': form.errors.limite_cuenta_corriente}" 

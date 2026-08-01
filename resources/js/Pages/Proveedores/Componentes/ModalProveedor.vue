@@ -54,7 +54,7 @@ const guardar = () => {
             <form @submit.prevent="guardar" class="p-6 grid grid-cols-2 gap-4">
                 <div class="col-span-2">
                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Razón Social</label>
-                    <input v-model="formulario.razon_social" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 uppercase font-bold text-slate-700 focus:ring-sky-500" :class="{'border-rose-500': formulario.errors.razon_social}" required>
+                    <input v-model="formulario.razon_social" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 uppercase font-bold text-slate-700 focus:ring-sky-500" :class="{'border-rose-500': formulario.errors.razon_social}" required>
                     <p v-if="formulario.errors.razon_social" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.razon_social }}</p>
                 </div>
 
@@ -78,8 +78,8 @@ const guardar = () => {
                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Teléfono</label>
                     <input 
                         v-model="formulario.telefono" 
-                        type="text" 
-                        maxlength="15"
+                        type="tel" 
+                        maxlength="20"
                         @input="formulario.telefono = formulario.telefono.replace(/[^0-9]/g, '')"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus:ring-sky-500" 
                         :class="{'border-rose-500': formulario.errors.telefono}"
@@ -90,7 +90,7 @@ const guardar = () => {
 
                 <div class="col-span-2">
                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Email</label>
-                    <input v-model="formulario.email" type="email" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus:ring-sky-500" :class="{'border-rose-500': formulario.errors.email}">
+                    <input v-model="formulario.email" type="email" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus:ring-sky-500" :class="{'border-rose-500': formulario.errors.email}">
                     <p v-if="formulario.errors.email" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.email }}</p>
                 </div>
 

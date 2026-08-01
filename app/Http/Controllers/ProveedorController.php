@@ -65,11 +65,11 @@ class ProveedorController extends Controller
         $validados = $request->validate([
             'razon_social' => 'required|string|max:255',
             'cuit'         => [
-                'required', 'string', 'max:15',
+                'required', 'string', 'max:15', 'regex:/^\d{11}$/',
                 Rule::unique('proveedores', 'cuit')
                     ->where(fn ($q) => $q->where('comercio_id', $comercioId)),
             ],
-            'telefono'     => 'nullable|string|max:20',
+            'telefono'     => 'nullable|string|max:20|regex:/^\d+$/',
             'email'        => 'nullable|email|max:255',
             'direccion'    => 'nullable|string|max:255',
         ]);
@@ -88,12 +88,12 @@ class ProveedorController extends Controller
         $validados = $request->validate([
             'razon_social' => 'required|string|max:255',
             'cuit'         => [
-                'required', 'string', 'max:15',
+                'required', 'string', 'max:15', 'regex:/^\d{11}$/',
                 Rule::unique('proveedores', 'cuit')
                     ->ignore($proveedore->id)
                     ->where(fn ($q) => $q->where('comercio_id', $proveedore->comercio_id)),
             ],
-            'telefono'     => 'nullable|string|max:20',
+            'telefono'     => 'nullable|string|max:20|regex:/^\d+$/',
             'email'        => 'nullable|email|max:255',
             'direccion'    => 'nullable|string|max:255',
         ]);

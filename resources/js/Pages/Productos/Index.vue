@@ -155,7 +155,8 @@
                                             descripcion="Registrá tu primer producto para comenzar."
                                             icono="inbox"
                                             accionLabel="Crear Producto"
-                                            accionRoute="productos.create"
+                                            :accionEvent="true"
+                                            @accion-click="abrirNuevo"
                                         />
                                     </td>
                                 </tr>

@@ -58,11 +58,11 @@ class SucursalController extends Controller
         $validated = $request->validate([
             'nombre'         => 'required|string|max:255',
             'direccion'      => 'required|string|max:255',
-            'telefono'       => 'nullable|string|max:255',
+            'telefono'       => 'nullable|string|max:15|regex:/^\d+$/',
             'tipo'           => 'required|in:punto_de_venta,deposito',
             'latitud'        => 'required|numeric',
             'longitud'       => 'required|numeric',
-            'costo_delivery' => 'nullable|numeric|min:0', // 🔥 Nuevo campo
+            'costo_delivery' => 'nullable|integer|min:0',
         ]);
 
         if ($comercio) {
@@ -91,7 +91,7 @@ class SucursalController extends Controller
             // 🔥 AGREGAMOS ESTOS 3 CAMPOS QUE FALTABAN:
             'latitud'        => 'required|numeric',
             'longitud'       => 'required|numeric',
-            'costo_delivery' => 'nullable|numeric|min:0',
+            'costo_delivery' => 'nullable|integer|min:0',
         ], [
             'telefono.regex' => 'El teléfono solo puede contener números.',
             'tipo.in'        => 'El tipo de local no es válido.',

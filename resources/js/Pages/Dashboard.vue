@@ -120,7 +120,21 @@ const generarOCS = () => {
                 </div>
             </div>
 
-            <div v-if="!estadoOnboarding.completo" class="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-3xl border border-sky-200 p-5 mb-6 shadow-sm">
+            <div v-if="estadoOnboarding?.completo" class="bg-gradient-to-r from-emerald-50 to-sky-50 rounded-3xl border border-emerald-200 p-5 mb-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div class="w-12 h-12 bg-emerald-100 text-emerald-500 rounded-2xl flex items-center justify-center shrink-0 text-2xl">🎉</div>
+                    <div class="flex-1">
+                        <h3 class="text-sm font-black text-emerald-800 uppercase tracking-widest">¡VendAR está listo!</h3>
+                        <p class="text-xs text-emerald-600 mt-1 font-medium">Completaste todos los pasos de configuración. Ya podés empezar a vender.</p>
+                    </div>
+                    <Link :href="route('pos.index')" class="bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors shrink-0 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                        Ir al POS
+                    </Link>
+                </div>
+            </div>
+
+            <div v-else class="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-3xl border border-sky-200 p-5 mb-6 shadow-sm">
                 <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                     <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center shrink-0">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
@@ -138,7 +152,7 @@ const generarOCS = () => {
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-2 mt-3">
-                            <span v-for="paso in estadoOnboarding.pasos" :key="paso.key" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
+                            <span v-for="paso in estadoOnboarding.pasos" :key="paso.id" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
                                   :class="paso.completado ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'">
                                 <svg v-if="paso.completado" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
                                 <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>

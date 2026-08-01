@@ -134,7 +134,8 @@
                                             descripcion="Creá tu primera caja para comenzar a operar."
                                             icono="caja"
                                             accionLabel="Crear Caja"
-                                            accionRoute="cajas.create"
+                                            :accionEvent="true"
+                                            @accion-click="openModal()"
                                         />
                                     </td>
                                 </tr>
@@ -247,7 +248,7 @@
                 <form @submit.prevent="saveCaja" class="p-6 space-y-5">
                     <div>
                         <label class="block text-[10px] font-medium uppercase text-slate-400 mb-1.5 tracking-widest">Nombre de la Caja</label>
-                        <input v-model="form.nombre" type="text" placeholder="Ej: Caja Principal, Caja Ventana..." 
+                        <input v-model="form.nombre" type="text" maxlength="255" placeholder="Ej: Caja Principal, Caja Ventana..." 
                             class="w-full rounded-xl border-slate-200 bg-slate-50 focus:ring-blue-500 py-2.5 text-sm font-medium text-slate-700" required>
                         <span v-if="form.errors.nombre" class="text-red-500 text-xs mt-1 block">{{ form.errors.nombre }}</span>
                     </div>

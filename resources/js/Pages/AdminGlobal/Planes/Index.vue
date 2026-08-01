@@ -223,7 +223,7 @@ const formatearDinero = (monto) => {
                                         <div class="sm:col-span-2">
                                             <label class="block text-sm font-medium leading-6 text-slate-900">Nombre del Plan</label>
                                             <div class="mt-1">
-                                                <input v-model="form.nombre" type="text" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" required>
+                                                <input v-model="form.nombre" type="text" maxlength="255" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" required>
                                             </div>
                                         </div>
 
@@ -251,21 +251,21 @@ const formatearDinero = (monto) => {
                                         <div>
                                             <label class="block text-sm font-medium leading-6 text-slate-900">Límite de Sucursales</label>
                                             <div class="mt-1">
-                                                <input v-model.number="form.sucursales_limit" type="number" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
+                                                <input v-model.number="form.sucursales_limit" type="number" min="0" step="1" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
                                             </div>
                                         </div>
 
                                         <div>
                                             <label class="block text-sm font-medium leading-6 text-slate-900">Límite de Usuarios</label>
                                             <div class="mt-1">
-                                                <input v-model.number="form.usuarios_limit" type="number" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
+                                                <input v-model.number="form.usuarios_limit" type="number" min="0" step="1" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
                                             </div>
                                         </div>
 
                                         <div>
                                             <label class="block text-sm font-medium leading-6 text-slate-900">Orden de visualización</label>
                                             <div class="mt-1">
-                                                <input v-model.number="form.orden" type="number" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
+                                                <input v-model.number="form.orden" type="number" min="0" step="1" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
                                             </div>
                                         </div>
 

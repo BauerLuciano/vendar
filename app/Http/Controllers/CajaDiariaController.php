@@ -192,7 +192,7 @@ class CajaDiariaController extends Controller
             'tipo' => 'required|in:INGRESO,EGRESO',
             'concepto' => 'required|string',
             'metodo_pago' => 'required|string',
-            'monto' => 'required|numeric|min:1',
+            'monto' => 'required|numeric|min:0',
             'descripcion' => 'nullable|string|max:255',
         ]);
 

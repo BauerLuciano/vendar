@@ -32,8 +32,13 @@ class DashboardController extends Controller
             ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
             : collect();
 
-        $fechaDesde = $request->input('desde', Carbon::today()->subDays(6)->format('Y-m-d'));
-        $fechaHasta = $request->input('hasta', Carbon::today()->format('Y-m-d'));
+        $validated = $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date|after_or_equal:desde',
+        ]);
+
+        $fechaDesde = $validated['desde'] ?? Carbon::today()->subDays(6)->format('Y-m-d');
+        $fechaHasta = $validated['hasta'] ?? Carbon::today()->format('Y-m-d');
 
         // 1. Deuda Total
         $deudaTotal = CuentaCorriente::when($comercioId, function ($q) use ($comercioId) {
@@ -171,8 +176,7 @@ class DashboardController extends Controller
             ]);
         }
 
-        $onboardingService = new OnboardingService();
-        $estadoOnboarding = $onboardingService->estado();
+        $estadoOnboarding = app(OnboardingService::class)->estado();
 
         $ordenesPendientes = OrdenCompra::whereIn('estado', ['Sugerida', 'Enviada'])
             ->when($comercioId, fn ($q) => $q->whereHas('sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
@@ -223,8 +227,13 @@ class DashboardController extends Controller
             ? Sucursal::where('comercio_id', $comercioId)->pluck('id')
             : collect();
 
-        $fechaDesde = $request->input('desde', Carbon::today()->subDays(6)->format('Y-m-d'));
-        $fechaHasta = $request->input('hasta', Carbon::today()->format('Y-m-d'));
+        $validated = $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date|after_or_equal:desde',
+        ]);
+
+        $fechaDesde = $validated['desde'] ?? Carbon::today()->subDays(6)->format('Y-m-d');
+        $fechaHasta = $validated['hasta'] ?? Carbon::today()->format('Y-m-d');
 
         $config = Configuracion::pluck('valor', 'clave')->toArray();
 

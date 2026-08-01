@@ -251,19 +251,19 @@ const guardarConfiguracion = () => {
                                 <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-5">
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Nombre Comercial</label>
-                                        <input v-model="form.nombre_empresa" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800" required>
+                                        <input v-model="form.nombre_empresa" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800" required>
                                     </div>
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">CUIT / RUT</label>
-                                        <input v-model="form.cuit" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <input v-model="form.cuit" type="text" maxlength="20" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                     </div>
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Teléfono Principal</label>
-                                        <input v-model="form.telefono" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <input v-model="form.telefono" type="tel" maxlength="50" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                     </div>
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Dirección Central</label>
-                                        <input v-model="form.direccion" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <input v-model="form.direccion" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                     </div>
                                 </div>
                             </div>
@@ -281,7 +281,7 @@ const guardarConfiguracion = () => {
                                 </div>
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Mensaje al Pie del Ticket</label>
-                                    <input v-model="form.ticket_mensaje_pie" type="text" placeholder="Ej: ¡Gracias por su compra!" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                    <input v-model="form.ticket_mensaje_pie" type="text" maxlength="500" placeholder="Ej: ¡Gracias por su compra!" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                 </div>
                                 <div class="col-span-full mt-2">
                                     <label class="flex items-center gap-3 p-4 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
@@ -312,7 +312,7 @@ const guardarConfiguracion = () => {
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Límite de Fiado por Defecto</label>
                                     <div class="relative">
                                         <span class="absolute left-4 top-2.5 font-black text-slate-400">$</span>
-                                        <input v-model="form.limite_fiado_defecto" type="number" step="100" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <input v-model="form.limite_fiado_defecto" type="number" step="0.01" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                     </div>
                                     <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Monto inicial para nuevos clientes</p>
                                 </div>
@@ -344,13 +344,13 @@ const guardarConfiguracion = () => {
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Días de Gracia</label>
-                                    <input v-model="form.mora_dias_gracia" type="number" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                    <input v-model="form.mora_dias_gracia" type="number" min="0" max="365" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                     <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Días de tolerancia antes de castigar la deuda.</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Interés por Mora Automática</label>
                                     <div class="relative">
-                                        <input v-model="form.mora_tasa_interes" type="number" step="0.1" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <input v-model="form.mora_tasa_interes" type="number" step="0.1" min="0" max="100" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                         <span class="absolute right-4 top-2.5 font-black text-slate-400">%</span>
                                     </div>
                                     <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Recargo aplicado por el sistema.</p>
@@ -398,15 +398,15 @@ const guardarConfiguracion = () => {
                                     <div class="space-y-4">
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">CBU / CVU</label>
-                                            <input v-model="form.transferencia_cbu" type="text" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                            <input v-model="form.transferencia_cbu" type="text" maxlength="50" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
-                                            <input v-model="form.transferencia_alias" type="text" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                            <input v-model="form.transferencia_alias" type="text" maxlength="50" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular de la Cuenta</label>
-                                            <input v-model="form.transferencia_titular" type="text" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                            <input v-model="form.transferencia_titular" type="text" maxlength="100" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
                                         </div>
                                     </div>
                                 </div>
@@ -422,7 +422,7 @@ const guardarConfiguracion = () => {
                                     </label>
                                     <div>
                                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Access Token (Producción)</label>
-                                        <input v-model="form.mp_access_token" type="password" placeholder="APP_USR-..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
+                                        <input v-model="form.mp_access_token" type="password" maxlength="255" placeholder="APP_USR-..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
                                         <p class="text-[10px] text-slate-500 mt-2 font-bold">Requerido para cobrar online desde el catálogo web.</p>
                                     </div>
                                 </div>
@@ -439,11 +439,11 @@ const guardarConfiguracion = () => {
                                     <div class="space-y-4">
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Client ID</label>
-                                            <input v-model="form.viumi_client_id" type="text" placeholder="XXXXXXXX-XXX-XXXX-XXX-XXXXXXXXXXXX" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
+                                            <input v-model="form.viumi_client_id" type="text" maxlength="255" placeholder="XXXXXXXX-XXX-XXXX-XXX-XXXXXXXXXXXX" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Client Secret</label>
-                                            <input v-model="form.viumi_client_secret" type="password" placeholder="Completar solo si se desea cambiar" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
+                                            <input v-model="form.viumi_client_secret" type="password" maxlength="255" placeholder="Completar solo si se desea cambiar" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
                                             <p class="text-[10px] text-slate-500 mt-1 font-bold">No se muestra por seguridad. Dejá vacío para mantener el actual.</p>
                                         </div>
                                         <div>

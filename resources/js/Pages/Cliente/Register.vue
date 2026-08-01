@@ -75,14 +75,14 @@ const registrar = async () => {
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Nombre</label>
-                                <input v-model="form.nombre" type="text" required placeholder="Juan"
+                                <input v-model="form.nombre" type="text" maxlength="255" required placeholder="Juan"
                                     class="w-full bg-[#080f1e] border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-[#8cc63f]/50 focus:ring-2 focus:ring-[#8cc63f]/20 transition-all"
                                     :class="{'border-rose-500/50': errors.nombre}">
                                 <p v-if="errors.nombre" class="text-[10px] text-rose-400 mt-1">{{ errors.nombre }}</p>
                             </div>
                             <div>
                                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Apellido</label>
-                                <input v-model="form.apellido" type="text" required placeholder="Pérez"
+                                <input v-model="form.apellido" type="text" maxlength="255" required placeholder="Pérez"
                                     class="w-full bg-[#080f1e] border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-[#8cc63f]/50 focus:ring-2 focus:ring-[#8cc63f]/20 transition-all"
                                     :class="{'border-rose-500/50': errors.apellido}">
                                 <p v-if="errors.apellido" class="text-[10px] text-rose-400 mt-1">{{ errors.apellido }}</p>
@@ -100,7 +100,7 @@ const registrar = async () => {
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Teléfono</label>
-                                <input v-model="form.telefono" type="text" placeholder="3764 123456"
+                                <input v-model="form.telefono" type="tel" placeholder="3764 123456"
                                     class="w-full bg-[#080f1e] border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-[#8cc63f]/50 focus:ring-2 focus:ring-[#8cc63f]/20 transition-all">
                             </div>
                             <div>

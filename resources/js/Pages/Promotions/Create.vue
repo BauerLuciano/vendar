@@ -634,7 +634,7 @@ const fieldClass = (field) => {
                     <div class="space-y-4">
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Nombre *</label>
-                            <input v-model="formulario.name" type="text"
+                            <input v-model="formulario.name" type="text" maxlength="255"
                                 class="w-full border rounded-xl px-4 py-2.5 transition-all font-bold text-slate-700"
                                 :class="fieldClass('name')" placeholder="Ej: 2x1 en Bebidas">
                             <p v-if="errors.name" class="text-rose-500 text-[10px] mt-1 font-bold">{{ errors.name }}</p>

@@ -124,7 +124,7 @@ const distanceLabel = computed(() => {
             <input
                 :value="formData.telefono_contacto"
                 @input="$emit('update:telefono', $event.target.value)"
-                type="text"
+                type="tel"
                 placeholder="Teléfono de contacto..."
                 class="w-full border rounded-xl p-2.5 text-xs transition-all focus:outline-none placeholder-[var(--text-muted)]"
                 :style="{

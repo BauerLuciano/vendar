@@ -32,6 +32,23 @@ const seccionVisible = (seccion) => {
     );
 };
 
+const onboardingActivo = computed(() => page.props.onboarding);
+
+const esItemOnboarding = (item) => {
+    if (!onboardingActivo.value) return false;
+    const mapa = {
+        comercio: 'configuracion',
+        sucursal: 'sucursales',
+        caja: 'cajas',
+        categoria: 'categorias',
+        marca: 'marcas',
+        producto: 'productos',
+        turno: 'pos',
+    };
+    const prefijo = mapa[onboardingActivo.value.id];
+    return prefijo && item.ruta.startsWith(prefijo);
+};
+
 const menu = [
     {
         titulo: 'Principal',
@@ -49,7 +66,7 @@ const menu = [
             // 🔥 NUEVO ENLACE: PEDIDOS WEB
             { nombre: 'Pedidos Web', ruta: 'pedidos.index', icono: 'pedidos_web', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },
             { nombre: 'Historial de Ventas', ruta: 'ventas.index', icono: 'ventas', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos', atajo: 'F7' }, 
-            { nombre: 'Reportes', ruta: 'reportes.index', icono: 'reportes', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },
+            { nombre: 'Reportes', ruta: 'reportes.index', icono: 'reportes', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'pos' },
             { nombre: 'Promociones', ruta: 'promotions.index', icono: 'promociones', roles: ['Encargado', 'SuperAdmin'] },
         ]
     },
@@ -71,7 +88,7 @@ const menu = [
         titulo: 'Contactos',
         roles: ['Cajero', 'Encargado', 'SuperAdmin'],
         enlaces: [
-            { nombre: 'Clientes', ruta: 'consumidores.index', icono: 'clientes', roles: ['Cajero', 'Encargado', 'SuperAdmin'] },
+            { nombre: 'Clientes', ruta: 'consumidores.index', icono: 'clientes', roles: ['Cajero', 'Encargado', 'SuperAdmin'], modulo: 'fiados' },
             { nombre: 'Proveedores', ruta: 'proveedores.index', icono: 'proveedores', roles: ['Encargado', 'SuperAdmin'], modulo: 'proveedores' },
         ]
     },
@@ -197,6 +214,7 @@ const handleLogout = () => {
                                     <svg v-if="item.icono === 'solicitudes'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
                                 </span>
                                 <span class="flex-1">{{ item.nombre }}</span>
+                                <span v-if="esItemOnboarding(item)" class="text-[8px] font-black uppercase tracking-widest bg-indigo-500 text-white px-1.5 py-0.5 rounded-md animate-pulse">Onboarding</span>
                                 <span v-if="item.atajo" class="text-[9px] font-mono font-black text-slate-500 bg-slate-800/90 px-1.5 py-0.5 rounded-md border border-slate-700/60 shadow-sm">{{ item.atajo }}</span>
                             </Link>
                         </template>

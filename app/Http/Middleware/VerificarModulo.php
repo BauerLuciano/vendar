@@ -26,7 +26,7 @@ class VerificarModulo
             return redirect()->route('dashboard')->with('error', 'Error: Sucursal sin comercio asignado.');
         }
 
-        $modulosHabilitados = $comercio->modulos_habilitados ?? [];
+        $modulosHabilitados = $comercio->modulos_habilitados ?? ['pos' => true];
 
         // 🔥 REGLA DE ORO: Si el módulo no existe o está en false, lo rebotamos
         if (empty($modulosHabilitados[$modulo])) {

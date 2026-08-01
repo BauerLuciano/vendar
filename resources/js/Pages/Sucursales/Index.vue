@@ -172,7 +172,8 @@ const toggleEstado = (s) => {
                                         descripcion="Creá tu primera sucursal para comenzar a operar."
                                         icono="sucursal"
                                         accionLabel="Crear Sucursal"
-                                        accionRoute="sucursales.create"
+                                        :accionEvent="true"
+                                        @accion-click="abrirNuevo"
                                     />
                                 </td>
                             </tr>

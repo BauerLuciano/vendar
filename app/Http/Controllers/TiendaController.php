@@ -75,20 +75,25 @@ class TiendaController extends Controller
 
     public function catalogo(Request $request, $sucursal_id)
     {
-        $sucursal = Sucursal::find($sucursal_id);
-        if (!$sucursal) {
-            return response()->json([
-                'data' => [],
-                'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 20, 'total' => 0],
-            ]);
-        }
+        $request->merge(['sucursal_id' => $sucursal_id]);
 
+        $validated = $request->validate([
+            'sucursal_id'  => 'required|exists:sucursales,id',
+            'per_page'     => 'nullable|integer|min:1|max:200',
+            'busqueda'     => 'nullable|string|max:100',
+            'categoria_id' => 'nullable|string|max:10',
+            'sort_by'      => 'nullable|string|in:nombre,precio_venta',
+            'sort_order'   => 'nullable|string|in:asc,desc',
+            'page'         => 'nullable|integer|min:1',
+        ]);
+
+        $sucursal = Sucursal::findOrFail($validated['sucursal_id']);
         $comercioId = $sucursal->comercio_id;
-        $perPage = (int) $request->input('per_page', 200);
-        $busqueda = $request->input('busqueda');
-        $categoriaId = $request->input('categoria_id');
-        $sortBy = $request->input('sort_by', 'nombre');
-        $sortOrder = $request->input('sort_order', 'asc');
+        $perPage = $validated['per_page'] ?? 200;
+        $busqueda = $validated['busqueda'] ?? null;
+        $categoriaId = $validated['categoria_id'] ?? null;
+        $sortBy = $validated['sort_by'] ?? 'nombre';
+        $sortOrder = $validated['sort_order'] ?? 'asc';
 
         $query = $sucursal->productos()
             ->with('categoria')
@@ -179,10 +184,7 @@ class TiendaController extends Controller
 
     public function promociones($sucursal_id)
     {
-        $sucursal = Sucursal::find($sucursal_id);
-        if (!$sucursal) {
-            return response()->json(['data' => []]);
-        }
+        $sucursal = Sucursal::findOrFail($sucursal_id);
 
         $comercioId = $sucursal->comercio_id;
 

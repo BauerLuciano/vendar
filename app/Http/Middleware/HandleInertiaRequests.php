@@ -135,6 +135,10 @@ class HandleInertiaRequests extends Middleware
 
             'csrf_token' => fn () => csrf_token(),
 
+            'onboarding' => fn () => $request->has('onboarding') && $request->user()
+                ? app(\App\Services\OnboardingService::class)->pasoPorId($request->query('onboarding'))
+                : null,
+
             'sucursal_activa' => fn () => $request->user() ? (function() use ($request) {
                 $id = session('sucursal_activa_id', $request->user()->branch_id);
                 if (!$id) return null;

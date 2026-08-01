@@ -20,8 +20,13 @@ class ReporteController extends Controller
             ? $this->scope->obtenerSucursalesDelComercioIds()
             : $this->scope->obtenerSucursalesPermitidasIds();
 
-        $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
-        $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
+        $validated = $request->validate([
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date|after_or_equal:fecha_desde',
+        ]);
+
+        $fechaDesde = $validated['fecha_desde'] ?? now()->startOfDay()->toDateString();
+        $fechaHasta = $validated['fecha_hasta'] ?? now()->endOfDay()->toDateString();
 
         $resumen = $this->calcularResumen($sucursalesIds, $fechaDesde, $fechaHasta);
         $metodosPago = $this->calcularMetodosPago($sucursalesIds, $fechaDesde, $fechaHasta);
@@ -52,8 +57,13 @@ class ReporteController extends Controller
             return response()->json(['data' => [], 'total_valor' => 0]);
         }
 
-        $diasMin = max(1, (int) $request->input('dias', 30));
-        $sucursalFiltro = $request->input('sucursal_id');
+        $validated = $request->validate([
+            'dias' => 'nullable|integer|min:1|max:365',
+            'sucursal_id' => 'nullable|exists:sucursales,id',
+        ]);
+
+        $diasMin = (int) ($validated['dias'] ?? 30);
+        $sucursalFiltro = $validated['sucursal_id'] ?? null;
         $sucursalesQuery = $sucursalFiltro
             ? array_intersect($sucursalesIds, [$sucursalFiltro])
             : $sucursalesIds;
@@ -303,8 +313,13 @@ class ReporteController extends Controller
             ? $this->scope->obtenerSucursalesDelComercioIds()
             : $this->scope->obtenerSucursalesPermitidasIds();
 
-        $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
-        $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
+        $validated = $request->validate([
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date|after_or_equal:fecha_desde',
+        ]);
+
+        $fechaDesde = $validated['fecha_desde'] ?? now()->startOfDay()->toDateString();
+        $fechaHasta = $validated['fecha_hasta'] ?? now()->endOfDay()->toDateString();
 
         $resumen = $this->calcularResumen($sucursalesIds, $fechaDesde, $fechaHasta);
         $metodosPago = $this->calcularMetodosPago($sucursalesIds, $fechaDesde, $fechaHasta);
@@ -333,8 +348,13 @@ class ReporteController extends Controller
             ? $this->scope->obtenerSucursalesDelComercioIds()
             : $this->scope->obtenerSucursalesPermitidasIds();
 
-        $fechaDesde = $request->input('fecha_desde', now()->startOfDay()->toDateString());
-        $fechaHasta = $request->input('fecha_hasta', now()->endOfDay()->toDateString());
+        $validated = $request->validate([
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date|after_or_equal:fecha_desde',
+        ]);
+
+        $fechaDesde = $validated['fecha_desde'] ?? now()->startOfDay()->toDateString();
+        $fechaHasta = $validated['fecha_hasta'] ?? now()->endOfDay()->toDateString();
 
         $resumen = $this->calcularResumen($sucursalesIds, $fechaDesde, $fechaHasta);
         $metodosPago = $this->calcularMetodosPago($sucursalesIds, $fechaDesde, $fechaHasta);

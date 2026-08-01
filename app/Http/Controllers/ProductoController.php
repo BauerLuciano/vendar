@@ -64,7 +64,7 @@ class ProductoController extends Controller
             'proveedor_id'        => 'nullable|exists:proveedores,id',
             'unidad_medida'       => 'required|in:Unidad,Kg,Gramos',
             'unidad_compra'       => 'nullable|string|max:50',
-            'cantidad_por_compra' => 'nullable|numeric|min:1',
+            'cantidad_por_compra' => 'nullable|integer|min:1',
             'es_retornable'       => 'boolean',
             'precio_costo'        => 'required|numeric|min:0',
             'precio_venta'        => 'required|numeric|min:0',
@@ -80,6 +80,7 @@ class ProductoController extends Controller
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'codigo_barras.min' => 'El código debe tener al menos 2 números.',
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
+            'cantidad_por_compra.integer' => 'La cantidad por compra debe ser un número entero.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
 
@@ -206,7 +207,7 @@ class ProductoController extends Controller
             'proveedor_id'        => 'nullable|exists:proveedores,id',
             'unidad_medida'       => 'required|in:Unidad,Kg,Gramos',
             'unidad_compra'       => 'nullable|string|max:50',
-            'cantidad_por_compra' => 'nullable|numeric|min:1',
+            'cantidad_por_compra' => 'nullable|integer|min:1',
             'es_retornable'       => 'boolean',
             'precio_costo'        => 'required|numeric|min:0',
             'precio_venta'        => 'required|numeric|min:0',
@@ -219,6 +220,7 @@ class ProductoController extends Controller
             'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
             'nombre.regex' => 'El nombre no puede estar compuesto solo por espacios.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
+            'cantidad_por_compra.integer' => 'La cantidad por compra debe ser un número entero.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
         ]);
 
@@ -377,6 +379,12 @@ class ProductoController extends Controller
 
     public function buscarPorCodigo(string $codigo, ProductLookupService $lookup, PromotionEngineService $engine)
     {
+        $codigo = trim($codigo);
+
+        if (empty($codigo) || strlen($codigo) > 100) {
+            return response()->json(['found' => false, 'codigo_barras' => $codigo]);
+        }
+
         $result = $lookup->lookup($codigo);
 
         if ($result->found) {

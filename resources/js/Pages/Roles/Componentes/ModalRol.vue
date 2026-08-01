@@ -58,7 +58,7 @@ const guardar = () => {
             <form @submit.prevent="guardar" class="p-6 space-y-6">
                 <div>
                     <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">Nombre del Rol</label>
-                    <input v-model="form.nombre" type="text" class="w-full rounded-xl border-slate-200 focus:ring-sky-500" required placeholder="Ej: Vendedor Senior">
+                    <input v-model="form.nombre" type="text" maxlength="255" class="w-full rounded-xl border-slate-200 focus:ring-sky-500" required placeholder="Ej: Vendedor Senior">
                     <span v-if="form.errors.nombre" class="text-rose-500 text-xs">{{ form.errors.nombre }}</span>
                 </div>
 

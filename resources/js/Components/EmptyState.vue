@@ -1,6 +1,8 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 
+const emit = defineEmits(['accion-click']);
+
 defineProps({
     titulo: { type: String, required: true },
     descripcion: { type: String, default: '' },
@@ -9,6 +11,7 @@ defineProps({
     accionHref: { type: String, default: '' },
     accionRoute: { type: String, default: '' },
     accionParams: { type: Object, default: () => ({}) },
+    accionEvent: { type: Boolean, default: false },
 });
 </script>
 
@@ -34,6 +37,9 @@ defineProps({
             <Link v-if="accionRoute" :href="route(accionRoute, accionParams)" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-sky-700 transition-colors">
                 {{ accionLabel }}
             </Link>
+            <button v-else-if="accionEvent" @click="$emit('accion-click')" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-sky-700 transition-colors">
+                {{ accionLabel }}
+            </button>
             <a v-else-if="accionHref" :href="accionHref" class="bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-sky-700 transition-colors">
                 {{ accionLabel }}
             </a>

@@ -60,6 +60,7 @@ class IngresoMercaderiaController extends Controller
             'sucursal_id'              => 'required|exists:sucursales,id',
             'fecha_ingreso'            => 'required|date',
             'numero_remito'            => 'nullable|string',
+            'proveedor_id'             => 'nullable|exists:proveedores,id',
             'items'                    => 'required|array|min:1',
             'items.*.producto_id'      => 'required|exists:productos,id',
             'items.*.cantidad'         => 'required|numeric|min:1',

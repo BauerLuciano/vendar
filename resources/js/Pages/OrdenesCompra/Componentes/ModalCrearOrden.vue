@@ -137,6 +137,7 @@ const guardar = () => {
                                         <option value="" disabled>Seleccionar...</option>
                                         <option v-for="s in sucursales" :key="s.id" :value="s.id">{{ s.nombre }}</option>
                                     </select>
+                                    <p v-if="form.errors.sucursal_id" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.sucursal_id }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Proveedor *</label>
@@ -144,14 +145,17 @@ const guardar = () => {
                                         <option value="" disabled>Seleccionar...</option>
                                         <option v-for="p in proveedores" :key="p.id" :value="p.id">{{ p.razon_social }}</option>
                                     </select>
+                                    <p v-if="form.errors.proveedor_id" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.proveedor_id }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha Entrega Esperada</label>
                                     <input v-model="form.fecha_entrega_esperada" type="date" class="w-full rounded-lg border-slate-200 text-sm font-bold text-slate-700 focus:ring-indigo-500">
+                                    <p v-if="form.errors.fecha_entrega_esperada" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.fecha_entrega_esperada }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Observaciones</label>
-                                    <textarea v-model="form.observaciones" rows="3" class="w-full rounded-lg border-slate-200 text-sm font-medium text-slate-700 focus:ring-indigo-500 resize-none" placeholder="Notas internas..."></textarea>
+                                    <textarea v-model="form.observaciones" rows="3" maxlength="1000" class="w-full rounded-lg border-slate-200 text-sm font-medium text-slate-700 focus:ring-indigo-500 resize-none" placeholder="Notas internas..."></textarea>
+                                    <p v-if="form.errors.observaciones" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.observaciones }}</p>
                                 </div>
                             </div>
                         </div>

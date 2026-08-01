@@ -158,6 +158,7 @@ const guardarIngreso = () => {
                                         <option value="" disabled>Seleccionar sucursal...</option>
                                         <option v-for="s in sucursales" :key="s.id" :value="s.id">{{ s.nombre }}</option>
                                     </select>
+                                    <p v-if="form.errors.sucursal_id" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.sucursal_id }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
@@ -165,14 +166,17 @@ const guardarIngreso = () => {
                                         <option value="">Sin proveedor</option>
                                         <option v-for="p in proveedores" :key="p.id" :value="p.id">{{ p.razon_social }}</option>
                                     </select>
+                                    <p v-if="form.errors.proveedor_id" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.proveedor_id }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha</label>
                                     <input v-model="form.fecha_ingreso" type="date" class="w-full rounded-lg border-slate-200 text-sm font-bold text-slate-700 focus:ring-sky-500">
+                                    <p v-if="form.errors.fecha_ingreso" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.fecha_ingreso }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nro Remito</label>
                                     <input v-model="form.numero_remito" type="text" class="w-full rounded-lg border-slate-200 text-sm font-bold text-slate-700 focus:ring-sky-500 font-mono">
+                                    <p v-if="form.errors.numero_remito" class="text-rose-500 text-[10px] mt-1 font-bold">{{ form.errors.numero_remito }}</p>
                                 </div>
                             </div>
                         </div>

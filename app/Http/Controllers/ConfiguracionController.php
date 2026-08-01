@@ -61,6 +61,29 @@ class ConfiguracionController extends Controller
             $user->comercio_id ?? $user->branch?->comercio_id
         );
 
+        $request->validate([
+            'transferencia_cbu' => 'nullable|string|regex:/^[0-9]*$/|max:50',
+            'transferencia_alias' => 'nullable|string|max:50',
+            'transferencia_titular' => 'nullable|string|regex:/^[\pL\s\.\,]*$/u|max:100',
+            'envio_precio_base' => 'nullable|numeric|min:0',
+            'envio_precio_km' => 'nullable|numeric|min:0',
+            'envio_radio_km' => 'nullable|numeric|min:0',
+            'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'mp_access_token' => 'nullable|string|max:255',
+            'mp_enabled' => 'nullable|boolean',
+            'payway_public_key' => 'nullable|string|max:255',
+            'viumi_client_id' => 'nullable|string|max:255',
+            'viumi_client_secret' => 'nullable|string|max:255',
+            'viumi_environment' => 'nullable|string|in:sandbox,production',
+            'viumi_enabled' => 'nullable|boolean',
+        ], [
+            'transferencia_cbu.regex' => 'El CBU solo puede contener números.',
+            'transferencia_titular.regex' => 'El nombre del titular solo puede contener letras.',
+            'logo.image' => 'El archivo debe ser una imagen válida.',
+            'logo.mimes' => 'El logo debe ser jpg, png o webp.',
+            'logo.max' => 'El logo no debe superar los 2MB.',
+        ]);
+
         $comercio->update($request->only([
             'envio_precio_base', 'envio_precio_km', 'envio_radio_km',
             'transferencia_cbu', 'transferencia_alias', 'transferencia_titular',
@@ -102,19 +125,33 @@ class ConfiguracionController extends Controller
             );
         }
 
-        $clavesComercio = [
-            'envio_precio_base', 'envio_precio_km', 'envio_radio_km',
-            'transferencia_cbu', 'transferencia_alias', 'transferencia_titular',
-            'acepta_efectivo', 'mp_access_token', 'payway_public_key',
-            'viumi_enabled', 'viumi_client_id', 'viumi_client_secret', 'viumi_environment',
+        // --- Configuraciones globales (tabla configuraciones) ---
+        // Whitelist explicita de claves permitidas con sus validaciones
+        $globalConfigKeys = [
+            'nombre_empresa'            => 'nullable|string|max:255',
+            'cuit'                      => 'nullable|string|max:20',
+            'telefono'                  => 'nullable|string|max:50',
+            'direccion'                 => 'nullable|string|max:255',
+            'ticket_mensaje_pie'        => 'nullable|string|max:500',
+            'formato_impresion'         => 'nullable|string|in:58mm,80mm,A4',
+            'ticket_digital_auto_email' => 'nullable|in:0,1,true,false',
+            'permitir_stock_negativo'   => 'nullable|in:0,1,true,false',
+            'limite_fiado_defecto'      => 'nullable|numeric|min:0',
+            'moneda_defecto'            => 'nullable|string|in:ARS,USD,EUR',
+            'costo_delivery_defecto'    => 'nullable|numeric|min:0',
+            'mora_dias_gracia'          => 'nullable|integer|min:0|max:365',
+            'mora_tasa_interes'         => 'nullable|numeric|min:0|max:100',
         ];
-        $dataGlobal = $request->except(array_merge(['logo_empresa', 'logo', 'logo_url', 'mp_enabled'], $clavesComercio));
 
-        foreach ($dataGlobal as $clave => $valor) {
-            Configuracion::updateOrCreate(
-                ['clave' => $clave],
-                ['valor' => $valor]
-            );
+        $request->validate($globalConfigKeys);
+
+        foreach ($globalConfigKeys as $clave => $rules) {
+            if ($request->has($clave)) {
+                Configuracion::updateOrCreate(
+                    ['clave' => $clave],
+                    ['valor' => $request->input($clave)]
+                );
+            }
         }
 
         if ($request->hasFile('logo')) {
@@ -138,11 +175,16 @@ class ConfiguracionController extends Controller
             'provider' => 'nullable|string|max:100',
             'display_data' => 'nullable|array',
             'display_data.alias' => 'nullable|string|max:255',
-            'display_data.cvu' => 'nullable|string|max:255',
-            'display_data.cbu' => 'nullable|string|max:255',
-            'display_data.banco' => 'nullable|string|max:255',
-            'display_data.titular' => 'nullable|string|max:255',
+            'display_data.cvu' => 'nullable|string|regex:/^[0-9]*$/|max:255',
+            'display_data.cbu' => 'nullable|string|regex:/^[0-9]*$/|max:255',
+            'display_data.banco' => 'nullable|string|regex:/^[\pL\s\.]*$/u|max:255',
+            'display_data.titular' => 'nullable|string|regex:/^[\pL\s\.\,]*$/u|max:255',
             'enabled' => 'boolean',
+        ], [
+            'display_data.cvu.regex' => 'El CVU solo puede contener números.',
+            'display_data.cbu.regex' => 'El CBU solo puede contener números.',
+            'display_data.banco.regex' => 'El banco solo puede contener letras.',
+            'display_data.titular.regex' => 'El nombre del titular solo puede contener letras.',
         ]);
 
         PaymentMethodConfiguration::updateOrCreate(

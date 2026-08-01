@@ -15,14 +15,15 @@ class Sucursal extends Model
     protected $table = 'sucursales';
 
     protected $fillable = [
-        'comercio_id', // 🔥 NUEVO: El puente hacia el tenant (Comercio)
+        'comercio_id',
         'nombre',
         'direccion',
         'telefono',
         'tipo',
         'estado',
-        'latitud', 
-        'longitud', 
+        'latitud',
+        'longitud',
+        'costo_delivery',
     ];
 
     protected $casts = [

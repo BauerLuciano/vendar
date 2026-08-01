@@ -407,7 +407,11 @@ class PosController extends Controller
             return response()->json([]);
         }
 
-        $query = $request->get('q', '');
+        $validated = $request->validate([
+            'q' => 'nullable|string|max:100',
+        ]);
+
+        $query = $validated['q'] ?? '';
         if (strlen($query) < 2) {
             return response()->json([]);
         }
@@ -496,7 +500,11 @@ class PosController extends Controller
     {
         $user = auth()->user();
         $comercioId = $user->branch?->comercio_id;
-        $query = $request->get('q', '');
+        $validated = $request->validate([
+            'q' => 'nullable|string|max:100',
+        ]);
+
+        $query = $validated['q'] ?? '';
 
         if (strlen($query) < 2) {
             return response()->json([]);
@@ -525,7 +533,7 @@ class PosController extends Controller
         $request->validate([
             'nombre' => 'required|string|max:255',
             'apellido' => 'nullable|string|max:255',
-            'telefono' => 'nullable|string|max:50',
+            'telefono' => 'nullable|string|max:20|regex:/^\d+$/',
         ]);
 
         $cliente = Consumidor::create([

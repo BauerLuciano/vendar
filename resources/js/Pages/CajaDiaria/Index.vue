@@ -1165,6 +1165,7 @@ onUnmounted(() => {
                   v-model="formCierre.observaciones" 
                   :disabled="!hayDiferencia"
                   rows="3" 
+                  maxlength="500"
                   class="w-full rounded-lg focus:ring-sky-500 focus:border-sky-500 transition-colors disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                   :class="hayDiferencia ? 'border-gray-300' : 'border-gray-200'"
                   placeholder="Anota aquí los motivos de las diferencias, retiros de dinero, etc..."

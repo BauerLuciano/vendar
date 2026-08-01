@@ -82,6 +82,7 @@ const submit = () => {
                         id="password"
                         type="password"
                         v-model="form.password"
+                        minlength="8"
                         class="w-full bg-[#111c30] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#00adef]/50 focus:ring-1 focus:ring-[#00adef]/20 transition-all placeholder-slate-600 shadow-inner"
                         placeholder="••••••••"
                         required

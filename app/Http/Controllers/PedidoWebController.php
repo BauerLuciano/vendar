@@ -35,7 +35,7 @@ class PedidoWebController extends Controller
             'items.*.id' => 'required|integer|exists:productos,id',
             'items.*.cantidad' => 'required|integer|min:1',
             'tipo_entrega' => 'required|in:local,delivery',
-            'telefono_contacto' => 'required_if:tipo_entrega,delivery|nullable|string|min:6',
+            'telefono_contacto' => 'required_if:tipo_entrega,delivery|nullable|string|min:6|max:20|regex:/^\d+$/',
             'metodo_pago' => 'required|in:' . implode(',', $metodosPagoValidos),
             'direccion_entrega' => 'required_if:tipo_entrega,delivery|nullable|string',
         ]);

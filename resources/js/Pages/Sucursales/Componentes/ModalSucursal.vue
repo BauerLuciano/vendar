@@ -143,6 +143,9 @@ const guardar = () => {
                 confirmButtonColor: '#0284c7'
             });
             emit('cerrar');
+        },
+        onError: () => {
+            // Los errores inline se muestran automáticamente via formulario.errors
         }
     });
 };
@@ -158,7 +161,8 @@ const guardar = () => {
             <form @submit.prevent="guardar" class="p-6 grid grid-cols-2 gap-4 overflow-y-auto flex-grow">
                 <div class="col-span-2">
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest">Nombre de Sucursal</label>
-                    <input v-model="formulario.nombre" type="text" class="w-full mt-1 rounded border-gray-300 shadow-sm uppercase font-bold focus:ring-sky-500" required>
+                    <input v-model="formulario.nombre" type="text" maxlength="255" class="w-full mt-1 rounded border-gray-300 shadow-sm uppercase font-bold focus:ring-sky-500" required>
+                    <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.nombre }}</p>
                 </div>
                 
                 <div class="col-span-2">
@@ -169,16 +173,19 @@ const guardar = () => {
                     <input 
                         v-model="formulario.direccion" 
                         type="text" 
+                        maxlength="255"
                         class="w-full mt-1 rounded border-gray-300 shadow-sm font-medium transition-colors focus:ring-sky-500" 
                         :class="{'bg-sky-50 border-sky-300': buscandoDireccion}"
                         placeholder="Ej: Calle Rivadavia 123"
                         required
                     >
+                    <p v-if="formulario.errors.direccion" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.direccion }}</p>
                 </div>
                 
                 <div class="col-span-1">
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest">Teléfono</label>
-                    <input v-model="formulario.telefono" type="text" class="w-full mt-1 rounded border-gray-300 shadow-sm focus:ring-sky-500">
+                    <input v-model="formulario.telefono" type="tel" maxlength="15" class="w-full mt-1 rounded border-gray-300 shadow-sm focus:ring-sky-500">
+                    <p v-if="formulario.errors.telefono" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.telefono }}</p>
                 </div>
                 
                 <div class="col-span-1">
@@ -187,14 +194,16 @@ const guardar = () => {
                         <option value="punto_de_venta">Punto de Venta</option>
                         <option value="deposito">Depósito / Almacén</option>
                     </select>
+                    <p v-if="formulario.errors.tipo" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.tipo }}</p>
                 </div>
 
                 <div class="col-span-2 p-3 bg-orange-50 border border-orange-100 rounded-xl">
                     <label class="block text-[10px] font-black text-orange-700 uppercase tracking-widest">Costo de Envío ($)</label>
                     <div class="relative mt-1">
                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-orange-400 font-bold">$</span>
-                        <input v-model="formulario.costo_delivery" type="number" step="0.01" class="w-full pl-7 rounded-lg border-orange-200 font-bold focus:ring-orange-500">
+                        <input v-model="formulario.costo_delivery" type="number" step="1" min="0" class="w-full pl-7 rounded-lg border-orange-200 font-bold focus:ring-orange-500">
                     </div>
+                    <p v-if="formulario.errors.costo_delivery" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.costo_delivery }}</p>
                 </div>
 
                 <div class="col-span-2 mt-1">

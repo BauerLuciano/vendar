@@ -119,7 +119,7 @@ const guardar = () => {
                 <div class="grid grid-cols-2 gap-4">
                     <div class="col-span-2 sm:col-span-1">
                         <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Nombre</label>
-                        <input v-model="form.name" type="text" class="w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" required>
+                        <input v-model="form.name" type="text" maxlength="255" class="w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" required>
                         <span class="text-rose-500 text-xs" v-if="form.errors.name">{{ form.errors.name }}</span>
                     </div>
                     <div class="col-span-2 sm:col-span-1">
