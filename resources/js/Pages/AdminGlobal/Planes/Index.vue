@@ -1,5 +1,6 @@
 <script setup>
 import GlobalAdminLayout from '@/Layouts/GlobalAdminLayout.vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 import { Head, useForm, Link } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
@@ -28,6 +29,9 @@ const form = useForm({
     modulos: {},
     sucursales_limit: 1,
     usuarios_limit: 1,
+    trial_dias: '',
+    trial_activo: true,
+    dias_mora: '',
     destacado: false,
     orden: 0,
     activo: true,
@@ -48,6 +52,9 @@ const abrirModal = (plan = null) => {
         form.modulos = modulos;
         form.sucursales_limit = plan.sucursales_limit;
         form.usuarios_limit = plan.usuarios_limit;
+        form.trial_dias = plan.trial_dias ?? '';
+        form.trial_activo = plan.trial_activo ?? true;
+        form.dias_mora = plan.dias_mora ?? '';
         form.destacado = plan.destacado;
         form.orden = plan.orden;
         form.activo = plan.activo;
@@ -146,6 +153,8 @@ const formatearDinero = (monto) => {
                                 <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Precio</th>
                                 <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Sucursales</th>
                                 <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Usuarios</th>
+                                <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Trial</th>
+                                <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Mora</th>
                                 <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Destacado</th>
                                 <th scope="col" class="px-3 py-3.5 text-center text-xs font-semibold text-slate-900">Activo</th>
                                 <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Módulos</th>
@@ -154,7 +163,9 @@ const formatearDinero = (monto) => {
                         </thead>
                         <tbody class="divide-y divide-slate-100 bg-white">
                             <tr v-if="!planesFiltrados.length">
-                                <td colspan="8" class="py-12 text-center text-sm text-slate-500">No hay planes registrados.</td>
+                                <td colspan="10" class="py-10">
+                                    <AlertaAyuda>No hay planes registrados.</AlertaAyuda>
+                                </td>
                             </tr>
                             <tr v-for="plan in planesFiltrados" :key="plan.id" class="hover:bg-slate-50 transition-colors">
                                 <td class="whitespace-nowrap py-4 pl-6 pr-3">
@@ -171,6 +182,11 @@ const formatearDinero = (monto) => {
                                 <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
                                     {{ plan.usuarios_limit === 999 ? '∞' : plan.usuarios_limit }}
                                 </td>
+                                <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
+                                    <span v-if="plan.trial_activo" class="font-semibold text-emerald-700">{{ plan.trial_dias ?? '—' }} días</span>
+                                    <span v-else class="text-slate-400">Sin trial</span>
+                                </td>
+                                <td class="whitespace-nowrap px-3 py-4 text-sm text-center">{{ plan.dias_mora ?? '—' }}</td>
                                 <td class="whitespace-nowrap px-3 py-4 text-center">
                                     <span v-if="plan.destacado" class="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 ring-1 ring-inset ring-amber-600/20">★ Popular</span>
                                 </td>
@@ -263,6 +279,20 @@ const formatearDinero = (monto) => {
                                         </div>
 
                                         <div>
+                                            <label class="block text-sm font-medium leading-6 text-slate-900">Días de Trial</label>
+                                            <div class="mt-1">
+                                                <input v-model.number="form.trial_dias" type="number" min="0" step="1" required class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" placeholder="Ej: 15">
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium leading-6 text-slate-900">Días de Mora</label>
+                                            <div class="mt-1">
+                                                <input v-model.number="form.dias_mora" type="number" min="0" step="1" required class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" placeholder="Ej: 5">
+                                            </div>
+                                        </div>
+
+                                        <div>
                                             <label class="block text-sm font-medium leading-6 text-slate-900">Orden de visualización</label>
                                             <div class="mt-1">
                                                 <input v-model.number="form.orden" type="number" min="0" step="1" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
@@ -270,6 +300,10 @@ const formatearDinero = (monto) => {
                                         </div>
 
                                         <div class="flex items-center gap-6 pt-6">
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input v-model="form.trial_activo" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600">
+                                                <span class="text-sm font-medium text-slate-900">Trial activo (prueba gratis)</span>
+                                            </label>
                                             <label class="flex items-center gap-2 cursor-pointer">
                                                 <input v-model="form.destacado" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600">
                                                 <span class="text-sm font-medium text-slate-900">Plan Destacado (Popular)</span>

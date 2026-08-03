@@ -90,7 +90,7 @@ class CajaDiariaController extends Controller
             ->first();
 
         if (!$turnoAbierto) {
-            return response()->json(['message' => 'No hay sesión abierta', 'sesion_activa' => false], 404);
+            return response()->json(['message' => 'No hay sesión abierta', 'sesion_activa' => false], 200);
         }
 
         return response()->json([
@@ -266,8 +266,8 @@ class CajaDiariaController extends Controller
         $this->scope->aplicarFiltroSucursal($query);
 
         $sucursales = $this->scope->obtenerSucursalesDelComercio()
-            ->select('id', 'nombre')
-            ->get();
+            ->map(fn ($s) => ['id' => $s->id, 'nombre' => $s->nombre])
+            ->values();
 
         $sesiones = $query->get()
             ->map(function ($turno) {
@@ -422,7 +422,7 @@ class CajaDiariaController extends Controller
             ->orderBy('created_at', 'asc')
             ->get();
 
-        $config = Configuracion::pluck('valor', 'clave')->toArray();
+        $config = Configuracion::paraComercio($comercioId);
 
         $efectivoEsperado = 0;
         $transferenciasEsperado = 0;

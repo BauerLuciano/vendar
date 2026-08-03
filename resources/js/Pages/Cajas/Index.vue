@@ -16,9 +16,6 @@
             </div>
         </template>
 
-        <!-- Capa invisible para cerrar el dropdown al hacer click afuera o intentar scrollear -->
-        <div v-if="menuAbierto" @click="cerrarMenu" @wheel.prevent @touchmove.prevent class="fixed inset-0 z-30"></div>
-
         <div class="py-8 bg-slate-50 min-h-screen">
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-5">
                 
@@ -164,20 +161,17 @@
                                         </span>
                                     </td>
 
-                                    <td class="px-5 py-4 text-center relative opacity-100">
-                                        <!-- Pasamos $event a toggleMenu para capturar las coordenadas -->
-                                        <button @click.stop="toggleMenu($event, caja.id)"
-                                            class="p-2 rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-100 transition-colors focus:outline-none">
-                                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                                            </svg>
-                                        </button>
+                                    <td class="px-5 py-4 text-center">
+                                        <DropdownAcciones :abierto="menuAbierto === caja.id" @close="menuAbierto = null">
+                                            <template #trigger>
+                                                <button @click.stop="toggleMenu(caja.id)"
+                                                    class="p-2 rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-100 transition-colors focus:outline-none">
+                                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                                    </svg>
+                                                </button>
+                                            </template>
 
-                                        <!-- Dropdown con posición 'fixed' -->
-                                        <div v-if="menuAbierto === caja.id"
-                                            class="fixed w-48 bg-white rounded-xl shadow-2xl border border-slate-200 z-[100] py-1.5 overflow-hidden"
-                                            :style="{ top: menuTop, left: menuLeft }">
-                                            
                                             <div class="px-4 py-2 border-b border-slate-50 mb-1">
                                                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest text-left">Acciones</p>
                                             </div>
@@ -196,7 +190,7 @@
                                                 <svg v-else class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                                 {{ caja.estado ? 'Dar de baja lógica' : 'Reactivar caja' }}
                                             </button>
-                                        </div>
+                                        </DropdownAcciones>
                                     </td>
                                 </tr>
                             </tbody>
@@ -287,6 +281,7 @@ import { useForm, router, Head, Link } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
 import EmptyState from '@/Components/EmptyState.vue';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
 
 const props = defineProps({
     cajas: Array,
@@ -295,24 +290,12 @@ const props = defineProps({
 
 // --- Lógica del Menú Dropdown ---
 const menuAbierto = ref(null);
-const menuTop = ref('0px');
-const menuLeft = ref('0px');
 
-const toggleMenu = (event, id) => {
+const toggleMenu = (id) => {
     if (menuAbierto.value === id) {
         menuAbierto.value = null;
         return;
     }
-    const rect = event.currentTarget.getBoundingClientRect();
-    const menuHeight = 90; // Reducido ya que quitamos el botón de eliminar
-    
-    if (rect.bottom + menuHeight > window.innerHeight) {
-        menuTop.value = `${rect.top - menuHeight + 25}px`; 
-    } else {
-        menuTop.value = `${rect.bottom + 5}px`;
-    }
-    
-    menuLeft.value = `${rect.left - 150}px`; 
     menuAbierto.value = id;
 };
 

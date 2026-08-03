@@ -6,6 +6,8 @@ import Swal from 'sweetalert2';
 import ModalCrearOrden from './Componentes/ModalCrearOrden.vue';
 import ModalRecepcion from './Componentes/ModalRecepcion.vue';
 import TimelineHistorial from './Componentes/TimelineHistorial.vue';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 
 const props = defineProps({
     ordenes: Object,
@@ -198,7 +200,6 @@ const tienePendientes = (orden) =>
     <Head title="Órdenes de Compra" />
 
     <AuthenticatedLayout>
-        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-30"></div>
 
         <div class="py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto bg-slate-50 min-h-screen">
 
@@ -276,8 +277,8 @@ const tienePendientes = (orden) =>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             <tr v-if="ordenes.data.length === 0">
-                                <td colspan="5" class="p-10 text-center text-slate-400 italic bg-slate-50">
-                                    No se encontraron órdenes con esos filtros.
+                                <td colspan="5" class="p-6">
+                                    <AlertaAyuda>No se encontraron órdenes con esos filtros.</AlertaAyuda>
                                 </td>
                             </tr>
                             <tr v-for="orden in ordenes.data" :key="orden.id" class="hover:bg-slate-50/50 transition-colors">
@@ -293,12 +294,13 @@ const tienePendientes = (orden) =>
                                 </td>
                                 <td class="py-4 px-6 text-right font-black text-slate-800">{{ formatearDinero(orden.total_estimado) }}</td>
 
-                                <td class="py-4 px-6 text-center relative">
-                                    <button @click.stop="toggleMenu(orden.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
-                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
-                                    </button>
-
-                                    <div v-if="menuAbierto === orden.id" class="absolute right-10 top-10 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150">
+                                <td class="py-4 px-6 text-center">
+                                    <DropdownAcciones :abierto="menuAbierto === orden.id" @close="menuAbierto = null">
+                                        <template #trigger>
+                                            <button @click.stop="toggleMenu(orden.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                            </button>
+                                        </template>
 
                                         <button @click="abrirDetalles(orden)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
@@ -310,7 +312,7 @@ const tienePendientes = (orden) =>
                                             Historial
                                         </button>
 
-                                        <a :href="route('ordenes-compra.pdf', orden.id)" target="_blank" class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-3 transition-colors">
+                                        <a :href="route('ordenes-compra.pdf', orden.id)" target="_blank" @click="cerrarMenu()" class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                                             PDF
                                         </a>
@@ -351,7 +353,7 @@ const tienePendientes = (orden) =>
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                             Eliminar
                                         </button>
-                                    </div>
+                                    </DropdownAcciones>
                                 </td>
                             </tr>
                         </tbody>

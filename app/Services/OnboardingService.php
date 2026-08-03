@@ -7,6 +7,7 @@ use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Producto;
 use App\Models\Proveedor;
+use App\Models\RecargoTarjeta;
 use App\Models\Sucursal;
 use App\Models\TurnoCaja;
 use App\Models\User;
@@ -41,10 +42,17 @@ class OnboardingService
             'marca'          => $this->pasoMarca(),
             'producto'       => $this->pasoProducto(),
             'ajustes'        => $this->pasoAjustesGlobales(),
+            'recargos'       => $this->pasoRecargos(),
             'turno'          => $this->pasoTurno(),
         ];
 
-        $requeridos = collect($pasos)->reject(fn ($p) => $p['opcional']);
+        // 🔒 Filtrar pasos según los módulos del plan del comercio
+        $modulos = $this->modulosHabilitados();
+        $pasos = collect($pasos)
+            ->reject(fn ($p) => $p['modulo'] !== null && empty($modulos[$p['modulo']]))
+            ->all();
+
+        $requeridos = collect($pasos)->reject(fn ($p) => $p['opcional'] ?? false);
         $completados = $requeridos->where('completado', true)->count();
         $totalRequeridos = $requeridos->count();
         $totalVisibles = count($pasos);
@@ -71,21 +79,22 @@ class OnboardingService
 
         return [
             'id'            => 'comercio',
-            'titulo'        => 'Tu Comercio',
+            'titulo'        => 'Mi Negocio',
             'descripcion'   => 'Datos de tu negocio',
-            'instrucciones' => 'Completá el nombre, logo, dirección y datos fiscales de tu negocio en Configuración.',
+            'instrucciones' => 'Completá el nombre, logo, dirección y datos fiscales de tu negocio en Mi Negocio.',
             'completado'    => $completado,
             'url'           => route('configuracion.index'),
             'ruta'          => 'configuracion.index',
             'icono'         => 'tienda',
             'opcional'      => false,
+            'modulo'        => null,
         ];
     }
 
     public function pasoSucursal(): array
     {
         $comercioId = $this->comercioId;
-        if (!$comercioId) return $this->pasoNoCompletado('sucursal', 'Tu Sucursal', 'El lugar donde vas a operar', 'Necesitás crear una sucursal para asignar tus productos y cajas.', 'sucursal', 'sucursales.index');
+        if (!$comercioId) return $this->pasoNoCompletado('sucursal', 'Tu Sucursal', 'El lugar donde vas a operar', 'Necesitás crear una sucursal para asignar tus productos y cajas.', 'sucursal', 'sucursales.index', null);
 
         $sucursales = Sucursal::where('comercio_id', $comercioId)
             ->where('tipo', 'punto_de_venta')
@@ -93,22 +102,23 @@ class OnboardingService
 
         return [
             'id'            => 'sucursal',
-            'titulo'        => 'Tu Sucursal',
+            'titulo'        => 'Mi Local',
             'descripcion'   => 'El lugar donde vas a operar',
-            'instrucciones' => 'Creá la sucursal donde vas a vender. Indicá dirección, teléfono y si tiene delivery.',
+            'instrucciones' => 'Ya creaste tu primer local al registrarte. Completá dirección, teléfono y si tiene delivery desde Mi Local.',
             'completado'    => $sucursales > 0,
             'url'           => route('sucursales.index'),
             'ruta'          => 'sucursales.index',
             'icono'         => 'sucursal',
-            'extra'         => "$sucursales sucursal(es) creada(s)",
+            'extra'         => "$sucursales local(es) creado(s)",
             'opcional'      => false,
+            'modulo'        => null,
         ];
     }
 
     public function pasoCaja(): array
     {
         $sucursalId = $this->sucursalActivaId();
-        if (!$sucursalId) return $this->pasoNoCompletado('caja', 'Tu Caja', 'Necesitás una caja para cobrar', 'Sin una sucursal activa no podés crear cajas. Completá primero el paso anterior.', 'caja', 'cajas.index');
+        if (!$sucursalId) return $this->pasoNoCompletado('caja', 'Tu Caja', 'Necesitás una caja para cobrar', 'Sin una sucursal activa no podés crear cajas. Completá primero el paso anterior.', 'caja', 'cajas.index', 'pos');
 
         $cajas = Caja::where('sucursal_id', $sucursalId)->count();
 
@@ -123,6 +133,7 @@ class OnboardingService
             'icono'         => 'caja',
             'extra'         => "$cajas caja(s) creada(s)",
             'opcional'      => false,
+            'modulo'        => 'pos',
         ];
     }
 
@@ -141,6 +152,7 @@ class OnboardingService
             'icono'         => 'lista',
             'extra'         => "$categorias categoría(s) creada(s)",
             'opcional'      => false,
+            'modulo'        => null,
         ];
     }
 
@@ -159,6 +171,7 @@ class OnboardingService
             'icono'         => 'proveedor',
             'extra'         => "$proveedores proveedor(es) registrado(s)",
             'opcional'      => true,
+            'modulo'        => 'proveedores',
         ];
     }
 
@@ -177,6 +190,7 @@ class OnboardingService
             'icono'         => 'tag',
             'extra'         => "$marcas marca(s) creada(s)",
             'opcional'      => false,
+            'modulo'        => null,
         ];
     }
 
@@ -198,6 +212,7 @@ class OnboardingService
             'icono'         => 'producto',
             'extra'         => "$productos producto(s) disponible(s)",
             'opcional'      => false,
+            'modulo'        => null,
         ];
     }
 
@@ -227,13 +242,35 @@ class OnboardingService
             'icono'         => 'ajustes',
             'extra'         => $tieneCbu ? 'CBU configurado' : ($tieneMetodoPago ? 'Medio de pago POS configurado' : 'Sin configurar'),
             'opcional'      => true,
+            'modulo'        => null,
+        ];
+    }
+
+    public function pasoRecargos(): array
+    {
+        $recargos = $this->comercioId
+            ? RecargoTarjeta::where('comercio_id', $this->comercioId)->count()
+            : 0;
+
+        return [
+            'id'            => 'recargos',
+            'titulo'        => 'Recargos por Tarjeta',
+            'descripcion'   => 'Opcional: cuotas y recargos de tarjetas',
+            'instrucciones' => 'Configurá los recargos por banco y tipo de tarjeta (Débito/Crédito) con el % que te cobra cada banco. Recordá mantenerlos actualizados.',
+            'completado'    => $recargos > 0,
+            'url'           => route('recargos.index'),
+            'ruta'          => 'recargos.index',
+            'icono'         => 'tarjeta',
+            'extra'         => $recargos > 0 ? 'Recargos configurados' : 'Sin configurar',
+            'opcional'      => true,
+            'modulo'        => null,
         ];
     }
 
     public function pasoTurno(): array
     {
         $userId = $this->userId;
-        if (!$userId) return $this->pasoNoCompletado('turno', 'Abrir Turno', 'Iniciá tu primera jornada', 'Abrí un turno para habilitar la caja y empezar a cobrar.', 'turno');
+        if (!$userId) return $this->pasoNoCompletado('turno', 'Abrir Turno', 'Iniciá tu primera jornada', 'Abrí un turno para habilitar la caja y empezar a cobrar.', 'turno', 'pos.index', 'pos');
 
         $turnoAbierto = TurnoCaja::where('user_id', $userId)
             ->where('estado', 'Abierto')
@@ -252,6 +289,7 @@ class OnboardingService
             'icono'         => 'turno',
             'extra'         => $turnoAbierto ? 'Turno abierto activo' : ($turnosTotales > 0 ? 'Turnos anteriores' : 'Sin turnos'),
             'opcional'      => false,
+            'modulo'        => 'pos',
         ];
     }
 
@@ -259,7 +297,7 @@ class OnboardingService
     {
         $pasos = $this->estado()['pasos'];
         foreach ($pasos as $paso) {
-            if (!$paso['completado'] && !$paso['opcional']) return $paso;
+            if (!$paso['completado'] && !($paso['opcional'] ?? false)) return $paso;
         }
         return null;
     }
@@ -273,7 +311,7 @@ class OnboardingService
         return null;
     }
 
-    private function pasoNoCompletado(string $id, string $titulo, string $descripcion, string $instrucciones, string $icono, string $ruta = 'configuracion.index'): array
+    private function pasoNoCompletado(string $id, string $titulo, string $descripcion, string $instrucciones, string $icono, string $ruta = 'configuracion.index', ?string $modulo = null): array
     {
         return [
             'id'            => $id,
@@ -284,11 +322,21 @@ class OnboardingService
             'url'           => route($ruta),
             'ruta'          => $ruta,
             'icono'         => $icono,
+            'opcional'      => false,
+            'modulo'        => $modulo,
         ];
     }
 
     private function sucursalActivaId(): ?int
     {
         return session('sucursal_activa_id', auth()->user()?->branch_id);
+    }
+
+    private function modulosHabilitados(): array
+    {
+        $user = auth()->user();
+        if (!$user) return ['pos' => true];
+        $comercio = $user->comercio ?? $user->branch?->comercio;
+        return $comercio?->modulos_habilitados ?? ['pos' => true];
     }
 }

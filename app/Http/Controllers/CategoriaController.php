@@ -6,7 +6,6 @@ use App\Models\Categoria;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str; 
 use Inertia\Inertia;
-use Illuminate\Validation\Rule;
 
 class CategoriaController extends Controller
 {
@@ -38,7 +37,7 @@ class CategoriaController extends Controller
 
         $categorias = Categoria::deComercio($comercioId)
             ->when($search, function ($query, $search) {
-                $query->where('nombreCategoria', 'LIKE', "%{$search}%");
+                $query->where('nombreCategoria', 'ILIKE', "%{$search}%");
             })
             ->when($estado !== 'all', function ($query) use ($estado) {
                 $query->where('estado', $estado === 'activos' ? true : false);
@@ -57,13 +56,24 @@ class CategoriaController extends Controller
     {
         $comercioId = $this->getComercioId();
 
+        $request->merge(['nombreCategoria' => mb_strtoupper(trim($request->nombreCategoria ?? ''))]);
+
         $validados = $request->validate([
             'nombreCategoria' => [
                 'required', 'string', 'max:100',
-                Rule::unique('categorias', 'nombreCategoria')
-                    ->where(fn ($q) => $q->where('comercio_id', $comercioId)),
+                'regex:/^[\p{L}\s]+$/u',
+                function ($attribute, $value, $fail) use ($comercioId) {
+                    $existe = Categoria::where('comercio_id', $comercioId)
+                        ->whereRaw('LOWER("nombreCategoria") = ?', [mb_strtolower($value)])
+                        ->exists();
+                    if ($existe) {
+                        $fail('Ya existe una categoría con ese nombre.');
+                    }
+                },
             ],
             'descripcion' => 'nullable|string|max:500',
+        ], [
+            'nombreCategoria.regex' => 'El nombre de la categoría solo puede contener letras y espacios.',
         ]);
 
         $validados['comercio_id'] = $comercioId;
@@ -80,14 +90,25 @@ class CategoriaController extends Controller
         $this->authorizeComercio($categoria);
         $comercioId = $this->getComercioId();
 
+        $request->merge(['nombreCategoria' => mb_strtoupper(trim($request->nombreCategoria ?? ''))]);
+
         $validados = $request->validate([
             'nombreCategoria' => [
                 'required', 'string', 'max:100',
-                Rule::unique('categorias', 'nombreCategoria')
-                    ->ignore($categoria->id)
-                    ->where(fn ($q) => $q->where('comercio_id', $categoria->comercio_id)),
+                'regex:/^[\p{L}\s]+$/u',
+                function ($attribute, $value, $fail) use ($categoria) {
+                    $existe = Categoria::where('comercio_id', $categoria->comercio_id)
+                        ->where('id', '!=', $categoria->id)
+                        ->whereRaw('LOWER("nombreCategoria") = ?', [mb_strtolower($value)])
+                        ->exists();
+                    if ($existe) {
+                        $fail('Ya existe una categoría con ese nombre.');
+                    }
+                },
             ],
             'descripcion' => 'nullable|string|max:500',
+        ], [
+            'nombreCategoria.regex' => 'El nombre de la categoría solo puede contener letras y espacios.',
         ]);
 
         $validados['slug'] = Str::slug($request->nombreCategoria);

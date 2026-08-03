@@ -6,7 +6,6 @@ use App\Models\Marca;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class MarcaController extends Controller
@@ -39,7 +38,7 @@ class MarcaController extends Controller
 
         $marcas = Marca::deComercio($comercioId)
             ->when($search, function ($query, $search) {
-                $query->where('nombreMarca', 'LIKE', "%{$search}%");
+                $query->where('nombreMarca', 'ILIKE', "%{$search}%");
             })
             ->when($estado !== 'all', function ($query) use ($estado) {
                 $query->where('estado', $estado === 'activos' ? true : false);
@@ -58,11 +57,19 @@ class MarcaController extends Controller
     {
         $comercioId = $this->getComercioId();
 
+        $request->merge(['nombreMarca' => mb_strtoupper(trim($request->nombreMarca ?? ''))]);
+
         $validados = $request->validate([
             'nombreMarca' => [
                 'required', 'string', 'max:255',
-                Rule::unique('marcas', 'nombreMarca')
-                    ->where(fn ($q) => $q->where('comercio_id', $comercioId)),
+                function ($attribute, $value, $fail) use ($comercioId) {
+                    $existe = Marca::where('comercio_id', $comercioId)
+                        ->whereRaw('LOWER("nombreMarca") = ?', [mb_strtolower($value)])
+                        ->exists();
+                    if ($existe) {
+                        $fail('Ya existe una marca con ese nombre.');
+                    }
+                },
             ],
             'imagen' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
@@ -72,7 +79,6 @@ class MarcaController extends Controller
         }
 
         $validados['comercio_id'] = $comercioId;
-        $validados['slug'] = Str::slug($request->nombreMarca);
         $validados['estado'] = true;
 
         Marca::create($validados);
@@ -83,12 +89,20 @@ class MarcaController extends Controller
     {
         $this->authorizeComercio($marca);
 
+        $request->merge(['nombreMarca' => mb_strtoupper(trim($request->nombreMarca ?? ''))]);
+
         $validados = $request->validate([
             'nombreMarca' => [
                 'required', 'string', 'max:255',
-                Rule::unique('marcas', 'nombreMarca')
-                    ->ignore($marca->id)
-                    ->where(fn ($q) => $q->where('comercio_id', $marca->comercio_id)),
+                function ($attribute, $value, $fail) use ($marca) {
+                    $existe = Marca::where('comercio_id', $marca->comercio_id)
+                        ->where('id', '!=', $marca->id)
+                        ->whereRaw('LOWER("nombreMarca") = ?', [mb_strtolower($value)])
+                        ->exists();
+                    if ($existe) {
+                        $fail('Ya existe una marca con ese nombre.');
+                    }
+                },
             ],
             'imagen' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
@@ -98,7 +112,6 @@ class MarcaController extends Controller
             $validados['imagen'] = $request->file('imagen')->store('marcas', 'public');
         }
 
-        $validados['slug'] = Str::slug($request->nombreMarca);
         $marca->update($validados);
 
         return redirect()->back();

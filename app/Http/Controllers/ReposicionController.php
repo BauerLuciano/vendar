@@ -6,6 +6,7 @@ use App\Models\Proveedor;
 use App\Models\Sucursal;
 use App\Models\OrdenCompra;
 use App\Models\OrdenCompraDetalle;
+use App\Models\ReposicionSugerida;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -15,39 +16,156 @@ use Illuminate\Support\Str;
 
 class ReposicionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
-        $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
-        
+
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
         if (!$sucursalId) {
             return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
         }
 
-        // 1. Buscamos TODOS los productos que están por debajo del mínimo en esa sucursal
-        $faltantes = DB::table('productos')
-            ->join('producto_sucursal', 'productos.id', '=', 'producto_sucursal.producto_id')
-            ->where('producto_sucursal.sucursal_id', $sucursalId)
-            ->whereRaw('producto_sucursal.cantidad_fisica <= productos.stock_minimo')
-            ->select(
-                'productos.id', 
-                'productos.nombre', 
-                'productos.codigo_barras',
-                'productos.proveedor_id', // El proveedor por defecto
-                'productos.stock_minimo', 
-                'productos.stock_objetivo', 
-                'productos.precio_costo',
-                'producto_sucursal.cantidad_fisica'
-            )->get();
-
         $comercioId = $user->branch?->comercio_id;
 
+        // 1. Stock físico REAL como única fuente de verdad (recálculo en vivo)
+        $productos = DB::table('producto_sucursal')
+            ->join('productos', 'productos.id', '=', 'producto_sucursal.producto_id')
+            ->where('producto_sucursal.sucursal_id', $sucursalId)
+            ->select(
+                'productos.id',
+                'productos.nombre',
+                'productos.codigo_barras',
+                'productos.unidad_medida',
+                'productos.stock_minimo',
+                'productos.stock_objetivo',
+                'productos.precio_costo',
+                'productos.proveedor_id',
+                'producto_sucursal.cantidad_fisica'
+            )
+            ->get();
+
+        // 2. Ventas de los últimos 30 días (para desempatar)
+        $ventas30 = DB::table('detalle_ventas')
+            ->join('ventas', 'ventas.id', '=', 'detalle_ventas.venta_id')
+            ->join('turno_cajas', 'turno_cajas.id', '=', 'ventas.turno_caja_id')
+            ->where('turno_cajas.sucursal_id', $sucursalId)
+            ->where('ventas.estado', 'Completada')
+            ->where('ventas.created_at', '>=', now()->subDays(30))
+            ->groupBy('detalle_ventas.producto_id')
+            ->select('detalle_ventas.producto_id', DB::raw('SUM(detalle_ventas.cantidad) as total'))
+            ->pluck('total', 'producto_id');
+
+        // 3. Productos ocultos por "Recordar mañana" (solo estado, nunca cantidades)
+        $ignorados = ReposicionSugerida::where('comercio_id', $comercioId)
+            ->where('sucursal_id', $sucursalId)
+            ->where('estado', 'ignorado')
+            ->where('ignorado_hasta', '>', now())
+            ->pluck('id', 'producto_id');
+
+        // 4. Cálculo en vivo
+        //    stock_minimo  → ¿cuándo debo comprar? (aparece si stock < mínimo)
+        //    stock_objetivo → ¿hasta cuánto debo comprar? (cantidad = objetivo − stock)
+        $faltantes = collect();
+        $sinMinimo = 0;
+        $sinObjetivo = 0;
+
+        foreach ($productos as $p) {
+            $minimo = (float) $p->stock_minimo;
+            $objetivo = (float) $p->stock_objetivo;
+
+            if ($minimo <= 0) {
+                $sinMinimo++;
+                continue;
+            }
+
+            if ($objetivo <= 0) {
+                $sinObjetivo++;
+                continue;
+            }
+
+            if ((float) $p->cantidad_fisica >= $minimo) {
+                continue;
+            }
+
+            if ($ignorados->has($p->id)) {
+                continue;
+            }
+
+            $cantidad = $objetivo - (float) $p->cantidad_fisica;
+            $cantidadSugerida = $this->redondearSugerido($cantidad, $p->unidad_medida);
+
+            $faltantes->push((object) [
+                'id'                => $p->id,
+                'nombre'            => $p->nombre,
+                'codigo_barras'     => $p->codigo_barras,
+                'unidad_medida'     => $p->unidad_medida,
+                'cantidad_fisica'   => (int) $p->cantidad_fisica,
+                'stock_minimo'      => $minimo,
+                'stock_objetivo'    => $objetivo,
+                'cantidad_sugerida' => $cantidadSugerida,
+                'criticidad'        => $minimo > 0 ? (float) $p->cantidad_fisica / $minimo : 1.0,
+                'ventas_30d'        => (float) ($ventas30[$p->id] ?? 0),
+                'precio_costo'      => (float) $p->precio_costo,
+                'costo_estimado'    => round($cantidadSugerida * (float) $p->precio_costo, 2),
+            ]);
+        }
+
+        // 5. Priorización: criticidad (menor primero) y desempate por ventas
+        $faltantes = $faltantes->sort(function ($a, $b) {
+            if ($a->criticidad !== $b->criticidad) {
+                return $a->criticidad <=> $b->criticidad;
+            }
+            return $b->ventas_30d <=> $a->ventas_30d;
+        })->values();
+
+        // 6. Resumen económico
+        $resumen = [
+            'total_productos' => $faltantes->count(),
+            'costo_estimado'  => round($faltantes->sum(fn ($f) => $f->costo_estimado), 2),
+            'agotados'        => $faltantes->where('cantidad_fisica', '<=', 0)->count(),
+            'criticos'        => $faltantes->where('cantidad_fisica', '>', 0)->count(),
+        ];
+
+        $todos = $request->boolean('todos');
+        $mostrados = $todos ? $faltantes : $faltantes->take(10);
+
         return Inertia::render('Reposicion/Index', [
-            'faltantes' => $faltantes,
-            'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
-            'sucursalActual' => Sucursal::find($sucursalId)
+            'faltantes'       => $mostrados->values(),
+            'resumen'         => $resumen,
+            'sin_minimo'      => $sinMinimo,
+            'sin_objetivo'    => $sinObjetivo,
+            'todos'           => $todos,
+            'sucursalActual'  => Sucursal::find($sucursalId),
         ]);
+    }
+
+    public function recordar(Request $request)
+    {
+        $request->validate([
+            'producto_id' => 'required|exists:productos,id',
+        ]);
+
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
+
+        if (!$sucursalId) {
+            return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
+        }
+
+        ReposicionSugerida::updateOrCreate(
+            [
+                'comercio_id' => $comercioId,
+                'sucursal_id' => $sucursalId,
+                'producto_id' => $request->producto_id,
+            ],
+            [
+                'estado'        => 'ignorado',
+                'ignorado_hasta' => now()->endOfDay(),
+            ]
+        );
+
+        return redirect()->back()->with('success', 'Producto ocultado por hoy. Reaparecerá mañana si sigue faltando.');
     }
 
     public function generarPreOrdenes(Request $request)
@@ -161,5 +279,16 @@ class ReposicionController extends Controller
         ]);
 
         return redirect()->back();
+    }
+
+    private function redondearSugerido(float $cantidad, ?string $unidad): float
+    {
+        $unidad = strtolower(trim((string) $unidad));
+
+        if (in_array($unidad, ['unidad', 'unidades', 'caja', 'cajas', 'pack', 'packs'], true)) {
+            return (int) ceil($cantidad);
+        }
+
+        return round($cantidad, 2);
     }
 }

@@ -32,7 +32,7 @@ class EnviarTicketDigital implements ShouldQueue
 
         $ticket = TicketBuilder::build($venta);
 
-        $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
+        $config = \App\Models\Configuracion::paraComercio($venta->turno?->caja?->sucursal?->comercio_id);
         if (($config['ticket_digital_auto_email'] ?? '0') !== '1') {
             return;
         }

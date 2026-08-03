@@ -4,6 +4,7 @@ import { Head, router } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 
 const props = defineProps({
     recargos: Array,
@@ -136,6 +137,13 @@ function getTipoColor(tipo) {
 
         <div class="py-8">
             <div class="max-w-5xl mx-auto sm:px-6 lg:px-8">
+
+                <!-- Aviso: mantener % actualizados -->
+                <AlertaAyuda titulo="Los recargos los define el banco, no VendAR">
+                    Cada banco maneja sus propias cuotas y porcentajes, y pueden cambiar con el tiempo.
+                    Revisá de vez en cuando la información de cada banco y actualizá los % acá para que coincidan
+                    con lo que te cobran. Así evitás cobrar de más o de menos a tus clientes.
+                </AlertaAyuda>
 
                 <!-- Formulario inline -->
                 <div v-if="showForm" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">

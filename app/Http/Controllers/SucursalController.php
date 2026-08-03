@@ -18,8 +18,8 @@ class SucursalController extends Controller
         $sucursales = Sucursal::when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
             ->when($search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
-                    $sub->where('nombre', 'LIKE', "%{$search}%")
-                        ->orWhere('direccion', 'LIKE', "%{$search}%");
+                    $sub->where('nombre', 'ILIKE', "%{$search}%")
+                        ->orWhere('direccion', 'ILIKE', "%{$search}%");
                     if (is_numeric($search)) {
                         $sub->orWhere('id', $search);
                     }
@@ -49,12 +49,16 @@ class SucursalController extends Controller
 
         if ($comercio) {
             $cantidadActual = \App\Models\Sucursal::where('comercio_id', $comercio->id)->count();
-            if ($cantidadActual >= $comercio->limite_sucursales) {
-                return redirect()->back()->with('error', "🔒 Límite alcanzado...");
+            $limite = $comercio->limite_sucursales ?? 1;
+            if ($cantidadActual >= $limite) {
+                $nombrePlan = $comercio->plan ?? 'Básico';
+                return redirect()->back()->with('error', "Tu plan {$nombrePlan} incluye {$limite} " . ($limite === 1 ? 'local' : 'locales') . ". Ya usaste todos. Para agregar más locales, mejorá tu plan en Mi Negocio → Plan.");
             }
         }
 
         // 2. VALIDACIÓN (Agregamos costo_delivery)
+        $request->merge(['nombre' => mb_strtoupper(trim($request->nombre ?? ''))]);
+
         $validated = $request->validate([
             'nombre'         => 'required|string|max:255',
             'direccion'      => 'required|string|max:255',
@@ -82,6 +86,8 @@ class SucursalController extends Controller
         if ($comercioId && $sucursal->comercio_id !== $comercioId) {
             abort(403, 'Esta sucursal no pertenece a tu comercio.');
         }
+
+        $request->merge(['nombre' => mb_strtoupper(trim($request->nombre ?? ''))]);
 
         $validados = $request->validate([
             'nombre'         => 'required|string|max:100',

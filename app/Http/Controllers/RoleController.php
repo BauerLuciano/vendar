@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Spatie\Permission\Models\Role;
+use App\Models\Role;
 use Spatie\Permission\Models\Permission;
 use Inertia\Inertia;
 
@@ -42,6 +42,11 @@ class RoleController extends Controller
      */
     public function update(Request $request, Role $role)
     {
+        // Seguridad: No modificar roles de sistema
+        if (in_array($role->name, $this->rolesSistema())) {
+            return redirect()->back()->withErrors(['error' => 'No podés modificar los roles principales del sistema.']);
+        }
+
         $request->validate([
             'nombre' => 'required|string|max:255|unique:roles,name,' . $role->id,
             'permisos' => 'nullable|array'
@@ -60,7 +65,7 @@ class RoleController extends Controller
     public function destroy(Role $role)
     {
         // Seguridad: No borrar roles críticos
-        if (in_array($role->name, ['Administrador Global', 'SuperAdmin'])) {
+        if (in_array($role->name, $this->rolesSistema())) {
             return redirect()->back()->withErrors(['error' => 'No podés eliminar los roles principales del sistema.']);
         }
 
@@ -101,5 +106,10 @@ class RoleController extends Controller
         ]);
 
         return redirect()->back()->with('exito', 'Permiso actualizado correctamente.');
+    }
+
+    private function rolesSistema(): array
+    {
+        return ['Administrador Global', 'SuperAdmin'];
     }
 }

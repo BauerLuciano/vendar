@@ -21,6 +21,14 @@ class ElegirSucursalController extends Controller
             }
         }
 
+        // Con un solo local no hay nada que elegir: se auto-selecciona y sigue.
+        if ($sucursales->count() === 1) {
+            $unica = $sucursales->first();
+            session(['sucursal_activa_id' => (int) $unica->id]);
+
+            return redirect()->to($request->input('redirect', route('dashboard')));
+        }
+
         return Inertia::render('Auth/ElegirSucursal', [
             'sucursales' => $sucursales,
         ]);

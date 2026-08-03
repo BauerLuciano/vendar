@@ -4,6 +4,8 @@ defineProps({
     usuario: Object
 });
 defineEmits(['cerrar']);
+
+const etiquetaRol = (rol) => rol === 'SuperAdmin' ? 'Dueño' : rol;
 </script>
 
 <template>
@@ -23,7 +25,7 @@ defineEmits(['cerrar']);
                 <div>
                     <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rol del Sistema</p>
                     <p class="text-sm font-bold text-slate-700">
-                        {{ usuario?.roles?.length > 0 ? usuario.roles[0].name : 'Sin rol asignado' }}
+                        {{ usuario?.roles?.length > 0 ? etiquetaRol(usuario.roles[0].name) : 'Sin rol asignado' }}
                     </p>
                 </div>
                 

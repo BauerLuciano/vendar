@@ -55,6 +55,18 @@ class LoginRequest extends FormRequest
             return;
         }
 
+        $usuarioInactivo = \App\Models\User::withTrashed()
+            ->where('email', $this->string('email'))
+            ->whereNotNull('deleted_at')
+            ->first();
+
+        if ($usuarioInactivo && \Illuminate\Support\Facades\Hash::check($this->string('password'), $usuarioInactivo->password)) {
+            RateLimiter::hit($this->throttleKey());
+            throw ValidationException::withMessages([
+                'email' => 'Esta cuenta fue dada de baja. Contactá al encargado para reactivarla.',
+            ]);
+        }
+
         RateLimiter::hit($this->throttleKey());
 
         throw ValidationException::withMessages([

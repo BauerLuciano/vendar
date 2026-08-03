@@ -13,8 +13,9 @@ class VerificarActivacionCuenta
         $rutasPermitidas = [
             'login', 'logout', 'pending.approval',
             'cuenta.suspendida', 'register', 'password.*',
-            'tienda.publica', 'auth.google', 'auth.google.callback',
+            'tienda.publica', 'auth.google', 'auth.google.callback', // POST-MVP: rutas de Google Login deshabilitadas
             'cliente.inicio',
+            'verification.notice', 'verification.verify', 'verification.send',
         ];
 
         foreach ($rutasPermitidas as $ruta) {

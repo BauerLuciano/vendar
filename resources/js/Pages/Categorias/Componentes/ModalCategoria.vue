@@ -23,6 +23,10 @@ watch(() => props.categoria, (nuevoValor) => {
     }
 }, { immediate: true });
 
+const normalizarNombreCategoria = () => {
+    formulario.nombreCategoria = (formulario.nombreCategoria || '').replace(/[^\p{L}\s]/gu, '').toUpperCase();
+};
+
 const guardar = () => {
     const esEdicion = !!formulario.id;
     const ruta = esEdicion ? route('categorias.update', formulario.id) : route('categorias.store');
@@ -56,12 +60,19 @@ const guardar = () => {
                     <input 
                         v-model="formulario.nombreCategoria" 
                         type="text" 
+                        maxlength="100"
+                        @input="normalizarNombreCategoria"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus:ring-sky-500 focus:border-sky-500 transition-all uppercase font-bold text-slate-700" 
                         :class="{'border-rose-500': formulario.errors.nombreCategoria}"
                         placeholder="EJ: BEBIDAS, LIMPIEZA..."
                         required
                     >
-                    <p v-if="formulario.errors.nombreCategoria" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.nombreCategoria }}</p>
+                    <div v-if="formulario.errors.nombreCategoria" class="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 mt-2">
+                        <svg class="w-5 h-5 shrink-0 mt-0.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                        <p class="text-sm font-semibold text-rose-600 leading-snug">{{ formulario.errors.nombreCategoria }}</p>
+                    </div>
                 </div>
 
                 <div>
@@ -73,7 +84,12 @@ const guardar = () => {
                         :class="{'border-rose-500': formulario.errors.descripcion}"
                         placeholder="Breve detalle de los productos que incluye..."
                     ></textarea>
-                    <p v-if="formulario.errors.descripcion" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.descripcion }}</p>
+                    <div v-if="formulario.errors.descripcion" class="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 mt-2">
+                        <svg class="w-5 h-5 shrink-0 mt-0.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                        <p class="text-sm font-semibold text-rose-600 leading-snug">{{ formulario.errors.descripcion }}</p>
+                    </div>
                 </div>
 
                 <div class="flex justify-end gap-3 border-t border-slate-100 pt-6 mt-4">

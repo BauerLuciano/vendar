@@ -75,8 +75,8 @@ class MultiTenantIsolationTest extends TestCaseMultiTenant
 
     public function test_marca_usa_solo_ve_registros_de_su_comercio_y_globales(): void
     {
-        Marca::create(['nombreMarca' => 'Coca-Cola A', 'slug' => 'coca-cola-a', 'comercio_id' => 1, 'estado' => true]);
-        Marca::create(['nombreMarca' => 'Pepsi B', 'slug' => 'pepsi-b', 'comercio_id' => 2, 'estado' => true]);
+        Marca::create(['nombreMarca' => 'Coca-Cola A', 'comercio_id' => 1, 'estado' => true]);
+        Marca::create(['nombreMarca' => 'Pepsi B', 'comercio_id' => 2, 'estado' => true]);
 
         $this->actingAsAdminA();
         $response = $this->get('/marcas');
@@ -89,7 +89,7 @@ class MultiTenantIsolationTest extends TestCaseMultiTenant
 
     public function test_marca_usuario_no_puede_editar_marca_de_otro_comercio(): void
     {
-        $marcaB = Marca::create(['nombreMarca' => 'Marca B', 'slug' => 'marca-b', 'comercio_id' => 2, 'estado' => true]);
+        $marcaB = Marca::create(['nombreMarca' => 'Marca B', 'comercio_id' => 2, 'estado' => true]);
 
         $this->actingAsAdminA();
         $this->post('/marcas/' . $marcaB->id, [
@@ -107,7 +107,7 @@ class MultiTenantIsolationTest extends TestCaseMultiTenant
 
     public function test_marca_usuario_no_puede_cambiar_status_marca_de_otro_comercio(): void
     {
-        $marcaB = Marca::create(['nombreMarca' => 'Marca Status B', 'slug' => 'marca-status-b', 'comercio_id' => 2, 'estado' => true]);
+        $marcaB = Marca::create(['nombreMarca' => 'Marca Status B', 'comercio_id' => 2, 'estado' => true]);
 
         $this->actingAsAdminA();
         $this->patch('/marcas/' . $marcaB->id . '/status')->assertForbidden();
@@ -115,7 +115,7 @@ class MultiTenantIsolationTest extends TestCaseMultiTenant
 
     public function test_marca_usuario_puede_editar_su_propia_marca(): void
     {
-        $marcaA = Marca::create(['nombreMarca' => 'Mi Marca', 'slug' => 'mi-marca', 'comercio_id' => 1, 'estado' => true]);
+        $marcaA = Marca::create(['nombreMarca' => 'Mi Marca', 'comercio_id' => 1, 'estado' => true]);
 
         $this->actingAsAdminA();
         $this->post('/marcas/' . $marcaA->id, [
@@ -191,7 +191,7 @@ class MultiTenantIsolationTest extends TestCaseMultiTenant
         $this->actingAsAdminA();
         $this->put('/proveedores/' . $provA->id, [
             'razon_social' => 'Mi Proveedor Editado',
-            'cuit' => '30-55555555-5',
+            'cuit' => '30555555555',
         ])->assertSessionHas('success');
     }
 
@@ -215,8 +215,8 @@ class MultiTenantIsolationTest extends TestCaseMultiTenant
 
     public function test_marca_admin_b_no_ve_marcas_de_comercio_a(): void
     {
-        Marca::create(['nombreMarca' => 'Marca Exclusiva A', 'slug' => 'exclusiva-a', 'comercio_id' => 1, 'estado' => true]);
-        Marca::create(['nombreMarca' => 'Marca Exclusiva B', 'slug' => 'exclusiva-b', 'comercio_id' => 2, 'estado' => true]);
+        Marca::create(['nombreMarca' => 'Marca Exclusiva A', 'comercio_id' => 1, 'estado' => true]);
+        Marca::create(['nombreMarca' => 'Marca Exclusiva B', 'comercio_id' => 2, 'estado' => true]);
 
         $this->actingAsAdminB();
         $response = $this->get('/marcas');

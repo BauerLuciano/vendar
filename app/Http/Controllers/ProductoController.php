@@ -7,6 +7,7 @@ use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Proveedor;
 use App\Models\Sucursal;
+use App\Models\Configuracion;
 use App\Services\ProductLookupService;
 use App\Services\SucursalScopeService;
 use App\Services\Promotion\PromotionEngineService;
@@ -58,18 +59,18 @@ class ProductoController extends Controller
 
         $validados = $request->validate([
             'nombre'              => 'required|string|min:4|max:255|regex:/\S/',
-            'codigo_barras'       => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
+            'codigo_barras'       => 'nullable|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
             'categoria_id'        => 'nullable|exists:categorias,id',
             'marca_id'            => 'nullable|exists:marcas,id',
             'proveedor_id'        => 'nullable|exists:proveedores,id',
             'unidad_medida'       => 'required|in:Unidad,Kg,Gramos',
-            'unidad_compra'       => 'nullable|string|max:50',
-            'cantidad_por_compra' => 'nullable|integer|min:1',
+            'unidad_compra'       => 'nullable|string|max:50|required_with:cantidad_por_compra',
+            'cantidad_por_compra' => 'nullable|integer|min:1|required_with:unidad_compra',
             'es_retornable'       => 'boolean',
-            'precio_costo'        => 'required|numeric|min:0',
-            'precio_venta'        => 'required|numeric|min:0',
-            'stock_minimo'        => 'required|numeric|min:0',
-            'stock_objetivo'     => 'nullable|numeric|min:0',
+            'precio_costo'        => 'nullable|numeric|min:0',
+            'precio_venta'        => 'required|numeric|min:0.01',
+            'stock_minimo'        => 'nullable|numeric|min:0',
+            'stock_objetivo'      => 'nullable|numeric|min:0',
             'stock_inicial'       => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
@@ -80,11 +81,16 @@ class ProductoController extends Controller
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'codigo_barras.min' => 'El código debe tener al menos 2 números.',
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
+            'precio_venta.min' => 'El precio de venta debe ser mayor a cero.',
             'cantidad_por_compra.integer' => 'La cantidad por compra debe ser un número entero.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
+            'cantidad_por_compra.required_with' => 'Indicá en qué unidad se compra (Caja, Pack, etc.).',
+            'unidad_compra.required_with' => 'Indicá cuántas unidades trae la presentación.',
         ]);
 
-        if ($validados['precio_costo'] >= $validados['precio_venta']) {
+        $validados = $this->normalizarNulos($validados);
+
+        if ($validados['precio_costo'] !== null && $validados['precio_costo'] >= $validados['precio_venta']) {
             return back()->withErrors([
                 'precio_venta' => 'El precio de venta debe ser mayor al precio de costo.',
             ])->withInput();
@@ -134,7 +140,7 @@ class ProductoController extends Controller
             DB::table('historico_costos')->insert([
                 'producto_id'           => $producto->id,
                 'costo_anterior'        => 0,
-                'costo_nuevo'           => $validados['precio_costo'],
+                'costo_nuevo'           => $validados['precio_costo'] ?? 0,
                 'precio_venta_anterior' => 0,
                 'precio_venta_nuevo'    => $validados['precio_venta'],
                 'user_id'               => auth()->id(),
@@ -144,18 +150,20 @@ class ProductoController extends Controller
                 'updated_at'            => now(),
             ]);
 
-            $lookup->createFromManual([
-                'codigo_barras' => $validados['codigo_barras'],
-                'nombre' => $validados['nombre'],
-                'descripcion' => $validados['descripcion'] ?? null,
-                'imagen' => $validados['imagen'] ?? null,
-            ]);
+            if (!empty($validados['codigo_barras'])) {
+                $lookup->createFromManual([
+                    'codigo_barras' => $validados['codigo_barras'],
+                    'nombre' => $validados['nombre'],
+                    'descripcion' => $validados['descripcion'] ?? null,
+                    'imagen' => $validados['imagen'] ?? null,
+                ]);
+            }
 
-            $sucursalId = $this->scope->obtenerSucursalActiva()?->id;
+            $sucursalId = $this->scope->obtenerSucursalActiva();
             if (!$sucursalId) {
                 throw new \Exception('No tenés una sucursal asignada para registrar productos.');
             }
-            $cantidadInicial = $request->stock_inicial ?? 0;
+            $cantidadInicial = is_numeric($request->stock_inicial) ? (float) $request->stock_inicial : 0;
 
             $producto->sucursales()->attach($sucursalId, [
                 'cantidad_fisica' => $cantidadInicial,
@@ -201,18 +209,18 @@ class ProductoController extends Controller
 
         $validados = $request->validate([
             'nombre'              => 'required|string|min:4|max:255|regex:/\S/',
-            'codigo_barras'       => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
+            'codigo_barras'       => ['nullable', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
             'categoria_id'        => 'nullable|exists:categorias,id',
             'marca_id'            => 'nullable|exists:marcas,id',
             'proveedor_id'        => 'nullable|exists:proveedores,id',
             'unidad_medida'       => 'required|in:Unidad,Kg,Gramos',
-            'unidad_compra'       => 'nullable|string|max:50',
-            'cantidad_por_compra' => 'nullable|integer|min:1',
+            'unidad_compra'       => 'nullable|string|max:50|required_with:cantidad_por_compra',
+            'cantidad_por_compra' => 'nullable|integer|min:1|required_with:unidad_compra',
             'es_retornable'       => 'boolean',
-            'precio_costo'        => 'required|numeric|min:0',
-            'precio_venta'        => 'required|numeric|min:0',
-            'stock_minimo'        => 'required|numeric|min:0',
-            'stock_objetivo'     => 'nullable|numeric|min:0',
+            'precio_costo'        => 'nullable|numeric|min:0',
+            'precio_venta'        => 'required|numeric|min:0.01',
+            'stock_minimo'        => 'nullable|numeric|min:0',
+            'stock_objetivo'      => 'nullable|numeric|min:0',
             'descripcion'         => 'nullable|string',
             'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
             'imagen_url'          => 'nullable|url',
@@ -220,11 +228,16 @@ class ProductoController extends Controller
             'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
             'nombre.regex' => 'El nombre no puede estar compuesto solo por espacios.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
+            'precio_venta.min' => 'El precio de venta debe ser mayor a cero.',
             'cantidad_por_compra.integer' => 'La cantidad por compra debe ser un número entero.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
+            'cantidad_por_compra.required_with' => 'Indicá en qué unidad se compra (Caja, Pack, etc.).',
+            'unidad_compra.required_with' => 'Indicá cuántas unidades trae la presentación.',
         ]);
 
-        if ($validados['precio_costo'] >= $validados['precio_venta']) {
+        $validados = $this->normalizarNulos($validados);
+
+        if ($validados['precio_costo'] !== null && $validados['precio_costo'] >= $validados['precio_venta']) {
             return back()->withErrors([
                 'precio_venta' => 'El precio de venta debe ser mayor al precio de costo.',
             ])->withInput();
@@ -252,11 +265,13 @@ class ProductoController extends Controller
 
         unset($validados['imagen_url']);
 
-        $costoAnterior = (float) $producto->precio_costo;
-        $ventaAnterior = (float) $producto->precio_venta;
+        $costoAnterior = $producto->precio_costo;
+        $ventaAnterior = $producto->precio_venta;
+        $costoNuevo = array_key_exists('precio_costo', $validados) ? $validados['precio_costo'] : $costoAnterior;
+        $ventaNueva = $validados['precio_venta'];
 
-        $cambioCosto = isset($validados['precio_costo']) && (float) $validados['precio_costo'] !== $costoAnterior;
-        $cambioVenta = isset($validados['precio_venta']) && (float) $validados['precio_venta'] !== $ventaAnterior;
+        $cambioCosto = $this->valoresDistintos($costoAnterior, $costoNuevo);
+        $cambioVenta = $this->valoresDistintos($ventaAnterior, $ventaNueva);
 
         if ($cambioVenta) {
             $validados['precio_venta_actualizado_en'] = now();
@@ -267,10 +282,10 @@ class ProductoController extends Controller
         if ($cambioCosto || $cambioVenta) {
             DB::table('historico_costos')->insert([
                 'producto_id'           => $producto->id,
-                'costo_anterior'        => $costoAnterior,
-                'costo_nuevo'           => $validados['precio_costo'] ?? $costoAnterior,
-                'precio_venta_anterior' => $ventaAnterior,
-                'precio_venta_nuevo'    => $validados['precio_venta'] ?? $ventaAnterior,
+                'costo_anterior'        => $costoAnterior ?? 0,
+                'costo_nuevo'           => $costoNuevo ?? 0,
+                'precio_venta_anterior' => $ventaAnterior ?? 0,
+                'precio_venta_nuevo'    => $ventaNueva,
                 'user_id'               => auth()->id(),
                 'origen_tipo'           => 'Edición manual',
                 'origen_id'             => $producto->id,
@@ -467,7 +482,7 @@ class ProductoController extends Controller
         $sucursalIds = $this->scope->obtenerSucursalesPermitidasIds();
 
         $productos = Producto::with(['categoria', 'marca', 'proveedor', 'sucursales'])
-            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+            ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
             ->orderBy('id', 'desc')
             ->get();
 
@@ -1184,14 +1199,11 @@ class ProductoController extends Controller
         $sucursalIds = $this->scope->obtenerSucursalesPermitidasIds();
 
         $productos = Producto::with(['categoria', 'marca', 'proveedor', 'sucursales'])
-            ->when($sucursalIds->isNotEmpty(), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+            ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
             ->orderBy('nombre')
             ->get();
 
-        $config = DB::table('configuraciones')
-            ->whereIn('clave', ['nombre_empresa', 'logo_empresa', 'direccion_empresa', 'telefono_empresa', 'cuit'])
-            ->pluck('valor', 'clave')
-            ->toArray();
+        $config = Configuracion::paraComercio($comercioId);
 
         $user = auth()->user();
 
@@ -1211,7 +1223,7 @@ class ProductoController extends Controller
             }
         }
 
-        $sucursales = $sucursalIds->isNotEmpty()
+        $sucursales = !empty($sucursalIds)
             ? Sucursal::whereIn('id', $sucursalIds)->pluck('nombre', 'id')
             : collect();
 
@@ -1435,5 +1447,24 @@ class ProductoController extends Controller
         $historial = $query->paginate(8);
 
         return response()->json($historial);
+    }
+
+    protected function normalizarNulos(array $validados): array
+    {
+        foreach ($validados as $campo => $valor) {
+            if ($valor === null || $valor === '') {
+                $validados[$campo] = null;
+            }
+        }
+
+        return $validados;
+    }
+
+    protected function valoresDistintos(mixed $anterior, mixed $nuevo): bool
+    {
+        if ($anterior === null && $nuevo === null) return false;
+        if ($anterior === null || $nuevo === null) return true;
+
+        return (float) $anterior !== (float) $nuevo;
     }
 }

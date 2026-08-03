@@ -32,7 +32,7 @@ class IngresoMercaderiaController extends Controller
         $this->scope->aplicarFiltroSucursal($query);
 
         $ingresos = $query
-            ->when($search, fn ($q, $search) => $q->where('numero_remito', 'LIKE', "%{$search}%"))
+            ->when($search, fn ($q, $search) => $q->where('numero_remito', 'ILIKE', "%{$search}%"))
             ->when($proveedor_id !== 'all', fn ($q) => $q->where('proveedor_id', $proveedor_id))
             ->when($sucursal_id !== 'all', fn ($q) => $q->where('sucursal_id', $sucursal_id))
             ->when($fecha_desde, fn ($q, $v) => $q->whereDate('fecha_ingreso', '>=', $v))

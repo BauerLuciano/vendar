@@ -36,7 +36,7 @@ use App\Models\Sucursal;
 use App\Models\Producto;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
-use App\Http\Controllers\Auth\GoogleLoginController;
+// use App\Http\Controllers\Auth\GoogleLoginController; // POST-MVP: descomentar para reactivar Google Login
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Cache;
@@ -64,7 +64,7 @@ Route::get('/api/promociones/{sucursal_id}', [\App\Http\Controllers\TiendaContro
     ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
 Route::post('/configuracion/storefront/reset', [\App\Http\Controllers\StorefrontConfigController::class, 'reset'])
     ->name('configuracion.storefront.reset')
-    ->middleware(['auth', 'verified']);
+    ->middleware(['auth', 'verified', 'modulo:pedidos_web']);
 
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
@@ -97,15 +97,17 @@ Route::post('/api/pedidos/{pedido}/comprobante', [PedidoWebController::class, 's
     ->name('pedidos.comprobante.subir');
 
 // ==========================================
-// RUTAS PARA LOGIN CON GOOGLE
+// RUTAS PARA LOGIN CON GOOGLE (POST-MVP)
+// Deshabilitadas para el MVP. Para reactivar:
+// descomentar las dos rutas y el use de GoogleLoginController.
 // ==========================================
-Route::get('/auth/google', [GoogleLoginController::class, 'redirect'])->name('auth.google');
-Route::get('/auth/google/callback', [GoogleLoginController::class, 'callback']);
+// Route::get('/auth/google', [GoogleLoginController::class, 'redirect'])->name('auth.google');
+// Route::get('/auth/google/callback', [GoogleLoginController::class, 'callback']);
 
 // ------------------------------------------------------------------
 // MÓDULO: PUNTO DE VENTA (POS) Y CAJAS
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'modulo:pos'])->group(function () {
+Route::middleware(['auth', 'verified', 'modulo:pos'])->group(function () {
     Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
     Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
@@ -165,13 +167,13 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 // ------------------------------------------------------------------
 // MÓDULO: CUENTAS CORRIENTES (FIADOS)
 // ------------------------------------------------------------------
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/api/consumidores', [ConsumidorController::class, 'apiIndex'])->name('api.consumidores.index');
     Route::get('/elegir-sucursal', [\App\Http\Controllers\ElegirSucursalController::class, 'create'])->name('elegir.sucursal');
     Route::post('/elegir-sucursal', [\App\Http\Controllers\ElegirSucursalController::class, 'store'])->name('elegir.sucursal.store');
 });
 
-Route::middleware(['auth', 'modulo:fiados'])->group(function () {
+Route::middleware(['auth', 'verified', 'modulo:fiados'])->group(function () {
     Route::get('/clientes', [ConsumidorController::class, 'index'])->name('consumidores.index');
     Route::post('/clientes', [ConsumidorController::class, 'store'])->name('consumidores.store');
     Route::put('/clientes/{consumidor}', [ConsumidorController::class, 'update'])->name('consumidores.update');
@@ -186,14 +188,14 @@ Route::middleware(['auth', 'modulo:fiados'])->group(function () {
 // ------------------------------------------------------------------
 // MÓDULO: GESTIÓN DE STOCK AVANZADA (LOTES)
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'modulo:lotes'])->group(function () {
+Route::middleware(['auth', 'verified', 'modulo:lotes'])->group(function () {
     Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])->name('lotes.index');
 });
 
 // ------------------------------------------------------------------
 // MÓDULO: GESTIÓN DE PROVEEDORES Y COMPRAS
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
+Route::middleware(['auth', 'verified', 'modulo:proveedores'])->group(function () {
     Route::get('/proveedores', [ProveedorController::class, 'index'])->name('proveedores.index');
     Route::post('/proveedores', [ProveedorController::class, 'store'])->name('proveedores.store');
     Route::put('/proveedores/{proveedore}', [ProveedorController::class, 'update'])->name('proveedores.update');
@@ -214,6 +216,7 @@ Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
 
     Route::get('/reposicion', [ReposicionController::class, 'index'])->name('reposicion.index');
     Route::post('/reposicion/generar', [ReposicionController::class, 'generarPreOrdenes'])->name('reposicion.generar');
+    Route::post('/reposicion/recordar', [ReposicionController::class, 'recordar'])->name('reposicion.recordar');
     Route::get('/cotizar/{id}', [ReposicionController::class, 'verCotizacion'])->name('cotizar.ver');
     Route::post('/cotizar/{id}', [ReposicionController::class, 'guardarCotizacion'])->name('cotizar.guardar');
 });
@@ -221,7 +224,7 @@ Route::middleware(['auth', 'modulo:proveedores'])->group(function () {
 // ------------------------------------------------------------------
 // MÓDULO: OPTIMIZACIÓN DE STOCK (TRANSFERENCIAS)
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
+Route::middleware(['auth', 'verified', 'modulo:transferencias'])->group(function () {
     Route::get('/transferencias-sugeridas', [TransferenciaSugeridaController::class, 'index'])->name('transferencias.index');
     Route::post('/transferencias-sugeridas/{transferencia}/despachar', [TransferenciaSugeridaController::class, 'despachar'])->name('transferencias.despachar');
     Route::post('/transferencias-sugeridas/{transferencia}/recibir', [TransferenciaSugeridaController::class, 'recibir'])->name('transferencias.recibir');
@@ -233,7 +236,7 @@ Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
 // ------------------------------------------------------------------
 // MÓDULO: AUDITORÍA
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
+Route::middleware(['auth', 'verified', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos/{producto}/auditoria', [ProductoController::class, 'auditoria'])->name('productos.auditoria');
     Route::get('/productos/{producto}/historial-precios', [ProductoController::class, 'historialPrecios'])->name('productos.historial-precios');
     Route::get('/auditoria', [App\Http\Controllers\AuditoriaController::class, 'index'])->name('auditoria.index');
@@ -242,7 +245,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 // ------------------------------------------------------------------
 // ZONA CORE (Productos, Sucursales, Config) - Siempre Activo
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
+Route::middleware(['auth', 'verified', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos', [ProductoController::class, 'index'])->name('productos.index');
     Route::post('/productos', [ProductoController::class, 'store'])->name('productos.store');
     Route::post('/productos/importar', [ProductoController::class, 'importar'])->name('productos.importar');
@@ -296,7 +299,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 // ------------------------------------------------------------------
 // ZONA GESTIÓN DE PEDIDOS WEB
 // ------------------------------------------------------------------
-    Route::middleware(['auth', 'permission:gestionar pedidos web'])->group(function () {
+    Route::middleware(['auth', 'verified', 'permission:gestionar pedidos web'])->group(function () {
     Route::get('/pedidos', [GestionPedidosWebController::class, 'index'])->name('pedidos.index');
     Route::patch('/pedidos/{id}/estado', [GestionPedidosWebController::class, 'updateEstado'])->name('pedidos.estado');
     Route::patch('/pedidos/{id}/pago', [GestionPedidosWebController::class, 'updatePago'])->name('pedidos.pago');
@@ -305,7 +308,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 // ------------------------------------------------------------------
 // ZONA DUEÑO DEL LOCAL (Configuración)
 // ------------------------------------------------------------------
-Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(function () {
+Route::middleware(['auth', 'verified', 'role:SuperAdmin|Administrador Global'])->group(function () {
     Route::get('/sucursales', [SucursalController::class, 'index'])->name('sucursales.index');
     Route::post('/sucursales', [SucursalController::class, 'store'])->name('sucursales.store');
     Route::put('/sucursales/{sucursal}', [SucursalController::class, 'update'])->name('sucursales.update');
@@ -316,12 +319,15 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::put('/permisos/{permiso}', [RoleController::class, 'updatePermiso'])->name('permisos.update');
 
     Route::resource('usuarios', UsuarioController::class);
+    Route::post('/usuarios/{id}/restaurar', [UsuarioController::class, 'restore'])->name('usuarios.restaurar');
 
     Route::get('/configuracion', [ConfiguracionController::class, 'index'])->name('configuracion.index');
     Route::post('/configuracion', [ConfiguracionController::class, 'update'])->name('configuracion.update');
     Route::post('/configuracion/metodo-pago', [ConfiguracionController::class, 'storePaymentMethodConfig'])->name('configuracion.metodo-pago.store');
     Route::delete('/configuracion/metodo-pago/{paymentMethodConfiguration}', [ConfiguracionController::class, 'destroyPaymentMethodConfig'])->name('configuracion.metodo-pago.destroy');
-    Route::post('/configuracion/storefront', [\App\Http\Controllers\StorefrontConfigController::class, 'update'])->name('configuracion.storefront.update');
+    Route::post('/configuracion/storefront', [\App\Http\Controllers\StorefrontConfigController::class, 'update'])
+        ->name('configuracion.storefront.update')
+        ->middleware('modulo:pedidos_web');
 
     // Recargos por tarjeta
     Route::get('/configuracion/recargos', [\App\Http\Controllers\RecargoTarjetaController::class, 'index'])->name('recargos.index');
@@ -332,7 +338,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
 // ==================================================================
 // ZONA DE ADMINISTRACIÓN GLOBAL (VEND-AR MASTER)
 // ==================================================================
-Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')->group(function () {
+Route::middleware(['auth', 'verified', 'role:Administrador Global'])->prefix('admin-global')->group(function () {
     Route::get('/comercios', [GlobalAdminController::class, 'index'])->name('admin.comercios.index');
     Route::post('/comercios', [GlobalAdminController::class, 'store'])->name('admin.comercios.store');
     Route::put('/comercios/{comercio}', [GlobalAdminController::class, 'update'])->name('admin.comercios.update');

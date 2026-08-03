@@ -17,11 +17,13 @@ const faqs = [
 
 const labelsModulos = {
     pos: 'Caja rápida (POS)',
+    proveedores: 'Gestión de compras y proveedores',
     lotes: 'Control de stock con lotes y vencimientos',
     fiados: 'Gestión de fiados y cuentas corrientes',
-    proveedores: 'Gestión de compras y proveedores',
     auditoria: 'Auditoría y reportes avanzados',
     transferencias: 'Transferencias entre sucursales',
+    pedidos_web: 'Tienda online y pedidos web',
+    promociones: 'Promociones y ofertas',
 };
 
 const coloresPlan = [
@@ -42,7 +44,7 @@ const featuresDePlan = (plan) => {
         });
     }
     if (plan.sucursales_limit > 1) {
-        f.push(`Hasta ${plan.sucursales_limit} sucursales`);
+        f.push(`Hasta ${plan.sucursales_limit} locales`);
     }
     if (plan.usuarios_limit > 1) {
         f.push(`Hasta ${plan.usuarios_limit} usuarios`);
@@ -169,7 +171,7 @@ const featuresDePlan = (plan) => {
                     <div class="relative text-center">
                         <div class="w-24 h-24 bg-slate-900 border-4 border-[#00adef] rounded-full flex items-center justify-center text-3xl font-black text-white mx-auto mb-8 relative z-10 shadow-[0_0_40px_rgba(0,173,239,0.2)]">1</div>
                         <h4 class="text-xl font-black text-white mb-4 uppercase italic">Registrate</h4>
-                        <p class="text-slate-500 text-sm font-medium">Creás tu cuenta con los datos de tu comercio y sucursales en menos de un minuto.</p>
+                        <p class="text-slate-500 text-sm font-medium">Creás tu cuenta y tu negocio con su primer local en menos de un minuto.</p>
                     </div>
 
                     <div class="relative text-center">

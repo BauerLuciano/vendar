@@ -167,10 +167,30 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['error' => 'No pending plan upgrade found'], 400);
         }
 
-        if ($comercio->plan_id === $plan->id) {
-            $comercio->pending_plan_id = null;
-            $comercio->save();
-            return response()->json(['status' => 'already_upgraded']);
+        $esMismoPlan = $comercio->plan_id === $plan->id;
+
+        if ($esMismoPlan) {
+            DB::transaction(function () use ($comercio, $paymentId) {
+                $comercio = Comercio::lockForUpdate()->find($comercio->id);
+
+                // Pago del mismo plan: reactivar y renovar 1 mes
+                $comercio->pending_plan_id = null;
+                $comercio->status = 'activo';
+                $comercio->vencimiento_pago = now()->addMonth();
+                $comercio->save();
+
+                activity()
+                    ->performedOn($comercio)
+                    ->causedByAnonymous()
+                    ->withProperties([
+                        'via' => 'webhook',
+                        'payment_id' => $paymentId,
+                        'renovacion' => true,
+                    ])
+                    ->log('plan_upgraded_via_webhook');
+            });
+
+            return response()->json(['status' => 'ok']);
         }
 
         DB::transaction(function () use ($comercio, $plan, $paymentId) {
@@ -181,6 +201,10 @@ class MercadoPagoNotificacionController extends Controller
             $comercio->modulos_habilitados = $plan->modulos;
             $comercio->limite_sucursales = $plan->sucursales_limit;
             $comercio->limite_usuarios = $plan->usuarios_limit;
+
+            // Todo pago aprobado reactiva la cuenta y renueva 1 mes
+            $comercio->status = 'activo';
+            $comercio->vencimiento_pago = now()->addMonth();
             $comercio->save();
 
             activity()

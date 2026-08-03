@@ -16,6 +16,6 @@ class OrdenCompraDetalle extends Model
         'fecha_vencimiento' => 'date',
     ];
 
-    public function ordenCompra() { return $this->belongsTo(OrdenCompra::class); }
+    public function ordenCompra() { return $this->belongsTo(OrdenCompra::class)->withTrashed(); }
     public function producto() { return $this->belongsTo(Producto::class); }
 }

@@ -61,12 +61,18 @@ const guardar = () => {
                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Nombre de la Marca</label>
                     <input 
                         v-model="formulario.nombreMarca" 
+                        @input="formulario.nombreMarca = formulario.nombreMarca.toUpperCase()"
                         type="text" 
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 uppercase font-bold text-slate-700 focus:ring-sky-500 focus:border-sky-500" 
                         :class="{'border-rose-500': formulario.errors.nombreMarca}"
                         required
                     >
-                    <p v-if="formulario.errors.nombreMarca" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.nombreMarca }}</p>
+                    <div v-if="formulario.errors.nombreMarca" class="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 mt-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-rose-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                        </svg>
+                        <p class="text-sm font-semibold text-rose-600 leading-snug">{{ formulario.errors.nombreMarca }}</p>
+                    </div>
                 </div>
 
                 <div class="flex flex-col items-center border-t border-slate-100 pt-6 mb-4">
@@ -78,7 +84,12 @@ const guardar = () => {
                         Seleccionar Logo
                         <input type="file" @input="alSeleccionarImagen" class="hidden" accept="image/*">
                     </label>
-                    <p v-if="formulario.errors.imagen" class="text-rose-500 text-[10px] mt-2 font-bold">{{ formulario.errors.imagen }}</p>
+                    <div v-if="formulario.errors.imagen" class="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 mt-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-rose-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                        </svg>
+                        <p class="text-sm font-semibold text-rose-600 leading-snug">{{ formulario.errors.imagen }}</p>
+                    </div>
                 </div>
 
                 <div class="flex justify-end gap-3 border-t border-slate-100 pt-6">

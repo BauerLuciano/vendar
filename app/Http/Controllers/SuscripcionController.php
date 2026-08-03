@@ -102,11 +102,12 @@ class SuscripcionController extends Controller
         $user = auth()->user();
         $comercio = Comercio::findOrFail($user->comercio_id);
 
-        if ($comercio->plan_id === (int) $request->plan_id) {
-            return response()->json(['status' => 'already_upgraded', 'plan_id' => $comercio->plan_id]);
-        }
+        $plan = Plan::findOrFail($request->plan_id);
+        $esMismoPlan = $comercio->plan_id === (int) $request->plan_id;
 
-        if ((int) $comercio->pending_plan_id !== (int) $request->plan_id) {
+        // Solo exigimos coincidencia con pending_plan_id cuando NO es el mismo plan.
+        // (Pagar el mismo plan = renovar/reactivar la suscripción)
+        if (!$esMismoPlan && (int) $comercio->pending_plan_id !== (int) $request->plan_id) {
             \Log::warning('Intento de upgrade con plan_id no coincidente', [
                 'user_id' => $user->id,
                 'comercio_id' => $comercio->id,
@@ -134,22 +135,26 @@ class SuscripcionController extends Controller
             return response()->json(['error' => 'El pago no corresponde a este comercio'], 403);
         }
 
-        $plan = Plan::findOrFail($request->plan_id);
-
-        DB::transaction(function () use ($comercio, $plan) {
+        DB::transaction(function () use ($comercio, $plan, $esMismoPlan) {
             $comercio = Comercio::lockForUpdate()->find($comercio->id);
 
-            $comercio->plan_id = $plan->id;
+            if (!$esMismoPlan) {
+                $comercio->plan_id = $plan->id;
+                $comercio->modulos_habilitados = $plan->modulos;
+                $comercio->limite_sucursales = $plan->sucursales_limit;
+                $comercio->limite_usuarios = $plan->usuarios_limit;
+            }
+
+            // Todo pago aprobado reactiva la cuenta y renueva 1 mes
             $comercio->pending_plan_id = null;
-            $comercio->modulos_habilitados = $plan->modulos;
-            $comercio->limite_sucursales = $plan->sucursales_limit;
-            $comercio->limite_usuarios = $plan->usuarios_limit;
+            $comercio->status = 'activo';
+            $comercio->vencimiento_pago = now()->addMonth();
             $comercio->save();
 
             activity()
                 ->performedOn($comercio)
                 ->causedBy(auth()->user())
-                ->withProperties(['plan' => $plan->toArray(), 'via' => 'confirmar_upgrade'])
+                ->withProperties(['plan' => $plan->toArray(), 'via' => 'confirmar_upgrade', 'renovacion' => $esMismoPlan])
                 ->log('plan_upgraded');
         });
 

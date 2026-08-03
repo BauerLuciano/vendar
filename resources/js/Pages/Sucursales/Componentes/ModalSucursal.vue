@@ -1,11 +1,12 @@
 <script setup>
-import { useForm } from '@inertiajs/vue3';
-import { watch, nextTick, ref } from 'vue';
+import { useForm, usePage } from '@inertiajs/vue3';
+import { watch, nextTick, ref, onBeforeUnmount } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 
 const props = defineProps({ mostrar: Boolean, sucursal: Object });
 const emit = defineEmits(['cerrar']);
+const page = usePage();
 
 const formulario = useForm({
     id: null,
@@ -21,6 +22,23 @@ const formulario = useForm({
 let modalMap = null;
 let pinMarker = null;
 const buscandoDireccion = ref(false);
+
+const sugerenciasDireccion = ref([]);
+const buscandoSugerencias = ref(false);
+const mostrarSugerencias = ref(false);
+let timerSugerencias = null;
+
+// Arma un string legible "calle altura, ciudad" desde el objeto address de Nominatim
+const armarDireccion = (addr) => {
+    const calle = addr.road || addr.pedestrian || addr.path || addr.cycleway || addr.suburb || 'Calle s/n';
+    const altura = addr.house_number || '';
+    const ciudad = addr.city || addr.town || addr.village || '';
+
+    let direccionFinal = calle;
+    if (altura) direccionFinal += ` ${altura}`;
+    if (ciudad) direccionFinal += `, ${ciudad}`;
+    return direccionFinal;
+};
 
 // 🔥 FUNCIÓN DE GEOCODING MEJORADA
 const actualizarDireccionDesdeCoordenadas = async (lat, lng) => {
@@ -38,29 +56,80 @@ const actualizarDireccionDesdeCoordenadas = async (lat, lng) => {
         });
 
         if (response.data && response.data.address) {
-            const addr = response.data.address;
-            
-            // 1. Buscamos la calle (road es lo principal)
-            const calle = addr.road || addr.pedestrian || addr.path || addr.cycleway || addr.suburb || 'Calle s/n';
-            
-            // 2. Buscamos la "altura" (house_number)
-            const altura = addr.house_number || '';
-            
-            // 3. Buscamos la ciudad/localidad de forma limpia
-            const ciudad = addr.city || addr.town || addr.village || '';
-
-            // Armamos el string final
-            let direccionFinal = calle;
-            if (altura) direccionFinal += ` ${altura}`; // Si hay altura, se la pegamos
-            if (ciudad) direccionFinal += `, ${ciudad}`;
-
-            formulario.direccion = direccionFinal;
+            formulario.direccion = armarDireccion(response.data.address);
         }
     } catch (error) {
         console.error("Error obteniendo dirección:", error);
     } finally {
         buscandoDireccion.value = false;
     }
+};
+
+// Autocomplete: sugiere coincidencias mientras se escribe (forward geocoding)
+const buscarDireccion = (texto) => {
+    clearTimeout(timerSugerencias);
+    if (!texto || texto.trim().length < 3) {
+        sugerenciasDireccion.value = [];
+        mostrarSugerencias.value = false;
+        return;
+    }
+
+    timerSugerencias = setTimeout(async () => {
+        buscandoSugerencias.value = true;
+        try {
+            const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+                params: {
+                    q: texto.trim(),
+                    format: 'jsonv2',
+                    addressdetails: 1,
+                    limit: 5,
+                    // Viewbox alrededor de las coordenadas actuales: prioriza resultados cercanos
+                    viewbox: `${formulario.longitud - 0.2},${formulario.latitud + 0.2},${formulario.longitud + 0.2},${formulario.latitud - 0.2}`,
+                    bounded: 0
+                }
+            });
+            sugerenciasDireccion.value = response.data || [];
+            mostrarSugerencias.value = true;
+        } catch (error) {
+            sugerenciasDireccion.value = [];
+            console.error("Error buscando dirección:", error);
+        } finally {
+            buscandoSugerencias.value = false;
+        }
+    }, 500);
+};
+
+// Al elegir una sugerencia se mueve el pin para mantener coherencia texto ↔ coordenadas
+const seleccionarSugerencia = (s) => {
+    formulario.direccion = armarDireccion(s.address || {});
+    formulario.latitud = Number(s.lat);
+    formulario.longitud = Number(s.lon);
+    if (pinMarker && modalMap) {
+        pinMarker.setLatLng([formulario.latitud, formulario.longitud]);
+        modalMap.setView([formulario.latitud, formulario.longitud], 16);
+    }
+    cerrarSugerencias();
+};
+
+const cerrarSugerencias = () => {
+    clearTimeout(timerSugerencias);
+    sugerenciasDireccion.value = [];
+    mostrarSugerencias.value = false;
+};
+
+const ocultarSugerenciasConDelay = () => setTimeout(cerrarSugerencias, 150);
+
+// Teléfono: solo números, máximo 15 dígitos (coincide con la validación del backend)
+const normalizarTelefono = () => {
+    formulario.telefono = (formulario.telefono || '').replace(/\D/g, '').slice(0, 15);
+};
+
+// Costo de envío: solo enteros (coincide con 'integer|min:0' del backend)
+const normalizarCostoDelivery = () => {
+    const val = formulario.costo_delivery;
+    if (val === '' || val === null || val === undefined) return;
+    const entero = Math.trunc(Number(val));
+    formulario.costo_delivery = Number.isFinite(entero) && entero >= 0 ? entero : 0;
 };
 
 const destruirMapa = () => {
@@ -123,22 +192,44 @@ watch(() => props.sucursal, (nuevo) => {
         formulario.tipo = nuevo.tipo;
         formulario.latitud = Number(nuevo.latitud);
         formulario.longitud = Number(nuevo.longitud);
-        formulario.costo_delivery = nuevo.costo_delivery || 0;
+        formulario.costo_delivery = Math.trunc(Number(nuevo.costo_delivery) || 0);
     } else {
         formulario.reset();
     }
 }, { immediate: true });
 
-watch(() => props.mostrar, (v) => { if (v) abrirMapaPin(); else destruirMapa(); });
+watch(() => props.mostrar, (v) => {
+    if (v) {
+        abrirMapaPin();
+    } else {
+        destruirMapa();
+        cerrarSugerencias();
+    }
+});
+
+onBeforeUnmount(() => {
+    clearTimeout(timerSugerencias);
+});
 
 const guardar = () => {
     const esEdicion = !!formulario.id;
     const ruta = esEdicion ? route('sucursales.update', formulario.id) : route('sucursales.store');
     formulario[esEdicion ? 'put' : 'post'](ruta, {
         onSuccess: () => {
+            // Si el backend bloqueó la acción (límite del plan), NO mostrar éxito falso
+            const errorFlash = page.props.flash?.error;
+            if (errorFlash) {
+                Swal.fire({
+                    title: 'No se pudo guardar',
+                    text: errorFlash,
+                    icon: 'error',
+                    confirmButtonColor: '#e11d48'
+                });
+                return;
+            }
             Swal.fire({
                 title: '¡Éxito!',
-                text: `Sucursal ${esEdicion ? 'actualizada' : 'registrada'} correctamente`,
+                text: `Local ${esEdicion ? 'actualizado' : 'registrado'} correctamente`,
                 icon: 'success',
                 confirmButtonColor: '#0284c7'
             });
@@ -155,13 +246,13 @@ const guardar = () => {
     <div v-if="mostrar" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 text-slate-800">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div class="bg-sky-600 p-4 text-white font-bold text-center uppercase tracking-widest text-sm flex-shrink-0">
-                {{ formulario.id ? 'Editar Sucursal' : 'Nueva Sucursal' }}
+                {{ formulario.id ? 'Editar Local' : 'Nuevo Local' }}
             </div>
             
             <form @submit.prevent="guardar" class="p-6 grid grid-cols-2 gap-4 overflow-y-auto flex-grow">
                 <div class="col-span-2">
-                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest">Nombre de Sucursal</label>
-                    <input v-model="formulario.nombre" type="text" maxlength="255" class="w-full mt-1 rounded border-gray-300 shadow-sm uppercase font-bold focus:ring-sky-500" required>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest">Nombre del Local</label>
+                    <input v-model="formulario.nombre" @input="formulario.nombre = formulario.nombre.toUpperCase()" type="text" maxlength="255" class="w-full mt-1 rounded border-gray-300 shadow-sm uppercase font-bold focus:ring-sky-500" required>
                     <p v-if="formulario.errors.nombre" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.nombre }}</p>
                 </div>
                 
@@ -170,21 +261,36 @@ const guardar = () => {
                         <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest">Dirección Física</label>
                         <span v-if="buscandoDireccion" class="text-[10px] text-sky-600 font-bold animate-pulse">🛰️ BUSCANDO ALTURA...</span>
                     </div>
-                    <input 
-                        v-model="formulario.direccion" 
-                        type="text" 
-                        maxlength="255"
-                        class="w-full mt-1 rounded border-gray-300 shadow-sm font-medium transition-colors focus:ring-sky-500" 
-                        :class="{'bg-sky-50 border-sky-300': buscandoDireccion}"
-                        placeholder="Ej: Calle Rivadavia 123"
-                        required
-                    >
-                    <p v-if="formulario.errors.direccion" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.direccion }}</p>
+                    <div class="relative mt-1">
+                        <input 
+                            v-model="formulario.direccion" 
+                            type="text" 
+                            maxlength="255"
+                            class="w-full rounded border-gray-300 shadow-sm font-medium transition-colors focus:ring-sky-500" 
+                            :class="{'bg-sky-50 border-sky-300': buscandoDireccion, 'pr-8': buscandoSugerencias}"
+                            placeholder="Ej: Calle Rivadavia 123"
+                            @input="buscarDireccion(formulario.direccion)"
+                            @blur="ocultarSugerenciasConDelay"
+                            required
+                        >
+                        <div v-if="buscandoSugerencias" class="absolute right-3 top-1/2 -translate-y-1/2">
+                            <svg class="animate-spin h-4 w-4 text-sky-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                        </div>
+
+                        <div v-if="mostrarSugerencias && sugerenciasDireccion.length" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden max-h-56 overflow-y-auto">
+                            <button v-for="s in sugerenciasDireccion" :key="s.place_id" type="button" @mousedown.prevent="seleccionarSugerencia(s)"
+                                class="w-full text-left px-3 py-2 hover:bg-sky-50 transition-colors border-b border-slate-100 last:border-0 flex flex-col gap-0.5">
+                                <span class="text-xs font-bold text-slate-700 leading-tight">{{ armarDireccion(s.address || {}) }}</span>
+                                <span class="text-[10px] text-slate-400 truncate">{{ s.display_name }}</span>
+                            </button>
+                        </div>
+                        <p v-if="formulario.errors.direccion" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.direccion }}</p>
+                    </div>
                 </div>
                 
                 <div class="col-span-1">
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest">Teléfono</label>
-                    <input v-model="formulario.telefono" type="tel" maxlength="15" class="w-full mt-1 rounded border-gray-300 shadow-sm focus:ring-sky-500">
+                    <input v-model="formulario.telefono" type="tel" maxlength="15" @input="normalizarTelefono" class="w-full mt-1 rounded border-gray-300 shadow-sm focus:ring-sky-500" placeholder="Ej: 3764123456">
                     <p v-if="formulario.errors.telefono" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.telefono }}</p>
                 </div>
                 
@@ -201,7 +307,7 @@ const guardar = () => {
                     <label class="block text-[10px] font-black text-orange-700 uppercase tracking-widest">Costo de Envío ($)</label>
                     <div class="relative mt-1">
                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-orange-400 font-bold">$</span>
-                        <input v-model="formulario.costo_delivery" type="number" step="1" min="0" class="w-full pl-7 rounded-lg border-orange-200 font-bold focus:ring-orange-500">
+                        <input v-model="formulario.costo_delivery" type="number" step="1" min="0" @input="normalizarCostoDelivery" class="w-full pl-7 rounded-lg border-orange-200 font-bold focus:ring-orange-500">
                     </div>
                     <p v-if="formulario.errors.costo_delivery" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.costo_delivery }}</p>
                 </div>

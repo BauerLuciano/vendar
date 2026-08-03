@@ -22,11 +22,11 @@ class OrdenCompraHistorial extends Model
 
     public function ordenCompra()
     {
-        return $this->belongsTo(OrdenCompra::class);
+        return $this->belongsTo(OrdenCompra::class)->withTrashed();
     }
 
     public function usuario()
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id')->withTrashed();
     }
 }

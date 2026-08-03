@@ -16,7 +16,7 @@
         "nyholm/psr7": "^1.8",
         "phpoffice/phpspreadsheet": "^5.9",
         "predis/predis": "^3.5",
-        "railsware/mailtrap-php": "^3.11",
+        "resend/resend-laravel": "^1.4",
         "spatie/laravel-activitylog": "*",
         "spatie/laravel-permission": "^6.25",
         "symfony/http-client": "^7.4",

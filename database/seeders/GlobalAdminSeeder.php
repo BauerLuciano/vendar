@@ -4,7 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\User;
-use Spatie\Permission\Models\Role;
+use App\Models\Role;
 use Illuminate\Support\Facades\Hash;
 
 class GlobalAdminSeeder extends Seeder
@@ -25,6 +25,7 @@ class GlobalAdminSeeder extends Seeder
                 'password' => Hash::make('admin'), // Poné una contraseña fuerte
                 'branch_id' => null, // 🔥 La clave del éxito: Sin sucursal
                 'is_active' => true,
+                'email_verified_at' => now(), // Se crea verificado: el Admin Global no debe pasar por verificación de email
             ]
         );
 

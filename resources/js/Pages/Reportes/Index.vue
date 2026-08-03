@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 import { formatearMoneda } from '@/Utils/formatters.js';
 
 const props = defineProps({
@@ -348,7 +349,7 @@ const descargarExcel = () => {
                         </tbody>
                     </table>
                     <div v-if="cargandoRotacion" class="text-center py-8 text-slate-400">Cargando...</div>
-                    <p v-else-if="rotacion.length === 0" class="text-sm text-slate-400 text-center py-8">No hay productos con baja rotación para los filtros seleccionados</p>
+                    <AlertaAyuda v-else-if="rotacion.length === 0">No hay productos con baja rotación para los filtros seleccionados</AlertaAyuda>
                 </div>
             </div>
             </template>

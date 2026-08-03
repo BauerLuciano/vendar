@@ -3,22 +3,26 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use App\Models\Sucursal;
+use App\Notifications\VerifyEmailVendar;
 use App\Traits\Auditable;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
-    use HasFactory, Notifiable, HasRoles, Auditable;
+    use HasFactory, Notifiable, HasRoles, Auditable, SoftDeletes;
 
     protected $fillable = [
         'name',
         'email',
         'plan_deseado',
+        'nombre_comercio',
         'branch_id',
         'comercio_id',
         'google_id',
@@ -53,5 +57,10 @@ class User extends Authenticatable
     public function comercio(): BelongsTo
     {
         return $this->belongsTo(Comercio::class, 'comercio_id');
+    }
+
+    public function sendEmailVerificationNotification(): void
+    {
+        $this->notify(new VerifyEmailVendar());
     }
 }

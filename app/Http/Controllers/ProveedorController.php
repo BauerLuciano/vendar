@@ -38,8 +38,8 @@ class ProveedorController extends Controller
         $proveedores = Proveedor::deComercio($comercioId)
             ->when($search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
-                    $sub->where('razon_social', 'LIKE', "%{$search}%")
-                        ->orWhere('cuit', 'LIKE', "%{$search}%");
+                    $sub->where('razon_social', 'ILIKE', "%{$search}%")
+                        ->orWhere('cuit', 'ILIKE', "%{$search}%");
                     if (is_numeric($search)) {
                         $sub->orWhere('id', $search);
                     }
@@ -62,8 +62,20 @@ class ProveedorController extends Controller
     {
         $comercioId = $this->getComercioId();
 
+        $request->merge(['razon_social' => mb_strtoupper(trim($request->razon_social ?? ''))]);
+
         $validados = $request->validate([
-            'razon_social' => 'required|string|max:255',
+            'razon_social' => [
+                'required', 'string', 'max:255',
+                function ($attribute, $value, $fail) use ($comercioId) {
+                    $existe = Proveedor::where('comercio_id', $comercioId)
+                        ->whereRaw('LOWER(razon_social) = ?', [mb_strtolower($value)])
+                        ->exists();
+                    if ($existe) {
+                        $fail('Ya existe un proveedor con esa razón social.');
+                    }
+                },
+            ],
             'cuit'         => [
                 'required', 'string', 'max:15', 'regex:/^\d{11}$/',
                 Rule::unique('proveedores', 'cuit')
@@ -72,6 +84,8 @@ class ProveedorController extends Controller
             'telefono'     => 'nullable|string|max:20|regex:/^\d+$/',
             'email'        => 'nullable|email|max:255',
             'direccion'    => 'nullable|string|max:255',
+        ], [
+            'cuit.unique' => 'Ya existe un proveedor con ese CUIT.',
         ]);
 
         $validados['comercio_id'] = $comercioId;
@@ -85,8 +99,21 @@ class ProveedorController extends Controller
     {
         $this->authorizeComercio($proveedore);
 
+        $request->merge(['razon_social' => mb_strtoupper(trim($request->razon_social ?? ''))]);
+
         $validados = $request->validate([
-            'razon_social' => 'required|string|max:255',
+            'razon_social' => [
+                'required', 'string', 'max:255',
+                function ($attribute, $value, $fail) use ($proveedore) {
+                    $existe = Proveedor::where('comercio_id', $proveedore->comercio_id)
+                        ->where('id', '!=', $proveedore->id)
+                        ->whereRaw('LOWER(razon_social) = ?', [mb_strtolower($value)])
+                        ->exists();
+                    if ($existe) {
+                        $fail('Ya existe un proveedor con esa razón social.');
+                    }
+                },
+            ],
             'cuit'         => [
                 'required', 'string', 'max:15', 'regex:/^\d{11}$/',
                 Rule::unique('proveedores', 'cuit')
@@ -96,6 +123,8 @@ class ProveedorController extends Controller
             'telefono'     => 'nullable|string|max:20|regex:/^\d+$/',
             'email'        => 'nullable|email|max:255',
             'direccion'    => 'nullable|string|max:255',
+        ], [
+            'cuit.unique' => 'Ya existe un proveedor con ese CUIT.',
         ]);
 
         $proveedore->update($validados);

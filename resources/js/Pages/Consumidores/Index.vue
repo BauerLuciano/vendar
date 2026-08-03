@@ -4,6 +4,8 @@ import { Head, useForm, router } from '@inertiajs/vue3';
 import { ref, watch, reactive, computed } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 
 const props = defineProps({
     consumidores: Object,
@@ -495,7 +497,6 @@ const calcularDisponible = (limite, deuda) => {
     <Head title="Clientes" />
 
     <AuthenticatedLayout>
-        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-30"></div>
 
         <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
@@ -595,15 +596,14 @@ const calcularDisponible = (limite, deuda) => {
                                     {{ formatearDinero(calcularDisponible(cliente.limite_cuenta_corriente, cliente.cuenta_corriente?.saldo_deudor)) }}
                                 </td>
 
-                                <td class="p-4 text-center relative" :class="{'z-50': menuAbierto === cliente.id}">
-                                    <button @click.stop="toggleMenu(cliente.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
-                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
-                                    </button>
+                                <td class="p-4 text-center">
+                                    <DropdownAcciones :abierto="menuAbierto === cliente.id" ancho="w-52" @close="menuAbierto = null">
+                                        <template #trigger>
+                                            <button @click.stop="toggleMenu(cliente.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                            </button>
+                                        </template>
 
-                                    <div v-if="menuAbierto === cliente.id" 
-                                         class="absolute right-10 w-52 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 py-2 animate-in fade-in zoom-in-95 duration-150"
-                                         :class="index === consumidores.data.length - 1 && consumidores.data.length > 2 ? 'bottom-8' : 'top-10'">
-                                        
                                         <button v-if="cliente.cuenta_corriente?.saldo_deudor > 0" @click="openCobroModal(cliente)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             Cobrar Deuda
@@ -628,7 +628,7 @@ const calcularDisponible = (limite, deuda) => {
                                             <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             {{ cliente.estado ? 'Dar de Baja' : 'Activar Cliente' }}
                                         </button>
-                                    </div>
+                                    </DropdownAcciones>
                                 </td>
                             </tr>
                         </tbody>
@@ -904,7 +904,7 @@ const calcularDisponible = (limite, deuda) => {
                                 >
                             </div>
                         </div>
-                        <p class="text-[10px] text-slate-400 mt-2 font-medium">Esta contraseña permite al cliente ingresar a la tienda online para hacer pedidos.</p>
+                        <AlertaAyuda>Esta contraseña permite al cliente ingresar a la tienda online para hacer pedidos.</AlertaAyuda>
                     </div>
 
                     <div class="pt-6 flex justify-end gap-3 border-t border-slate-100 mt-4">

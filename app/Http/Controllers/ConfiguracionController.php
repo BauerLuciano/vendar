@@ -6,6 +6,7 @@ use App\Enums\MetodoPago;
 use App\Enums\PaymentChannel;
 use App\Models\Configuracion;
 use App\Models\Comercio;
+use App\Models\Sucursal;
 use App\Models\PaymentGateway;
 use App\Models\PaymentMethodConfiguration;
 use App\Models\StoreConfig;
@@ -17,12 +18,28 @@ class ConfiguracionController extends Controller
 {
     public function index(Request $request)
     {
-        $configuraciones = Configuracion::pluck('valor', 'clave')->toArray();
-
         $user = $request->user();
         $comercio = Comercio::with('paymentGateways')->findOrFail(
             $user->comercio_id ?? $user->branch?->comercio_id
         );
+
+        $configuraciones = Configuracion::paraComercio($comercio->id);
+
+        $tieneNombrePropio = Configuracion::where('comercio_id', $comercio->id)
+            ->where('clave', 'nombre_empresa')
+            ->exists();
+
+        if (!$tieneNombrePropio) {
+            $configuraciones['nombre_empresa'] = $comercio->nombre ?? 'Mi Negocio';
+        }
+
+        $tieneDireccionPropia = Configuracion::where('comercio_id', $comercio->id)
+            ->where('clave', 'direccion')
+            ->exists();
+
+        if (!$tieneDireccionPropia) {
+            $configuraciones['direccion'] = $this->direccionPrimeraSucursal($comercio->id);
+        }
 
         $comercio->paymentGateways->each(function ($pg) {
             if (isset($pg->configuration['client_secret'])) {
@@ -61,8 +78,26 @@ class ConfiguracionController extends Controller
             $user->comercio_id ?? $user->branch?->comercio_id
         );
 
+        $modulosHabilitados = $comercio->modulos_habilitados ?? ['pos' => true];
+        $tienePedidosWeb = !empty($modulosHabilitados['pedidos_web']);
+
+        // Campos exclusivos de e-commerce (pestaña "Tienda Online y Pagos").
+        // Sin el módulo pedidos_web se descartan en backend aunque se envíen por POST directo.
+        $camposEcommerce = [
+            'envio_precio_base', 'envio_precio_km', 'envio_radio_km',
+            'transferencia_cbu', 'transferencia_alias', 'transferencia_titular',
+            'mp_access_token', 'mp_enabled', 'payway_public_key',
+            'viumi_client_id', 'viumi_client_secret', 'viumi_environment', 'viumi_enabled',
+        ];
+
+        if (!$tienePedidosWeb) {
+            foreach ($camposEcommerce as $campo) {
+                $request->request->remove($campo);
+            }
+        }
+
         $request->validate([
-            'transferencia_cbu' => 'nullable|string|regex:/^[0-9]*$/|max:50',
+            'transferencia_cbu' => 'nullable|string|regex:/^[0-9]*$/|max:22',
             'transferencia_alias' => 'nullable|string|max:50',
             'transferencia_titular' => 'nullable|string|regex:/^[\pL\s\.\,]*$/u|max:100',
             'envio_precio_base' => 'nullable|numeric|min:0',
@@ -90,25 +125,27 @@ class ConfiguracionController extends Controller
             'acepta_efectivo',
         ]));
 
-        if ($request->filled('mp_access_token')) {
+        if ($tienePedidosWeb && $request->filled('mp_access_token')) {
             $comercio->mp_access_token = $request->mp_access_token;
         }
-        if ($request->filled('payway_public_key')) {
+        if ($tienePedidosWeb && $request->filled('payway_public_key')) {
             $comercio->payway_public_key = $request->payway_public_key;
         }
         $comercio->save();
 
-        // Sincronizar payment_gateways
-        $mpEnabled = $request->boolean('mp_enabled', !empty($comercio->mp_access_token));
-        PaymentGateway::updateOrCreate(
-            ['comercio_id' => $comercio->id, 'provider' => 'mercadopago'],
-            [
-                'enabled' => $mpEnabled,
-                'configuration' => ['access_token' => $comercio->mp_access_token],
-            ]
-        );
+        // Sincronizar payment_gateways (solo si el comercio tiene tienda online)
+        if ($tienePedidosWeb) {
+            $mpEnabled = $request->boolean('mp_enabled', !empty($comercio->mp_access_token));
+            PaymentGateway::updateOrCreate(
+                ['comercio_id' => $comercio->id, 'provider' => 'mercadopago'],
+                [
+                    'enabled' => $mpEnabled,
+                    'configuration' => ['access_token' => $comercio->mp_access_token],
+                ]
+            );
+        }
 
-        $viumiClientId = $request->input('viumi_client_id');
+        $viumiClientId = $tienePedidosWeb ? $request->input('viumi_client_id') : null;
         if ($viumiClientId) {
             $viumiConfig = [
                 'client_id' => $viumiClientId,
@@ -129,8 +166,10 @@ class ConfiguracionController extends Controller
         // Whitelist explicita de claves permitidas con sus validaciones
         $globalConfigKeys = [
             'nombre_empresa'            => 'nullable|string|max:255',
-            'cuit'                      => 'nullable|string|max:20',
-            'telefono'                  => 'nullable|string|max:50',
+            'cuit'                      => 'nullable|string|regex:/^[\d\-]*$/|max:20',
+            'razon_social'              => 'nullable|string|max:255',
+            'condicion_iva'             => 'nullable|string|in:responsable_inscripto,monotributista,exento,no_inscripto,consumidor_final,otro,',
+            'telefono'                  => 'nullable|string|regex:/^[\d\s\-\(\)\+]*$/|max:20',
             'direccion'                 => 'nullable|string|max:255',
             'ticket_mensaje_pie'        => 'nullable|string|max:500',
             'formato_impresion'         => 'nullable|string|in:58mm,80mm,A4',
@@ -143,13 +182,21 @@ class ConfiguracionController extends Controller
             'mora_tasa_interes'         => 'nullable|numeric|min:0|max:100',
         ];
 
-        $request->validate($globalConfigKeys);
+        $request->validate($globalConfigKeys, [
+            'cuit.regex'     => 'El CUIT/RUT solo puede contener números.',
+            'telefono.regex' => 'El teléfono solo puede contener números.',
+            'telefono.max'   => 'El teléfono no debe superar los 15 dígitos.',
+        ]);
 
         foreach ($globalConfigKeys as $clave => $rules) {
             if ($request->has($clave)) {
+                $valor = $request->input($clave);
+                if (in_array($clave, ['cuit', 'telefono'], true)) {
+                    $valor = preg_replace('/\D/', '', $valor);
+                }
                 Configuracion::updateOrCreate(
-                    ['clave' => $clave],
-                    ['valor' => $request->input($clave)]
+                    ['comercio_id' => $comercio->id, 'clave' => $clave],
+                    ['valor' => $valor]
                 );
             }
         }
@@ -173,10 +220,22 @@ class ConfiguracionController extends Controller
         $request->validate([
             'metodo_pago' => 'required|string|in:' . implode(',', MetodoPago::values()),
             'provider' => 'nullable|string|max:100',
-            'display_data' => 'nullable|array',
+            'display_data' => [
+                'nullable',
+                'array',
+                function (string $attribute, mixed $value, \Closure $fail) use ($request) {
+                    $metodo = MetodoPago::tryFrom((string) $request->metodo_pago);
+                    if ($metodo?->grupo() === 'Transferencias'
+                        && empty($value['alias'])
+                        && empty($value['cvu'])
+                        && empty($value['cbu'])) {
+                        $fail('Ingresá al menos un Alias o CVU/CBU.');
+                    }
+                },
+            ],
             'display_data.alias' => 'nullable|string|max:255',
-            'display_data.cvu' => 'nullable|string|regex:/^[0-9]*$/|max:255',
-            'display_data.cbu' => 'nullable|string|regex:/^[0-9]*$/|max:255',
+            'display_data.cvu' => 'nullable|string|regex:/^[0-9]*$/|max:22',
+            'display_data.cbu' => 'nullable|string|regex:/^[0-9]*$/|max:22',
             'display_data.banco' => 'nullable|string|regex:/^[\pL\s\.]*$/u|max:255',
             'display_data.titular' => 'nullable|string|regex:/^[\pL\s\.\,]*$/u|max:255',
             'enabled' => 'boolean',
@@ -187,6 +246,9 @@ class ConfiguracionController extends Controller
             'display_data.titular.regex' => 'El nombre del titular solo puede contener letras.',
         ]);
 
+        $metodoPago = MetodoPago::from($request->metodo_pago);
+        $esTransferencia = $metodoPago->grupo() === 'Transferencias';
+
         PaymentMethodConfiguration::updateOrCreate(
             [
                 'comercio_id' => $comercioId,
@@ -195,7 +257,7 @@ class ConfiguracionController extends Controller
             ],
             [
                 'channel' => PaymentChannel::MANUAL,
-                'display_data' => $request->display_data,
+                'display_data' => $esTransferencia ? $request->display_data : null,
                 'enabled' => $request->boolean('enabled', true),
             ]
         );
@@ -215,5 +277,19 @@ class ConfiguracionController extends Controller
         $paymentMethodConfiguration->delete();
 
         return redirect()->back()->with('success', 'Configuración eliminada.');
+    }
+
+    // Reutiliza la dirección física cargada en la primera sucursal del comercio
+    // (la que se registra al crear la cuenta o la primera creada por el dueño).
+    private function direccionPrimeraSucursal(int $comercioId): ?string
+    {
+        $sucursal = Sucursal::where('comercio_id', $comercioId)
+            ->whereNotNull('direccion')
+            ->where('direccion', '!=', '')
+            ->where('direccion', '!=', 'Dirección a definir')
+            ->orderBy('id')
+            ->first();
+
+        return $sucursal?->direccion;
     }
 }

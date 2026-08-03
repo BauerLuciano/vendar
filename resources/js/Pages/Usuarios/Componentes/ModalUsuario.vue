@@ -12,6 +12,8 @@ const props = defineProps({
 
 const emit = defineEmits(['cerrar']);
 
+const etiquetaRol = (rol) => rol === 'SuperAdmin' ? 'Dueño' : rol;
+
 const form = useForm({
     name: '',
     email: '',
@@ -25,9 +27,10 @@ const requiereSucursal = computed(() => {
     return form.rol !== 'Administrador Global';
 });
 
-// sucursales disponibles como base: solo las que están checkeadas
+// sucursales disponibles como base: todas las del comercio
+// (al elegir base, el watch la agrega sola a "Sucursales Asignadas")
 const sucursalesBase = computed(() => {
-    return props.sucursales.filter(s => form.sucursales.includes(s.id));
+    return props.sucursales;
 });
 
 // si se descheckea la sucursal base actual, reasigna a la primera disponible
@@ -148,7 +151,7 @@ const guardar = () => {
                         <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Rol / Perfil</label>
                         <select v-model="form.rol" class="w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500 font-bold text-sky-700" required>
                             <option value="" disabled>Seleccione...</option>
-                            <option v-for="rol in roles" :key="rol.id" :value="rol.name">{{ rol.name }}</option>
+                            <option v-for="rol in roles" :key="rol.id" :value="rol.name">{{ etiquetaRol(rol.name) }}</option>
                         </select>
                     </div>
                 </div>

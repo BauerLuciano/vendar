@@ -1,10 +1,12 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
-import { ref, watch, reactive } from 'vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
+import { Head, router, usePage } from '@inertiajs/vue3';
+import { ref, watch, reactive, computed } from 'vue';
 import Swal from 'sweetalert2';
 import ModalUsuario from './Componentes/ModalUsuario.vue';
 import DetalleUsuario from './Componentes/DetalleUsuario.vue';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
 
 const props = defineProps({
     usuarios: Object,
@@ -18,10 +20,15 @@ const mostrarModal = ref(false);
 const mostrarDetalle = ref(false);
 const usuarioSeleccionado = ref(null);
 
+const page = usePage();
+
+const etiquetaRol = (rol) => rol === 'SuperAdmin' ? 'Dueño' : rol;
+
 const formFiltros = reactive({
     search: props.filtros?.search || '',
     sucursal_id: props.filtros?.sucursal_id || 'all',
-    rol: props.filtros?.rol || 'all'
+    rol: props.filtros?.rol || 'all',
+    estado: props.filtros?.estado || 'todos'
 });
 
 let timeout = null;
@@ -40,6 +47,7 @@ const limpiarFiltros = () => {
     formFiltros.search = '';
     formFiltros.sucursal_id = 'all';
     formFiltros.rol = 'all';
+    formFiltros.estado = 'todos';
 };
 
 const toggleMenu = (id) => {
@@ -49,6 +57,8 @@ const toggleMenu = (id) => {
 const cerrarMenu = () => {
     menuAbierto.value = null;
 };
+
+const usuarioActualId = computed(() => page.props.auth?.user?.id ?? null);
 
 const abrirNuevo = () => {
     cerrarMenu();
@@ -71,18 +81,38 @@ const verUsuario = (usuario) => {
 const eliminarUsuario = (usuario) => {
     cerrarMenu();
     Swal.fire({
-        title: '¿Eliminar Usuario?',
-        text: `Se borrará el acceso para ${usuario.name}.`,
+        title: '¿Dar de baja al usuario?',
+        text: `Se desactivará el acceso de ${usuario.name}. Su historial y registros se conservan y podrá reactivarse.`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
-        confirmButtonText: 'Sí, eliminar',
+        confirmButtonText: 'Sí, dar de baja',
         cancelButtonText: 'Cancelar'
     }).then((result) => {
         if (result.isConfirmed) {
             router.delete(route('usuarios.destroy', usuario.id), {
-                onSuccess: () => Swal.fire('Eliminado', 'Usuario borrado con éxito', 'success'),
-                onError: (err) => Swal.fire('Error', err.error || 'No se pudo eliminar el usuario', 'error')
+                onSuccess: () => Swal.fire('Dado de baja', 'El usuario fue desactivado. Su historial se conserva.', 'success'),
+                onError: (err) => Swal.fire('Error', err.error || 'No se pudo dar de baja al usuario', 'error')
+            });
+        }
+    });
+};
+
+const reactivarUsuario = (usuario) => {
+    cerrarMenu();
+    Swal.fire({
+        title: '¿Reactivar al usuario?',
+        text: `Se restablecerá el acceso de ${usuario.name}.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#0284c7',
+        confirmButtonText: 'Sí, reactivar',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.post(route('usuarios.restaurar', usuario.id), {}, {
+                onSuccess: () => Swal.fire('Reactivado', 'El usuario puede volver a iniciar sesión.', 'success'),
+                onError: (err) => Swal.fire('Error', err.error || 'No se pudo reactivar al usuario', 'error')
             });
         }
     });
@@ -93,7 +123,6 @@ const eliminarUsuario = (usuario) => {
     <Head title="Directorio de Equipo" />
 
     <AuthenticatedLayout>
-        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-30"></div>
 
         <div class="py-8 px-6 sm:px-10 bg-slate-50 min-h-screen font-sans">
             
@@ -125,7 +154,7 @@ const eliminarUsuario = (usuario) => {
                     <div class="w-full sm:w-1/4">
                         <select v-model="formFiltros.rol" class="w-full border border-slate-200 rounded-xl py-2.5 px-4 focus:ring-sky-500 focus:border-sky-500 text-slate-600 bg-slate-50 cursor-pointer font-medium text-sm">
                             <option value="all">Todos los roles</option>
-                            <option v-for="r in roles" :key="r.id" :value="r.name">{{ r.name }}</option>
+                            <option v-for="r in roles" :key="r.id" :value="r.name">{{ etiquetaRol(r.name) }}</option>
                         </select>
                     </div>
 
@@ -137,8 +166,15 @@ const eliminarUsuario = (usuario) => {
                     </div>
                 </div>
 
-                <div class="flex justify-end">
-                    <button v-if="formFiltros.search || formFiltros.rol !== 'all' || formFiltros.sucursal_id !== 'all'" @click="limpiarFiltros" class="text-sm text-slate-500 hover:text-rose-500 font-bold px-4 transition-colors">
+                <div class="flex flex-col sm:flex-row gap-4 w-full items-center justify-between">
+                    <div class="w-full sm:w-1/4">
+                        <select v-model="formFiltros.estado" class="w-full border border-slate-200 rounded-xl py-2.5 px-4 focus:ring-sky-500 focus:border-sky-500 text-slate-600 bg-slate-50 cursor-pointer font-medium text-sm">
+                            <option value="todos">Todos los estados</option>
+                            <option value="activos">Activos</option>
+                            <option value="inactivos">Inactivos</option>
+                        </select>
+                    </div>
+                    <button v-if="formFiltros.search || formFiltros.rol !== 'all' || formFiltros.sucursal_id !== 'all' || formFiltros.estado !== 'todos'" @click="limpiarFiltros" class="text-sm text-slate-500 hover:text-rose-500 font-bold px-4 transition-colors">
                         Limpiar Filtros
                     </button>
                 </div>
@@ -159,15 +195,20 @@ const eliminarUsuario = (usuario) => {
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             <tr v-if="usuarios.data.length === 0">
-                                <td colspan="6" class="p-10 text-center text-slate-400 font-bold">No se encontraron usuarios.</td>
+                                <td colspan="6" class="p-10">
+                                    <AlertaAyuda>No se encontraron usuarios.</AlertaAyuda>
+                                </td>
                             </tr>
                             <tr v-for="user in usuarios.data" :key="user.id" class="hover:bg-slate-50 transition-colors group">
                                 <td class="p-4 text-center text-xs text-slate-400 font-bold">#{{ user.id }}</td>
                                 
                                 <td class="p-4">
                                     <div class="flex flex-col">
-                                        <span class="font-bold text-slate-800 text-sm">{{ user.name }}</span>
-                                        <span class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mt-0.5">Activo</span>
+                                        <span class="font-bold text-slate-800 text-sm" :class="user.deleted_at ? 'line-through opacity-60' : ''">{{ user.name }}</span>
+                                        <span class="text-[10px] font-bold uppercase tracking-widest mt-0.5"
+                                            :class="user.deleted_at ? 'text-slate-400' : 'text-emerald-500'">
+                                            {{ user.deleted_at ? 'Inactivo' : 'Activo' }}
+                                        </span>
                                     </div>
                                 </td>
                                 
@@ -192,17 +233,18 @@ const eliminarUsuario = (usuario) => {
                                 
                                 <td class="p-4 text-center">
                                     <span class="text-xs font-black text-sky-700 bg-sky-50 px-3 py-1 rounded-lg uppercase tracking-wider">
-                                        {{ user.roles?.length > 0 ? user.roles[0].name : '-' }}
+                                        {{ user.roles?.length > 0 ? etiquetaRol(user.roles[0].name) : '-' }}
                                     </span>
                                 </td>
                                 
-                                <td class="p-4 text-center relative">
-                                    <button @click.stop="toggleMenu(user.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
-                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
-                                    </button>
+                                <td class="p-4 text-center">
+                                    <DropdownAcciones :abierto="menuAbierto === user.id" @close="menuAbierto = null">
+                                        <template #trigger>
+                                            <button @click.stop="toggleMenu(user.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                            </button>
+                                        </template>
 
-                                    <div v-if="menuAbierto === user.id" class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150 text-left">
-                                        
                                         <button @click="verUsuario(user)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                             Ver Detalles
@@ -215,12 +257,16 @@ const eliminarUsuario = (usuario) => {
 
                                         <div class="border-t border-slate-100 my-1"></div>
 
-                                        <button @click="eliminarUsuario(user)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-3 transition-colors">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                            Eliminar Usuario
+                                        <button v-if="!user.deleted_at && user.id !== usuarioActualId" @click="eliminarUsuario(user)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                            Dar de baja
                                         </button>
 
-                                    </div>
+                                        <button v-if="user.deleted_at" @click="reactivarUsuario(user)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-3 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                            Reactivar
+                                        </button>
+                                    </DropdownAcciones>
                                 </td>
                             </tr>
                         </tbody>

@@ -5,6 +5,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { ref, reactive, computed, watch } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 
 const props = defineProps({
     promotion: Object,
@@ -694,7 +695,7 @@ const fieldClass = (field) => {
                                 <input v-model="formulario.exclusive" type="checkbox" class="rounded text-sky-600 focus:ring-sky-500 mt-0.5">
                                 <div>
                                     <span class="text-xs font-bold text-slate-600">Exclusiva</span>
-                                    <p class="text-[10px] text-slate-400 leading-tight mt-0.5">No puede combinarse con otras promociones. Si esta promoción está activa, las demás no aplican.</p>
+                                    <p class="text-xs font-medium text-slate-600 leading-tight mt-0.5">No puede combinarse con otras promociones. Si esta promoción está activa, las demás no aplican.</p>
                                 </div>
                             </label>
 
@@ -702,7 +703,7 @@ const fieldClass = (field) => {
                                 <input v-model="formulario.cumulative" type="checkbox" class="rounded text-sky-600 focus:ring-sky-500 mt-0.5">
                                 <div>
                                     <span class="text-xs font-bold text-slate-600">Acumulable</span>
-                                    <p class="text-[10px] text-slate-400 leading-tight mt-0.5">Puede combinarse con otras promociones acumulables. Los descuentos se suman.</p>
+                                    <p class="text-xs font-medium text-slate-600 leading-tight mt-0.5">Puede combinarse con otras promociones acumulables. Los descuentos se suman.</p>
                                 </div>
                             </label>
                         </div>
@@ -757,7 +758,7 @@ const fieldClass = (field) => {
                                 :class="fieldClass('value')" placeholder="Ej: 1500">
                             <span class="absolute right-4 top-2.5 text-slate-400 font-bold text-sm">$</span>
                         </div>
-                        <p class="text-[10px] text-slate-400 mt-1">El producto se venderá a este precio final durante la promoción.</p>
+                        <p class="text-xs font-medium text-slate-600 mt-1">El producto se venderá a este precio final durante la promoción.</p>
                         <p v-if="errors.value" class="text-rose-500 text-[10px] mt-1 font-bold">{{ errors.value }}</p>
                     </div>
 
@@ -839,7 +840,7 @@ const fieldClass = (field) => {
                                 </button>
                             </div>
                         </div>
-                        <p class="text-xs text-slate-400 mt-3">Las siguientes condiciones determinan cuándo esta promoción estará activa.</p>
+                        <AlertaAyuda class="mt-3">Las siguientes condiciones determinan cuándo esta promoción estará activa.</AlertaAyuda>
                     </div>
 
                     <!-- Manual: Product Selector -->
@@ -857,22 +858,10 @@ const fieldClass = (field) => {
                     <div v-else>
 
                         <!-- Explanation -->
-                        <div v-if="formulario.rules.length > 0" class="flex items-start gap-2.5 mb-5 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                            <svg class="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <p class="text-xs text-slate-500 leading-relaxed">Esta promoción se activará únicamente cuando se cumplan <strong class="text-slate-700">TODAS</strong> las condiciones.</p>
-                        </div>
+                        <AlertaAyuda v-if="formulario.rules.length > 0" class="mb-5">Esta promoción se activará únicamente cuando se cumplan <strong class="text-amber-900">TODAS</strong> las condiciones.</AlertaAyuda>
 
                         <!-- Empty state -->
-                        <div v-if="formulario.rules.length === 0" class="text-center py-12 text-slate-400">
-                            <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                                <svg class="w-8 h-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                            </div>
-                            <p class="font-bold text-sm text-slate-500 mb-1">Agregá la primera condición</p>
-                            <p class="text-xs text-slate-400">Definí cuándo se aplicará el descuento.</p>
-                        </div>
+                        <AlertaAyuda v-if="formulario.rules.length === 0" titulo="Agregá la primera condición">Definí cuándo se aplicará el descuento.</AlertaAyuda>
 
                         <!-- Rules list -->
                         <div v-for="(rule, index) in formulario.rules" :key="index"
@@ -985,7 +974,7 @@ const fieldClass = (field) => {
                                         <span v-if="getSuffixFor(rule.condition_type)" class="absolute right-3 top-3 text-slate-400 text-xs font-bold">{{ getSuffixFor(rule.condition_type) }}</span>
                                     </div>
                                 </template>
-                                <p v-if="getHelpTextFor(rule.condition_type)" class="text-[10px] text-slate-400 leading-tight mt-1">{{ getHelpTextFor(rule.condition_type) }}</p>
+                                <p v-if="getHelpTextFor(rule.condition_type)" class="text-xs font-medium text-slate-600 leading-tight mt-1">{{ getHelpTextFor(rule.condition_type) }}</p>
                                 <p v-if="errors[`rules.${index}.value`]" class="text-rose-500 text-[10px] mt-1 font-bold">{{ errors[`rules.${index}.value`] }}</p>
                             </div>
 

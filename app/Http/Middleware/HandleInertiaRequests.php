@@ -125,8 +125,10 @@ class HandleInertiaRequests extends Middleware
             ],
 
             'empresa' => fn () => Schema::hasTable('configuraciones') 
-                            ? (function() {
-                                $config = Configuracion::pluck('valor', 'clave')->toArray();
+                            ? (function() use ($request) {
+                                $user = $request->user();
+                                $comercioId = $user ? ($user->comercio_id ?? $user->branch?->comercio_id) : null;
+                                $config = Configuracion::paraComercio($comercioId);
                                 $config['permitir_stock_negativo'] = $config['permitir_stock_negativo'] ?? '0';
                                 $config['moneda'] = $config['moneda'] ?? 'ARS';
                                 return $config;
@@ -144,6 +146,49 @@ class HandleInertiaRequests extends Middleware
                 if (!$id) return null;
                 $suc = \App\Models\Sucursal::find($id);
                 return $suc ? ['id' => $suc->id, 'nombre' => $suc->nombre] : null;
+            })() : null,
+
+            // 📊 PLAN ACTUAL: slug + límites para la UX (Básico = "Mi Local", Pro/Premium = "Locales")
+            'plan_actual' => fn () => $request->user() ? (function() use ($request) {
+                $sucursalId = session('sucursal_activa_id', $request->user()->branch_id);
+                $sucursal = $sucursalId ? \App\Models\Sucursal::with('comercio')->find($sucursalId) : null;
+                $comercio = $sucursal?->comercio;
+                if (!$comercio) return null;
+                return [
+                    'slug' => $comercio->plan ?? 'basico',
+                    'limite_sucursales' => (int) ($comercio->limite_sucursales ?? 1),
+                    'limite_usuarios' => (int) ($comercio->limite_usuarios ?? 1),
+                    'sucursales_actuales' => (int) $comercio->sucursales()->count(),
+                ];
+            })() : null,
+
+            // 📅 ESTADO DE CUENTA / SUSCRIPCIÓN: avisa si está en mora o suspendido
+            'estadoCuenta' => fn () => $request->user() ? (function() use ($request) {
+                $sucursalId = session('sucursal_activa_id', $request->user()->branch_id);
+                if (!$sucursalId) return null;
+
+                $sucursal = \App\Models\Sucursal::with('comercio.plan')->find($sucursalId);
+                $comercio = $sucursal?->comercio;
+                if (!$comercio) return null;
+
+                $hoy = now();
+                $vencimiento = $comercio->vencimiento_pago ? \Carbon\Carbon::parse($comercio->vencimiento_pago)->endOfDay() : null;
+                $diasMora = $comercio->plan()?->first()?->dias_mora;
+                $moraHasta = $vencimiento && $diasMora !== null ? $vencimiento->copy()->addDays($diasMora) : $vencimiento;
+
+                $enMora = $vencimiento && $hoy->greaterThan($vencimiento)
+                    && (!$moraHasta || $hoy->lte($moraHasta));
+                $suspendido = $comercio->status === 'suspendido'
+                    || ($moraHasta && $hoy->greaterThan($moraHasta));
+
+                return [
+                    'status' => $comercio->status,
+                    'vencimiento' => $vencimiento?->format('d/m/Y'),
+                    'dias_mora' => $diasMora,
+                    'en_mora' => $enMora,
+                    'suspendido' => $suspendido,
+                    'dias_restantes_mora' => $enMora && $moraHasta ? (int) $hoy->diffInDays($moraHasta) : 0,
+                ];
             })() : null,
 
             'flash' => [

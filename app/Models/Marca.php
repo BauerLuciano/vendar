@@ -16,7 +16,6 @@ class Marca extends Model
     protected $fillable = [
         'comercio_id',
         'nombreMarca',
-        'slug',
         'imagen',
         'estado',
     ];

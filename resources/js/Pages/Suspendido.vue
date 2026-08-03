@@ -1,5 +1,13 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { computed } from 'vue';
+import { Head, Link, usePage } from '@inertiajs/vue3';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
+
+const page = usePage();
+const estadoCuenta = computed(() => page.props.estadoCuenta ?? null);
+
+const vencimiento = computed(() => estadoCuenta.value?.vencimiento ?? null);
+const diasMora = computed(() => estadoCuenta.value?.dias_mora ?? null);
 </script>
 
 <template>
@@ -14,9 +22,18 @@ import { Head, Link } from '@inertiajs/vue3';
             </div>
 
             <h1 class="text-2xl font-black text-white uppercase tracking-wider mb-2">Servicio Suspendido</h1>
-            <p class="text-slate-400 text-sm leading-relaxed mb-6">
-                El acceso a la plataforma ha sido inhabilitado por falta de pago o fin del período de prueba. Por favor, regularizá tu situación para continuar operando.
-            </p>
+            <AlertaAyuda class="mb-6">
+                Superaste los {{ diasMora ?? 'días de' }} de gracia luego del vencimiento
+                <template v-if="vencimiento">({{ vencimiento }})</template>
+                y tu cuenta fue bloqueada temporalmente hasta que regularices tu situación.
+            </AlertaAyuda>
+
+            <Link
+                :href="route('suscripcion.mi-plan')"
+                class="w-full bg-[#00adef] hover:bg-[#00adef]/90 text-white font-black py-3 rounded-xl uppercase tracking-widest text-xs mb-3 transition-colors shadow-lg shadow-[#00adef]/20 inline-block"
+            >
+                Pagar y Reactivar
+            </Link>
 
             <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/80 mb-6 text-left">
                 <p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Contacto Comercial</p>
@@ -24,9 +41,9 @@ import { Head, Link } from '@inertiajs/vue3';
                 <p class="text-sm font-bold text-emerald-400">+54 9 3755 123456</p>
             </div>
 
-            <Link 
-                :href="route('logout')" 
-                method="post" 
+            <Link
+                :href="route('logout')"
+                method="post"
                 as="button"
                 class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl uppercase tracking-widest text-xs transition-colors shadow-lg shadow-rose-600/20"
             >

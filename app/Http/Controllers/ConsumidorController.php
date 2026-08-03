@@ -34,9 +34,9 @@ class ConsumidorController extends Controller
 
         $query->when($search, function ($q, $search) {
             $q->where(function ($sub) use ($search) {
-                $sub->where('nombre', 'LIKE', "%{$search}%")
-                    ->orWhere('apellido', 'LIKE', "%{$search}%")
-                    ->orWhere('documento', 'LIKE', "%{$search}%");
+                $sub->where('nombre', 'ILIKE', "%{$search}%")
+                    ->orWhere('apellido', 'ILIKE', "%{$search}%")
+                    ->orWhere('documento', 'ILIKE', "%{$search}%");
                 if (is_numeric($search)) {
                     $sub->orWhere('id', $search);
                 }

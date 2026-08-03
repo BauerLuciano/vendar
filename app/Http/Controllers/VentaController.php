@@ -54,12 +54,12 @@ class VentaController extends Controller
                     if (is_numeric($search)) {
                         $sub->where('id', $search)
                             ->orWhere(function ($sub2) use ($search) {
-                                $sub2->whereHas('consumidor', fn ($q) => $q->where('nombre', 'LIKE', "%{$search}%")
-                                    ->orWhere('apellido', 'LIKE', "%{$search}%"));
+                                $sub2->whereHas('consumidor', fn ($q) => $q->where('nombre', 'ILIKE', "%{$search}%")
+                                    ->orWhere('apellido', 'ILIKE', "%{$search}%"));
                             });
                     } else {
-                        $sub->whereHas('consumidor', fn ($q) => $q->where('nombre', 'LIKE', "%{$search}%")
-                            ->orWhere('apellido', 'LIKE', "%{$search}%"));
+                        $sub->whereHas('consumidor', fn ($q) => $q->where('nombre', 'ILIKE', "%{$search}%")
+                            ->orWhere('apellido', 'ILIKE', "%{$search}%"));
                     }
                 });
             })
@@ -100,10 +100,10 @@ class VentaController extends Controller
             'pagos.*.recargo_monto' => 'nullable|numeric|min:0',
         ]);
 
-        $permitirStockNegativo = \App\Models\Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
+        $comercioId = auth()->user()->branch?->comercio_id;
+        $permitirStockNegativo = \App\Models\Configuracion::paraComercio($comercioId)['permitir_stock_negativo'] ?? '0';
         $permitirStockNegativo = filter_var($permitirStockNegativo, FILTER_VALIDATE_BOOLEAN);
 
-        $comercioId = auth()->user()->branch?->comercio_id;
         $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
         $items = collect($request->items)->sortBy('id')->values()->all();
         $totalCalculado = collect($items)->sum(fn ($item) => (float) ($item['precio_venta'] ?? 0) * (float) ($item['cantidad'] ?? 0));

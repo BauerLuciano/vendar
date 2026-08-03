@@ -6,10 +6,10 @@ use App\Models\Comercio;
 use App\Models\Sucursal; 
 use App\Models\User;
 use App\Models\Plan;
+use App\Models\Configuracion;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\DB;
 
 class GlobalAdminController extends Controller
 {
@@ -39,6 +39,8 @@ class GlobalAdminController extends Controller
             'limite_usuarios' => 'nullable|integer|min:0',
             'vencimiento_pago' => 'nullable|date',
             'modulos_habilitados' => 'nullable|array',
+            'telefono' => 'required|string|max:15',
+            'direccion' => 'required|string|max:255',
         ]);
 
         if (empty($validated['modulos_habilitados'])) {
@@ -59,12 +61,23 @@ class GlobalAdminController extends Controller
         $comercio->modulos_habilitados = $validated['modulos_habilitados'];
         $comercio->save();
 
+        Configuracion::updateOrCreate(
+            ['comercio_id' => $comercio->id, 'clave' => 'nombre_empresa'],
+            ['valor' => $comercio->nombre]
+        );
+
+        foreach (['telefono', 'direccion'] as $clave) {
+            Configuracion::updateOrCreate(
+                ['comercio_id' => $comercio->id, 'clave' => $clave],
+                ['valor' => $validated[$clave]]
+            );
+        }
+
         Sucursal::create([
             'comercio_id' => $comercio->id,
-            'nombre'      => 'Casa Central',
-            'direccion'   => 'Dirección a definir',
-            'latitud'     => -27.367, 
-            'longitud'    => -55.896,
+            'nombre'      => $validated['nombre'] ?: 'Casa Central',
+            'direccion'   => $validated['direccion'],
+            'telefono'    => $validated['telefono'],
             'estado'      => true,
         ]);
 
@@ -204,6 +217,7 @@ class GlobalAdminController extends Controller
                 return [
                     'id' => $u->id,
                     'nombre' => $u->name,
+                    'nombre_comercio' => $u->nombre_comercio,
                     'email' => $u->email,
                     'plan_deseado' => $u->plan_deseado,
                     'fecha_registro' => $u->created_at ? $u->created_at->format('d/m/Y H:i') : 'N/A',
@@ -220,53 +234,16 @@ class GlobalAdminController extends Controller
      */
     public function aprobarSolicitud(Request $request, User $user)
     {
-        $validated = $request->validate([
-            'nombre_comercio' => 'required|string|max:255',
+        $request->validate([
+            'nombre_comercio' => 'nullable|string|max:255',
         ]);
 
-        DB::transaction(function () use ($user, $validated) {
-            // 1. Activar usuario y asignar rol de SuperAdmin (dueño de comercio)
-            $user->is_active = true;
-        $user->save();
-            $user->syncRoles(['SuperAdmin']);
+        $nombreComercio = $request->input('nombre_comercio') ?: $user->nombre_comercio;
 
-            // 2. Buscar plan en DB
-            $planSlug = match ($user->plan_deseado) {
-                'Plan Básico' => 'basico',
-                'Plan Estándar' => 'pro',
-                'Plan Premium' => 'premium',
-                default => 'basico',
-            };
-            $plan = Plan::where('slug', $planSlug)->first();
-
-            // 3. Crear Comercio
-            $comercio = new Comercio();
-            $comercio->nombre = $validated['nombre_comercio'];
-            $comercio->slug = Str::slug($validated['nombre_comercio']);
-            $comercio->plan = $plan?->slug ?? 'basico';
-            $comercio->plan_id = $plan?->id;
-            $comercio->status = 'trial';
-            $comercio->limite_sucursales = $plan?->sucursales_limit ?? 1;
-            $comercio->limite_usuarios = $plan?->usuarios_limit ?? 1;
-            $comercio->modulos_habilitados = $plan?->modulos ?? ['pos' => true];
-            $comercio->save();
-
-            // 4. Crear Sucursal base
-            Sucursal::create([
-                'comercio_id' => $comercio->id,
-                'nombre' => 'Casa Central',
-                'direccion' => 'Dirección a definir',
-                'latitud' => -27.367,
-                'longitud' => -55.896,
-                'estado' => true,
-            ]);
-
-            // 5. Vincular usuario a la sucursal y al comercio
-            $user->update([
-                'comercio_id' => $comercio->id,
-                'branch_id' => Sucursal::where('comercio_id', $comercio->id)->first()->id,
-            ]);
-        });
+        // El alta de comercio + primer local + trial queda centralizado en el servicio
+        // que también usa el registro automático (sin aprobación manual).
+        app(\App\Services\RegistroCuentaService::class)
+            ->inicializarCuenta($user, $nombreComercio ?: $user->name);
 
         return redirect()->back()->with('exito', "Solicitud de {$user->name} aprobada. Comercio y sucursal creados.");
     }
@@ -277,7 +254,7 @@ class GlobalAdminController extends Controller
     public function rechazarSolicitud(User $user)
     {
         $nombre = $user->name;
-        $user->delete();
+        $user->forceDelete();
 
         return redirect()->back()->with('exito', "Solicitud de {$nombre} rechazada.");
     }
@@ -286,9 +263,9 @@ class GlobalAdminController extends Controller
     {
         $request->validate(['fecha' => 'nullable|date']);
 
-        $comercio->update([
-            'vencimiento_pago' => $request->fecha ?? now()->addMonth(),
-        ]);
+        $comercio->vencimiento_pago = $request->fecha ?? now()->addMonth();
+        $comercio->status = 'activo';
+        $comercio->save();
 
         return redirect()->back()->with('exito', "{$comercio->nombre} marcado como al día.");
     }

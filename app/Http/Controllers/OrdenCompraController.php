@@ -588,7 +588,7 @@ class OrdenCompraController extends Controller
         }
 
         $ordenCompra->load(['proveedor', 'sucursal', 'usuario', 'detalles.producto']);
-        $config = \App\Models\Configuracion::pluck('valor', 'clave')->toArray();
+        $config = \App\Models\Configuracion::paraComercio($ordenCompra->sucursal?->comercio_id);
 
         $logoBase64 = null;
         if (!empty($config['logo_empresa'])) {

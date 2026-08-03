@@ -11,7 +11,7 @@ const form = useForm({
 </script>
 
 <template>
-    <Head title="Elegir Sucursal" />
+    <Head title="Elegir Local" />
 
     <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-sky-900 flex items-center justify-center p-6">
         <div class="w-full max-w-2xl animate-fade-in-up">
@@ -19,8 +19,8 @@ const form = useForm({
                 <div class="w-16 h-16 bg-white/10 backdrop-blur rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <i class="ri-store-2-line text-3xl text-sky-400"></i>
                 </div>
-                <h1 class="text-2xl font-black text-white tracking-tight">Elegí tu sucursal</h1>
-                <p class="text-slate-400 text-sm mt-1">Seleccioná en qué sucursal querés trabajar hoy</p>
+                <h1 class="text-2xl font-black text-white tracking-tight">Elegí tu local</h1>
+                <p class="text-slate-400 text-sm mt-1">Seleccioná en qué local querés trabajar hoy</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -7,6 +7,7 @@ use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Services\SucursalScopeService;
+use App\Models\Configuracion;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -325,9 +326,7 @@ class ReporteController extends Controller
         $metodosPago = $this->calcularMetodosPago($sucursalesIds, $fechaDesde, $fechaHasta);
         $topProductos = $this->obtenerTopProductos($sucursalesIds, $fechaDesde, $fechaHasta);
 
-        $nombreEmpresa = DB::table('configuraciones')
-            ->where('clave', 'nombre_empresa')
-            ->value('valor') ?? 'VendAR';
+        $nombreEmpresa = Configuracion::paraComercio($this->scope->obtenerComercioId())['nombre_empresa'] ?? 'VendAR';
 
         $pdf = Pdf::loadView('pdf.reporte-ventas', [
             'nombreEmpresa' => $nombreEmpresa,

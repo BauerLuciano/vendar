@@ -1,13 +1,20 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, usePage } from '@inertiajs/vue3';
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 
 const props = defineProps({
     comercio: Object,
     planes: Array,
 });
+
+const page = usePage();
+const estadoCuenta = computed(() => page.props.estadoCuenta ?? null);
+const suspendido = computed(() => estadoCuenta.value?.suspendido ?? false);
+const enMora = computed(() => estadoCuenta.value?.en_mora ?? false);
+
+const requierePago = computed(() => suspendido.value || enMora.value);
 
 const planCargando = ref(null);
 const estadoPago = ref(null);
@@ -129,6 +136,16 @@ onUnmounted(() => {
                     </p>
                 </header>
 
+                <!-- Aviso de plan vencido / suspendido -->
+                <div v-if="suspendido" class="mx-4 sm:mx-0 mb-8 bg-rose-50 border-2 border-rose-200 text-rose-800 rounded-2xl p-6 text-center">
+                    <p class="font-black uppercase text-sm tracking-widest mb-1">Tu cuenta está suspendida</p>
+                    <p class="text-sm mt-1">Tu plan venció el {{ estadoCuenta?.vencimiento }} y superaste los días de gracia. Elegí un plan para reactivarla.</p>
+                </div>
+                <div v-else-if="enMora" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border-2 border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
+                    <p class="font-black uppercase text-sm tracking-widest mb-1">Tu plan está vencido</p>
+                    <p class="text-sm mt-1">Venció el {{ estadoCuenta?.vencimiento }}. Pagá para renovar y evitar la suspensión.</p>
+                </div>
+
                 <!-- Payment Status Banner -->
                 <div v-if="estadoPago === 'procesando'" class="mx-4 sm:mx-0 mb-8 bg-blue-50 border border-blue-200 text-blue-800 rounded-2xl p-6 text-center">
                     <p class="font-bold text-lg">Procesando tu pago...</p>
@@ -177,11 +194,11 @@ onUnmounted(() => {
                             <ul class="space-y-4 mb-10">
                                 <li class="flex items-center gap-3 text-sm font-bold text-slate-600">
                                     <span class="text-[#8cc63f] text-lg font-black">✓</span>
-                                    {{ plan.sucursales_limit >= 10 ? 'Sucursales ilimitadas' : 'Hasta ' + plan.sucursales_limit + ' sucursal' + (plan.sucursales_limit !== 1 ? 'es' : '') }}
+                                    {{ 'Hasta ' + plan.sucursales_limit + ' local' + (plan.sucursales_limit !== 1 ? 'es' : '') }}
                                 </li>
                                 <li class="flex items-center gap-3 text-sm font-bold text-slate-600">
                                     <span class="text-[#8cc63f] text-lg font-black">✓</span>
-                                    {{ plan.usuarios_limit >= 10 ? 'Usuarios ilimitados' : 'Hasta ' + plan.usuarios_limit + ' usuario' + (plan.usuarios_limit !== 1 ? 's' : '') }}
+                                    {{ 'Hasta ' + plan.usuarios_limit + ' usuario' + (plan.usuarios_limit !== 1 ? 's' : '') }}
                                 </li>
                                 <li v-if="plan.modulos?.pos" class="flex items-center gap-3 text-sm font-bold text-slate-600">
                                     <span class="text-[#8cc63f] text-lg font-black">✓</span>
@@ -211,13 +228,14 @@ onUnmounted(() => {
                         </div>
 
                         <button
-                            v-if="!esPlanActual(plan.id)"
+                            v-if="!esPlanActual(plan.id) || requierePago"
                             :disabled="planCargando === plan.id"
                             class="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2"
                             :class="plan.destacado ? 'bg-[#00adef] text-white' : 'bg-slate-800 text-white'"
                             @click="pagarPlan(plan.id)"
                         >
                             <span v-if="planCargando === plan.id">Generando Link... ⏳</span>
+                            <span v-else-if="requierePago && esPlanActual(plan.id)">Pagar y Reactivar ⚡</span>
                             <span v-else>Elegir {{ plan.nombre }} ⚡</span>
                         </button>
 

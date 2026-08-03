@@ -17,6 +17,8 @@ class Comercio extends Model
         'slug',
         'logo',
         'plan',
+        'plan_id',
+        'status',
         'pending_plan_id',
         'limite_sucursales',
         'limite_usuarios',

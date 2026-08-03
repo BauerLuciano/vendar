@@ -15,11 +15,13 @@ class PlanController extends Controller
 
         $modulosDisponibles = [
             ['id' => 'pos', 'nombre' => 'Punto de Venta Base'],
+            ['id' => 'proveedores', 'nombre' => 'Gestión de Proveedores y Compras'],
             ['id' => 'lotes', 'nombre' => 'Gestión de Stock Avanzada (Lotes)'],
             ['id' => 'fiados', 'nombre' => 'Cuentas Corrientes (Fiados)'],
-            ['id' => 'proveedores', 'nombre' => 'Gestión de Proveedores'],
             ['id' => 'auditoria', 'nombre' => 'Auditoría de Caja y Stock'],
             ['id' => 'transferencias', 'nombre' => 'Optimización de Stock (Sugerencias)'],
+            ['id' => 'pedidos_web', 'nombre' => 'Tienda Online y Pedidos Web'],
+            ['id' => 'promociones', 'nombre' => 'Promociones y Ofertas'],
         ];
 
         return Inertia::render('AdminGlobal/Planes/Index', [
@@ -38,6 +40,9 @@ class PlanController extends Controller
             'modulos' => 'required|array',
             'sucursales_limit' => 'required|integer|min:0',
             'usuarios_limit' => 'required|integer|min:0',
+            'trial_dias' => 'required|integer|min:0',
+            'trial_activo' => 'boolean',
+            'dias_mora' => 'required|integer|min:0',
             'destacado' => 'boolean',
             'orden' => 'required|integer|min:0',
             'activo' => 'boolean',
@@ -63,6 +68,9 @@ class PlanController extends Controller
             'modulos' => 'required|array',
             'sucursales_limit' => 'required|integer|min:0',
             'usuarios_limit' => 'required|integer|min:0',
+            'trial_dias' => 'required|integer|min:0',
+            'trial_activo' => 'boolean',
+            'dias_mora' => 'required|integer|min:0',
             'destacado' => 'boolean',
             'orden' => 'required|integer|min:0',
             'activo' => 'boolean',

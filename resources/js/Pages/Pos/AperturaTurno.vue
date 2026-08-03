@@ -14,7 +14,9 @@ const props = defineProps({
 // Usamos ref normal en lugar de useForm para tener más control con la API
 const form = ref({
     caja_id: props.cajas && props.cajas.length > 0 ? props.cajas[0].id : '',
-    saldo_inicial: ''
+    tipoFondo: 'EFECTIVO',
+    saldo_inicial: '',
+    saldo_inicial_mp: ''
 });
 
 const processing = ref(false);
@@ -25,15 +27,25 @@ const abrirCaja = async () => {
         return;
     }
 
-    if (form.value.saldo_inicial === '' || form.value.saldo_inicial < 0) {
-        Swal.fire({ icon: 'error', title: 'Monto Inválido', text: 'Debes ingresar el saldo inicial (puede ser 0)', confirmButtonColor: '#0284c7' });
+    const usaEfectivo = ['EFECTIVO', 'AMBOS'].includes(form.value.tipoFondo);
+    const usaTransferencias = ['MERCADO_PAGO', 'AMBOS'].includes(form.value.tipoFondo);
+
+    if (usaEfectivo && (form.value.saldo_inicial === '' || form.value.saldo_inicial < 0)) {
+        Swal.fire({ icon: 'error', title: 'Monto Inválido', text: 'Debes ingresar el fondo en efectivo (puede ser 0)', confirmButtonColor: '#0284c7' });
+        return;
+    }
+
+    if (usaTransferencias && (form.value.saldo_inicial_mp === '' || form.value.saldo_inicial_mp < 0)) {
+        Swal.fire({ icon: 'error', title: 'Monto Inválido', text: 'Debes ingresar el fondo en transferencias (puede ser 0)', confirmButtonColor: '#0284c7' });
         return;
     }
 
     processing.value = true;
 
     try {
-        await abrirCajaApi({ caja_id: form.value.caja_id, saldo_inicial_efectivo: form.value.saldo_inicial });
+        const efectivo = usaEfectivo ? Number(form.value.saldo_inicial) : 0;
+        const mp = usaTransferencias ? Number(form.value.saldo_inicial_mp) : 0;
+        await abrirCajaApi({ caja_id: form.value.caja_id, saldo_inicial_efectivo: efectivo, saldo_inicial_mp: mp });
         router.visit(route('pos.index'));
     } catch (error) {
         let errorMsg = 'Ocurrió un error al intentar abrir la caja.';
@@ -100,7 +112,19 @@ const abrirCaja = async () => {
                             </div>
 
                             <div>
-                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fondo de Caja (Cambio Inicial)</label>
+                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">¿Con qué fondos abrís la caja?</label>
+                                <select 
+                                    v-model="form.tipoFondo"
+                                    class="w-full bg-white border-2 border-slate-200 text-slate-800 font-bold rounded-xl px-4 py-3 focus:ring-0 focus:border-sky-500 transition-colors"
+                                >
+                                    <option value="EFECTIVO">Solo Efectivo</option>
+                                    <option value="MERCADO_PAGO">Solo Transferencias</option>
+                                    <option value="AMBOS">Ambos (Efectivo y Transferencias)</option>
+                                </select>
+                            </div>
+
+                            <div v-if="['EFECTIVO', 'AMBOS'].includes(form.tipoFondo)">
+                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fondo de Caja (Cambio Inicial) — Efectivo</label>
                                 <div class="relative">
                                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                                         <span class="text-slate-400 font-bold text-xl">$</span>
@@ -115,6 +139,24 @@ const abrirCaja = async () => {
                                     >
                                 </div>
                                 <p class="text-[10px] text-slate-400 font-medium mt-2">Ingresá el efectivo con el que contás en el cajón para dar vuelto.</p>
+                            </div>
+
+                            <div v-if="['MERCADO_PAGO', 'AMBOS'].includes(form.tipoFondo)">
+                                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fondo en Transferencias (Mercado Pago / Viumi)</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <span class="text-slate-400 font-bold text-xl">$</span>
+                                    </div>
+                                    <input 
+                                        type="number" 
+                                        v-model="form.saldo_inicial_mp"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        class="w-full bg-white border-2 border-slate-200 text-slate-800 font-black text-2xl rounded-xl pl-10 pr-4 py-4 focus:ring-0 focus:border-sky-500 transition-colors placeholder:text-slate-300"
+                                    >
+                                </div>
+                                <p class="text-[10px] text-slate-400 font-medium mt-2">Ingresá el saldo inicial de tu cuenta de transferencias si ya tenés fondos acreditados.</p>
                             </div>
 
                             <button 

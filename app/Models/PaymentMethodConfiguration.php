@@ -5,9 +5,12 @@ namespace App\Models;
 use App\Enums\PaymentChannel;
 use App\Enums\MetodoPago;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PaymentMethodConfiguration extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'comercio_id',
         'metodo_pago',

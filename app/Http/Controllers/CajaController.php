@@ -18,12 +18,18 @@ class CajaController extends Controller
     public function index()
     {
         $user = auth()->user();
+        $comercioId = $user->comercio_id ?? $user->branch?->comercio_id;
         
         // 1. Verificamos si es un "Jefe" (SuperAdmin o Admin Global)
         $esJefe = $user->hasRole(['SuperAdmin', 'Administrador Global']);
         
         $query = Caja::with('sucursal');
-        
+
+        // Seguridad multi-tenant: siempre filtrar por el comercio del usuario
+        if ($comercioId) {
+            $query->whereHas('sucursal', fn ($q) => $q->where('comercio_id', $comercioId));
+        }
+
         // Si NO es jefe y tiene sucursal, solo ve las cajas de su sucursal
         if (!$esJefe) {
             $sucursalId = session('sucursal_activa_id', $user->branch_id);
@@ -34,7 +40,9 @@ class CajaController extends Controller
         $cajas = $query->orderBy('estado', 'desc')->orderBy('id', 'desc')->get();   
              
         $sucursales = $esJefe 
-            ? Sucursal::where('tipo', 'punto_de_venta')->get() 
+            ? Sucursal::where('tipo', 'punto_de_venta')
+                ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
+                ->get() 
             : Sucursal::where('id', session('sucursal_activa_id', $user->branch_id))->where('tipo', 'punto_de_venta')->get();
 
         return Inertia::render('Cajas/Index', [
@@ -45,13 +53,17 @@ class CajaController extends Controller
 
     public function store(Request $request)
     {
+        $user = auth()->user();
+        $comercioId = $user->comercio_id ?? $user->branch?->comercio_id;
+
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
             'sucursal_id' => [
                 'required',
-                // Validamos que exista y que además sea un punto de venta
-                Rule::exists('sucursales', 'id')->where(function ($query) {
-                    return $query->where('tipo', 'punto_de_venta');
+                // Validamos que exista, sea un punto de venta y pertenezca al comercio del usuario
+                Rule::exists('sucursales', 'id')->where(function ($query) use ($comercioId) {
+                    return $query->where('tipo', 'punto_de_venta')
+                        ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId));
                 }),
             ],
         ], [
@@ -95,10 +107,6 @@ class CajaController extends Controller
         $comercioId = $user->branch?->comercio_id;
         if ($comercioId && $caja->sucursal->comercio_id !== $comercioId) {
             abort(403);
-        }
-
-        if (!$caja->puedeEliminarse()) {
-            return redirect()->back()->with('error', 'No se puede eliminar esta caja porque tiene historial de turnos asociados. Por favor, utiliza la opción de inactivarla.');
         }
 
         $caja->delete();

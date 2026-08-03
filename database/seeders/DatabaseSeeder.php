@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
                 'name' => 'Luciano',
                 'password' => Hash::make('123456'),
                 'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
         // ¡Le asignamos el rol!
@@ -36,6 +37,7 @@ class DatabaseSeeder extends Seeder
                 'name' => 'Test User',
                 'password' => Hash::make('password'),
                 'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
         // A este lo hacemos Cajero para que puedan probar cómo se bloquea el menú
@@ -48,12 +50,13 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // 5. Corremos el resto de tus Seeders
+        // NOTA: Ya no se auto-crean cajas. Las cajas se crean a mano (o guiado por el wizard de onboarding)
+        // para que el usuario aprenda el flujo en la sección Cajas.
         $this->call([
             FixDatosMaestrosSeeder::class, // 1ro: Crea la Sucursal y el Consumidor Final
-            CajaSeeder::class,             // 2do: Crea las Cajas (ahora sí encuentra la sucursal)
-            ConsumidorSeeder::class,       // 3ro: Crea el resto de los clientes
-            GlobalAdminSeeder::class,      // 4to: Crea el Admin Global (si no lo creaste antes)
-            StoreConfigSeeder::class,      // 5to: Crea store_configs para todos los comercios
+            ConsumidorSeeder::class,       // 2do: Crea el resto de los clientes
+            GlobalAdminSeeder::class,      // 3ro: Crea el Admin Global (si no lo creaste antes)
+            StoreConfigSeeder::class,      // 4to: Crea store_configs para todos los comercios
         ]);
     }
 }

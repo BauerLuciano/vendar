@@ -2,15 +2,32 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ModalSucursal from './Componentes/ModalSucursal.vue'; 
 import DetalleSucursal from './Componentes/DetalleSucursal.vue'; 
-import { Head, router, Link } from '@inertiajs/vue3';
-import { ref, watch, reactive } from 'vue';
+import { Head, router, Link, usePage } from '@inertiajs/vue3';
+import { ref, watch, reactive, computed } from 'vue';
 import Swal from 'sweetalert2';
 import EmptyState from '@/Components/EmptyState.vue';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
 
 const props = defineProps({ 
     sucursales: Object,
     filtros: Object
 });
+
+const page = usePage();
+const planActual = computed(() => page.props.plan_actual || null);
+const esPlanBasico = computed(() => planActual.value?.slug === 'basico');
+const puedeAgregar = computed(() => {
+    const p = planActual.value;
+    return p ? (p.sucursales_actuales < p.limite_sucursales) : true;
+});
+const limiteAlcanzado = computed(() => {
+    const p = planActual.value;
+    return p ? (p.sucursales_actuales >= p.limite_sucursales) : false;
+});
+const tituloPagina = computed(() => esPlanBasico.value ? 'Mi Local' : 'Locales');
+const flashError = computed(() => page.props.flash?.error || null);
+const flashExito = computed(() => page.props.flash?.exito || page.props.flash?.success || null);
+const terminoLocal = computed(() => esPlanBasico.value ? 'local' : 'sucursal');
 
 const menuAbierto = ref(null);
 
@@ -74,12 +91,12 @@ const cerrarModal = () => {
 const toggleEstado = (s) => {
     cerrarMenu();
     const accion = s.estado ? 'desactivar' : 'activar';
-    const resultado = s.estado ? 'desactivada' : 'activada';
+    const resultado = s.estado ? 'desactivado' : 'activado';
     const colorConfirm = s.estado ? '#ef4444' : '#10b981';
 
     Swal.fire({
-        title: `¿${accion.toUpperCase()} sucursal?`,
-        text: `La sucursal "${s.nombre}" cambiará su estado a ${resultado}.`,
+        title: `¿${accion.toUpperCase()} el local?`,
+        text: `El local "${s.nombre}" cambiará su estado a ${resultado}.`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: colorConfirm,
@@ -91,7 +108,7 @@ const toggleEstado = (s) => {
             router.patch(route('sucursales.status', s.id), {}, {
                 onSuccess: () => Swal.fire({
                     title: '¡Listo!',
-                    text: `Sucursal ${resultado} correctamente.`,
+                    text: `Local ${resultado} correctamente.`,
                     icon: 'success',
                     confirmButtonColor: '#0284c7'
                 })
@@ -102,26 +119,45 @@ const toggleEstado = (s) => {
 </script>
 
 <template>
-    <Head title="Sucursales" />
+    <Head :title="tituloPagina" />
 
     <AuthenticatedLayout>
-        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-30"></div>
-
-        <template #header>Gestión de Sucursales</template>
+        <template #header>Gestión de {{ tituloPagina }}</template>
 
         <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
                 <div>
-                    <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Directorio de Sucursales</h1>
+                    <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">{{ tituloPagina }}</h1>
                     <div class="h-1 w-12 bg-sky-500 mt-1"></div>
+                    <p v-if="planActual" class="mt-2 text-sm text-slate-500 font-medium">
+                        {{ planActual.sucursales_actuales }} de {{ planActual.limite_sucursales }} {{ planActual.limite_sucursales === 1 ? 'local' : 'locales' }} en tu plan
+                    </p>
                 </div>
                 <button 
+                    v-if="puedeAgregar"
                     @click="abrirNuevo"
                     class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm shadow-sky-600/30 transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" /></svg>
-                    Nueva Sucursal
+                    {{ esPlanBasico ? 'Editar Mi Local' : 'Nuevo Local' }}
                 </button>
+            </div>
+
+            <div v-if="limiteAlcanzado" class="mb-6 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-2xl flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <p class="text-sm font-medium">
+                    Alcanzaste el límite de tu plan. Para agregar más locales, mejorá tu plan desde <Link :href="route('suscripcion.mi-plan')" class="font-bold underline">Mi Negocio → Plan</Link>.
+                </p>
+            </div>
+
+            <div v-if="flashError" class="mb-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <p class="text-sm font-medium">{{ flashError }}</p>
+            </div>
+
+            <div v-if="flashExito" class="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-2xl flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <p class="text-sm font-medium">{{ flashExito }}</p>
             </div>
 
             <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4">
@@ -158,7 +194,7 @@ const toggleEstado = (s) => {
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-xs tracking-widest text-slate-400 uppercase">
                                 <th class="p-4 font-black rounded-tl-3xl">ID</th>
-                                <th class="p-4 font-black">Sucursal</th>
+                                <th class="p-4 font-black">Local</th>
                                 <th class="p-4 font-black">Tipo</th>
                                 <th class="p-4 font-black text-center">Estado</th>
                                 <th class="p-4 font-black text-center rounded-tr-3xl">Acciones</th>
@@ -168,10 +204,10 @@ const toggleEstado = (s) => {
                             <tr v-if="sucursales.data.length === 0">
                                 <td colspan="5" class="p-8 text-center">
                                     <EmptyState
-                                        titulo="No hay sucursales"
-                                        descripcion="Creá tu primera sucursal para comenzar a operar."
+                                        titulo="No hay locales"
+                                        descripcion="Creá tu primer local para comenzar a operar."
                                         icono="sucursal"
-                                        accionLabel="Crear Sucursal"
+                                        accionLabel="Crear Local"
                                         :accionEvent="true"
                                         @accion-click="abrirNuevo"
                                     />
@@ -188,33 +224,35 @@ const toggleEstado = (s) => {
                                     </span>
                                 </td>
                                 
-                                <td class="p-4 text-center relative">
-                                    <button @click.stop="toggleMenu(s.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
-                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
-                                    </button>
+                                    <td class="p-4 text-center">
+                                        <DropdownAcciones :abierto="menuAbierto === s.id" @close="menuAbierto = null">
+                                            <template #trigger>
+                                                <button @click.stop="toggleMenu(s.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                                </button>
+                                            </template>
 
-                                    <div v-if="menuAbierto === s.id" class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150">
-                                        <button @click="abrirDetalle(s)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                            Ver Detalles
-                                        </button>
+                                            <button @click="abrirDetalle(s)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                Ver Detalles
+                                            </button>
 
-                                        <button @click="abrirEditar(s)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-600 hover:bg-amber-50 flex items-center gap-3 transition-colors">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                            Editar Datos
-                                        </button>
+                                            <button @click="abrirEditar(s)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-600 hover:bg-amber-50 flex items-center gap-3 transition-colors">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                Editar Datos
+                                            </button>
 
-                                        <div class="border-t border-slate-100 my-1"></div>
+                                            <div class="border-t border-slate-100 my-1"></div>
 
-                                        <button @click="toggleEstado(s)" 
-                                            class="w-full text-left px-4 py-2.5 text-xs font-bold flex items-center gap-3 transition-colors"
-                                            :class="s.estado ? 'text-rose-600 hover:bg-rose-50' : 'text-emerald-600 hover:bg-emerald-50'">
-                                            <svg v-if="s.estado" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-                                            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                            {{ s.estado ? 'Dar de Baja' : 'Activar Sucursal' }}
-                                        </button>
-                                    </div>
-                                </td>
+                                            <button @click="toggleEstado(s)" 
+                                                class="w-full text-left px-4 py-2.5 text-xs font-bold flex items-center gap-3 transition-colors"
+                                                :class="s.estado ? 'text-rose-600 hover:bg-rose-50' : 'text-emerald-600 hover:bg-emerald-50'">
+                                                <svg v-if="s.estado" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                {{ s.estado ? 'Dar de Baja' : 'Activar Local' }}
+                                            </button>
+                                        </DropdownAcciones>
+                                    </td>
                             </tr>
                         </tbody>
                     </table>
@@ -222,7 +260,7 @@ const toggleEstado = (s) => {
 
                 <div v-if="sucursales.links && sucursales.data.length > 0" class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <span class="text-sm text-slate-500 font-medium">
-                        Mostrando {{ sucursales.from }} a {{ sucursales.to }} de {{ sucursales.total }} sucursales
+                        Mostrando {{ sucursales.from }} a {{ sucursales.to }} de {{ sucursales.total }} {{ sucursales.total === 1 ? 'local' : 'locales' }}
                     </span>
                     <div class="flex flex-wrap justify-center gap-1">
                         <component

@@ -3,6 +3,7 @@ import { useForm } from '@inertiajs/vue3';
 import { ref, computed, watch, nextTick } from 'vue';
 import Swal from 'sweetalert2';
 import LectorCamara from '@/Components/LectorCamara.vue'; // 🔥 IMPORTAMOS LA CÁMARA
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 
 const props = defineProps({
     mostrar: Boolean,
@@ -202,10 +203,9 @@ const guardarIngreso = () => {
                                 </div>
                             </h3>
 
-                            <div v-if="modoRapido" class="mb-3 bg-sky-50 border border-sky-200 text-sky-700 text-[11px] font-bold px-3 py-2 rounded-lg flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                Modo rápido: el costo se toma automáticamente del precio de costo actual del producto.
-                            </div>
+                            <AlertaAyuda v-if="modoRapido" class="mb-3" titulo="Modo rápido">
+                                El costo se toma automáticamente del precio de costo actual del producto.
+                            </AlertaAyuda>
                             
                             <div class="grid grid-cols-12 gap-2 items-end mb-4">
                                 <div class="col-span-12 md:col-span-4 relative">
@@ -272,7 +272,9 @@ const guardarIngreso = () => {
                                     </thead>
                                     <tbody>
                                         <tr v-if="form.items.length === 0">
-                                            <td colspan="5" class="p-4 text-center text-slate-400 italic text-xs">Sin productos</td>
+                                            <td colspan="5" class="p-2">
+                                                <AlertaAyuda>Sin productos</AlertaAyuda>
+                                            </td>
                                         </tr>
                                         <tr v-for="(item, index) in form.items" :key="index" class="border-b border-slate-50">
                                             <td class="p-2 font-bold text-slate-700 text-xs">

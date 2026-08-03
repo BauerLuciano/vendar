@@ -1,7 +1,6 @@
 <script setup>
 import GlobalAdminLayout from '@/Layouts/GlobalAdminLayout.vue';
-import { ref } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
@@ -14,32 +13,26 @@ const escapeHtml = (str) => {
     return div.innerHTML;
 };
 
-const formAprobar = useForm({
-    nombre_comercio: '',
-});
-
 const abrirModalAprobar = (solicitud) => {
-    formAprobar.nombre_comercio = solicitud.nombre;
     Swal.fire({
         title: 'Aprobar Solicitud',
-        html: `
-            <p class="text-sm mb-3">Se aprobará a <strong>${escapeHtml(solicitud.nombre)}</strong> (${escapeHtml(solicitud.email)})</p>
-            <label class="block text-left text-[10px] font-semibold text-slate-600 mb-1">Nombre del Comercio</label>
-            <input id="nombre_comercio" class="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent" value="${escapeHtml(solicitud.nombre)}" />
-        `,
+        html: `<p class="text-sm mb-3">Se aprobará a <strong>${escapeHtml(solicitud.nombre)}</strong> (${escapeHtml(solicitud.email)})</p>`,
+        input: 'text',
+        inputLabel: 'Nombre del Comercio',
+        inputValue: solicitud.nombre_comercio ?? '',
+        inputPlaceholder: 'Ej: Kiosco 24hs',
+        inputAttributes: {
+            autocomplete: 'off',
+        },
         showCancelButton: true,
         confirmButtonText: '✓ Aprobar',
         cancelButtonText: 'Cancelar',
         confirmButtonColor: '#4f46e5',
         cancelButtonColor: '#64748b',
-        preConfirm: () => {
-            const nombre = document.getElementById('nombre_comercio').value;
-            if (!nombre.trim()) {
-                Swal.showValidationMessage('El nombre del comercio es obligatorio');
-                return false;
-            }
-            return nombre;
-        }
+        inputValidator: (value) => {
+            if (!value?.trim()) return 'El nombre del comercio es obligatorio';
+            return undefined;
+        },
     }).then((result) => {
         if (result.isConfirmed) {
             router.post(route('admin.solicitudes.aprobar', solicitud.id), {
@@ -113,6 +106,7 @@ const confirmarRechazo = (solicitud) => {
                         <thead class="bg-slate-50">
                             <tr>
                                 <th scope="col" class="py-3.5 pl-6 pr-3 text-left text-xs font-semibold text-slate-900">Usuario</th>
+                                <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Comercio</th>
                                 <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Email</th>
                                 <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Plan</th>
                                 <th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold text-slate-900">Fecha</th>
@@ -128,6 +122,10 @@ const confirmarRechazo = (solicitud) => {
                                         </div>
                                         <div class="font-medium text-slate-900">{{ s.nombre }}</div>
                                     </div>
+                                </td>
+                                <td class="whitespace-nowrap px-3 py-4 text-sm font-medium text-slate-700">
+                                    <template v-if="s.nombre_comercio">{{ s.nombre_comercio }}</template>
+                                    <span v-else class="text-slate-400">—</span>
                                 </td>
                                 <td class="whitespace-nowrap px-3 py-4 text-sm text-slate-500">{{ s.email }}</td>
                                 <td class="whitespace-nowrap px-3 py-4 text-sm">

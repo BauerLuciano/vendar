@@ -28,6 +28,8 @@ const form = useForm({
     limite_sucursales: 1,
     limite_usuarios: 0,
     vencimiento_pago: '',
+    telefono: '',
+    direccion: '',
     modulos_habilitados: { pos: true },
 });
 
@@ -326,6 +328,22 @@ const colorPlan = (slug) => {
                                                 <input v-model="form.vencimiento_pago" type="date" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
                                             </div>
                                         </div>
+
+                                        <template v-if="!comercioSeleccionado">
+                                            <div class="sm:col-span-2">
+                                                <label class="block text-sm font-medium leading-6 text-slate-900">Teléfono</label>
+                                                <div class="mt-1">
+                                                    <input v-model="form.telefono" type="text" maxlength="15" placeholder="3755550471" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" required>
+                                                </div>
+                                            </div>
+
+                                            <div class="sm:col-span-2">
+                                                <label class="block text-sm font-medium leading-6 text-slate-900">Dirección</label>
+                                                <div class="mt-1">
+                                                    <input v-model="form.direccion" type="text" maxlength="255" placeholder="Calle y número" class="block w-full rounded-xl border-0 py-2 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6" required>
+                                                </div>
+                                            </div>
+                                        </template>
 
                                         <div class="sm:col-span-2 pt-2 border-t border-slate-100 mt-2">
                                             <label class="block text-sm font-semibold leading-6 text-slate-900 mb-3">Módulos Habilitados</label>

@@ -12,7 +12,7 @@ class TicketBuilder
     {
         $venta->loadMissing(['detalles.producto', 'consumidor', 'turno.caja.sucursal.comercio', 'turno.cajero']);
 
-        $config = Configuracion::pluck('valor', 'clave')->toArray();
+        $config = Configuracion::paraComercio($venta->turno?->caja?->sucursal?->comercio_id);
 
         $formato = strtoupper($config['formato_impresion'] ?? '80mm');
 

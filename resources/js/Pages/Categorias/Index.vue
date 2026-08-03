@@ -5,6 +5,7 @@ import DetalleCategoria from './Componentes/DetalleCategoria.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { ref, watch, reactive } from 'vue';
 import Swal from 'sweetalert2';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
 
 const props = defineProps({ 
     categorias: Object,
@@ -106,8 +107,6 @@ const toggleEstado = (c) => {
     <Head title="Gestión de Categorías" />
 
     <AuthenticatedLayout>
-        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-30"></div>
-
         <template #header>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">Control de Categorías</h2>
         </template>
@@ -177,12 +176,14 @@ const toggleEstado = (c) => {
                                         </span>
                                     </td>
                                     
-                                    <td class="p-4 text-center relative">
-                                        <button @click.stop="toggleMenu(c.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
-                                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
-                                        </button>
+                                    <td class="p-4 text-center">
+                                        <DropdownAcciones :abierto="menuAbierto === c.id" @close="menuAbierto = null">
+                                            <template #trigger>
+                                                <button @click.stop="toggleMenu(c.id)" class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
+                                                </button>
+                                            </template>
 
-                                        <div v-if="menuAbierto === c.id" class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-40 py-2 animate-in fade-in zoom-in-95 duration-150">
                                             <button @click="abrirDetalle(c)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                                 Ver Detalles
@@ -202,7 +203,7 @@ const toggleEstado = (c) => {
                                                 <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                                 {{ c.estado ? 'Dar de Baja' : 'Activar Categoría' }}
                                             </button>
-                                        </div>
+                                        </DropdownAcciones>
                                     </td>
                                 </tr>
                             </tbody>

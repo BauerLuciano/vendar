@@ -54,8 +54,13 @@ const guardar = () => {
             <form @submit.prevent="guardar" class="p-6 grid grid-cols-2 gap-4">
                 <div class="col-span-2">
                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Razón Social</label>
-                    <input v-model="formulario.razon_social" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 uppercase font-bold text-slate-700 focus:ring-sky-500" :class="{'border-rose-500': formulario.errors.razon_social}" required>
-                    <p v-if="formulario.errors.razon_social" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.razon_social }}</p>
+                    <input v-model="formulario.razon_social" @input="formulario.razon_social = formulario.razon_social.toUpperCase()" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 uppercase font-bold text-slate-700 focus:ring-sky-500" :class="{'border-rose-500': formulario.errors.razon_social}" required>
+                    <div v-if="formulario.errors.razon_social" class="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 mt-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-rose-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                        </svg>
+                        <p class="text-sm font-semibold text-rose-600 leading-snug">{{ formulario.errors.razon_social }}</p>
+                    </div>
                 </div>
 
                 <div>
@@ -71,7 +76,12 @@ const guardar = () => {
                         placeholder="Ej: 30123456789"
                         required
                     >
-                    <p v-if="formulario.errors.cuit" class="text-rose-500 text-[10px] mt-1 font-bold">{{ formulario.errors.cuit }}</p>
+                    <div v-if="formulario.errors.cuit" class="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 mt-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-rose-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                        </svg>
+                        <p class="text-sm font-semibold text-rose-600 leading-snug">{{ formulario.errors.cuit }}</p>
+                    </div>
                 </div>
 
                 <div>

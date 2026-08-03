@@ -421,7 +421,7 @@ class PosController extends Controller
             ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
             ->where(function ($q) use ($query) {
                 if (is_numeric($query)) {
-                    $q->where('codigo_barras', 'LIKE', $query . '%')
+                    $q->where('codigo_barras', 'ILIKE', $query . '%')
                       ->orWhere('id', (int) $query);
                 } else {
                     $q->where('nombre', 'ILIKE', '%' . $query . '%');
@@ -516,7 +516,7 @@ class PosController extends Controller
             ->where(function ($q) use ($query) {
                 $q->where('nombre', 'ILIKE', '%' . $query . '%')
                   ->orWhere('apellido', 'ILIKE', '%' . $query . '%')
-                  ->orWhere('documento', 'LIKE', '%' . $query . '%');
+                  ->orWhere('documento', 'ILIKE', '%' . $query . '%');
             })
             ->orderBy('nombre')
             ->limit(20)

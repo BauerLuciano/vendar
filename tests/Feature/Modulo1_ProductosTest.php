@@ -206,14 +206,12 @@ class Modulo1_ProductosTest extends TestCaseMultiTenant
     }
 
     // P1.5.2
-    // NOTA: auditoria() en ProductoController NO tiene scoping multi-tenant.
-    // La ruta solo está protegida por role:SuperAdmin, no por comercio_id.
-    // Esto es un gap de seguridad conocido: un SuperAdmin de A puede ver
-    // movimientos de stock de productos de B.
-    public function test_superadmin_a_puede_ver_auditoria_de_producto_b_porque_no_hay_scoping(): void
+    // auditoria() en ProductoController tiene scoping multi-tenant:
+    // un SuperAdmin de A recibe 403 al intentar ver auditoria de un producto de B.
+    public function test_superadmin_a_no_puede_ver_auditoria_de_producto_b(): void
     {
         $this->actingAsAdminA();
 
-        $this->get('/productos/11/auditoria')->assertOk();
+        $this->get('/productos/11/auditoria')->assertForbidden();
     }
 }

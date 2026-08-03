@@ -22,9 +22,9 @@ return new class extends Migration
         DB::table('configuraciones')->insert([
             // PESTAÑA: GENERAL
             ['clave' => 'nombre_empresa', 'valor' => 'Mi Negocio', 'tipo' => 'texto', 'grupo' => 'general'],
-            ['clave' => 'cuit', 'valor' => '20-12345678-9', 'tipo' => 'texto', 'grupo' => 'general'],
-            ['clave' => 'telefono', 'valor' => '375815000000', 'tipo' => 'texto', 'grupo' => 'general'],
-            ['clave' => 'direccion', 'valor' => 'Calle Falsa 123', 'tipo' => 'texto', 'grupo' => 'general'],
+            ['clave' => 'cuit', 'valor' => null, 'tipo' => 'texto', 'grupo' => 'general'],
+            ['clave' => 'telefono', 'valor' => null, 'tipo' => 'texto', 'grupo' => 'general'],
+            ['clave' => 'direccion', 'valor' => null, 'tipo' => 'texto', 'grupo' => 'general'],
             ['clave' => 'logo_empresa', 'valor' => null, 'tipo' => 'imagen', 'grupo' => 'general'],
             
             // PESTAÑA: PUNTO DE VENTA (POS)

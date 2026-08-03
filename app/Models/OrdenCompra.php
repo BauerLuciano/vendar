@@ -48,7 +48,7 @@ class OrdenCompra extends Model
     public function usuario() 
     { 
         // Especificamos 'user_id' porque el nombre del método no coincide con la FK
-        return $this->belongsTo(User::class, 'user_id'); 
+        return $this->belongsTo(User::class, 'user_id')->withTrashed(); 
     }
     
     public function detalles()

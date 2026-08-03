@@ -235,7 +235,7 @@ class DashboardController extends Controller
         $fechaDesde = $validated['desde'] ?? Carbon::today()->subDays(6)->format('Y-m-d');
         $fechaHasta = $validated['hasta'] ?? Carbon::today()->format('Y-m-d');
 
-        $config = Configuracion::pluck('valor', 'clave')->toArray();
+        $config = Configuracion::paraComercio($comercioId);
 
         $logoBase64 = null;
         if (!empty($config['logo_empresa'])) {

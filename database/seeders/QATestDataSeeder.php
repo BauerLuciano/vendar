@@ -176,7 +176,7 @@ class QATestDataSeeder extends Seeder
 
         Marca::updateOrCreate(
             ['id' => 1],
-            ['nombreMarca' => 'Genérica', 'slug' => 'generica', 'estado' => true]
+            ['nombreMarca' => 'Genérica', 'estado' => true]
         );
 
         Proveedor::updateOrCreate(
@@ -215,6 +215,7 @@ class QATestDataSeeder extends Seeder
                 'branch_id' => 1,
                 'comercio_id' => 1,
                 'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
         $adminA->assignRole('SuperAdmin');
@@ -227,6 +228,7 @@ class QATestDataSeeder extends Seeder
                 'branch_id' => 1,
                 'comercio_id' => 1,
                 'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
         $userA->assignRole('Cajero');
@@ -239,6 +241,7 @@ class QATestDataSeeder extends Seeder
                 'branch_id' => 3,
                 'comercio_id' => 2,
                 'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
         $adminB->assignRole('SuperAdmin');
@@ -251,6 +254,7 @@ class QATestDataSeeder extends Seeder
                 'branch_id' => 3,
                 'comercio_id' => 2,
                 'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
         $userB->assignRole('Cajero');

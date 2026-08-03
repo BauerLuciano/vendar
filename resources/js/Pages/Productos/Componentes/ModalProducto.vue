@@ -4,6 +4,7 @@ import { ref, watch, computed } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import LectorCamara from '@/Components/LectorCamara.vue';
+import AyudaTooltip from '@/Components/AyudaTooltip.vue';
 
 const props = defineProps({
     mostrar: Boolean,
@@ -29,12 +30,13 @@ const formulario = useForm({
     proveedor_id: null,
     unidad_medida: 'Unidad',
     unidad_compra: null,
+    unidad_compra_otro: '',
     cantidad_por_compra: null,
     es_retornable: false,
-    precio_costo: 0,
+    precio_costo: '',
     precio_venta: 0,
-    stock_minimo: 0,
-    stock_minimo_visual: 0,
+    stock_minimo: '',
+    stock_minimo_visual: '',
     stock_objetivo: '',
     stock_objetivo_visual: '',
     stock_inicial: 0,
@@ -52,17 +54,57 @@ const sufijoStock = computed(() => {
     return 'Ud';
 });
 
-const unidadCompraTexto = computed(() => {
-    if (formulario.unidad_compra === 'Otro') return 'unidades';
-    return formulario.unidad_compra ? formulario.unidad_compra.toLowerCase() + 's' : 'unidades';
+const stockActualVisual = computed(() => {
+    const v = parseFloat(formulario.stock_inicial_visual);
+    return v > 0 ? v : null;
 });
 
-const equivalenciaBultos = computed(() => {
-    const objetivo = parseFloat(formulario.stock_objetivo);
+const equivalenciaCompra = computed(() => {
+    const objetivo = parseFloat(formulario.stock_objetivo_visual);
     const cantidad = parseFloat(formulario.cantidad_por_compra);
-    if (!objetivo || !cantidad || cantidad < 1) return null;
-    const bultos = Math.ceil(objetivo / cantidad);
-    return { bultos, porBulto: cantidad, unidad: unidadCompraTexto.value };
+    const unidad = formulario.unidad_compra === 'Otro'
+        ? (formulario.unidad_compra_otro?.trim() || null)
+        : formulario.unidad_compra;
+    if (!objetivo || objetivo <= 0 || !cantidad || cantidad < 1 || !unidad) return null;
+    const actual = stockActualVisual.value;
+    const aComprar = actual !== null ? Math.max(0, objetivo - actual) : objetivo;
+    if (aComprar <= 0) return null;
+    const bultos = Math.ceil(aComprar / cantidad);
+    return { bultos, unidad: unidad.toLowerCase() + (bultos === 1 ? '' : 's') };
+});
+
+const margenEstimado = computed(() => {
+    const costo = parseFloat(formulario.precio_costo);
+    const venta = parseFloat(formulario.precio_venta);
+    if (isNaN(costo) || isNaN(venta) || costo <= 0 || venta <= 0 || venta <= costo) return null;
+    return Math.round(((venta - costo) / venta) * 100);
+});
+
+const margenPendiente = computed(() => {
+    const venta = parseFloat(formulario.precio_venta);
+    if (isNaN(venta) || venta <= 0) return false;
+    const costo = formulario.precio_costo;
+    return costo === null || costo === undefined || costo === '';
+});
+
+const reposicionCard = computed(() => {
+    const minimo = parseFloat(formulario.stock_minimo_visual);
+    const objetivo = parseFloat(formulario.stock_objetivo_visual);
+    const actual = stockActualVisual.value;
+    let estado = 'sin-datos';
+    if (minimo > 0) estado = 'sin-objetivo';
+    if (minimo > 0 && objetivo > 0) estado = 'ok';
+    let cantidad = null;
+    if (estado === 'ok' && actual !== null) {
+        cantidad = objetivo - actual;
+    }
+    return {
+        minimo: minimo > 0 ? minimo : null,
+        objetivo: objetivo > 0 ? objetivo : null,
+        actual,
+        estado,
+        cantidad,
+    };
 });
 
 const productosSimilares = ref([]);
@@ -79,7 +121,17 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.marca_id = nuevoValor.marca_id;
         formulario.proveedor_id = nuevoValor.proveedor_id || '';
         formulario.unidad_medida = nuevoValor.unidad_medida;
-        formulario.unidad_compra = nuevoValor.unidad_compra || null;
+        const unidadCompraGuardada = nuevoValor.unidad_compra;
+        if (unidadCompraGuardada && OPCIONES_UNIDAD_COMPRA.includes(unidadCompraGuardada)) {
+            formulario.unidad_compra = unidadCompraGuardada;
+            formulario.unidad_compra_otro = '';
+        } else if (unidadCompraGuardada) {
+            formulario.unidad_compra = 'Otro';
+            formulario.unidad_compra_otro = unidadCompraGuardada;
+        } else {
+            formulario.unidad_compra = null;
+            formulario.unidad_compra_otro = '';
+        }
         formulario.cantidad_por_compra = nuevoValor.cantidad_por_compra || null;
         formulario.es_retornable = Boolean(nuevoValor.es_retornable);
         formulario.precio_costo = nuevoValor.precio_costo;
@@ -351,9 +403,18 @@ const guardar = () => {
     formulario.nombre = formulario.nombre.trim();
     formulario.descripcion = formulario.descripcion?.trim() || '';
 
+    const unidadCompraOriginal = formulario.unidad_compra;
+    if (formulario.unidad_compra === 'Otro') {
+        formulario.unidad_compra = formulario.unidad_compra_otro?.trim() || null;
+    }
+
     if (formulario.unidad_medida === 'Kg' && formulario.unidad_peso_visual === 'Gramos') {
-        formulario.stock_minimo = formulario.stock_minimo_visual / 1000;
-        formulario.stock_inicial = formulario.stock_inicial_visual / 1000;
+        formulario.stock_minimo = formulario.stock_minimo_visual !== '' && formulario.stock_minimo_visual !== null
+            ? formulario.stock_minimo_visual / 1000
+            : '';
+        formulario.stock_inicial = formulario.stock_inicial_visual !== '' && formulario.stock_inicial_visual !== null
+            ? formulario.stock_inicial_visual / 1000
+            : 0;
         formulario.stock_objetivo = formulario.stock_objetivo_visual ? formulario.stock_objetivo_visual / 1000 : '';
     } else {
         formulario.stock_minimo = formulario.stock_minimo_visual;
@@ -389,7 +450,10 @@ const guardar = () => {
             formulario.reset();
             imagenPreview.value = null;
         },
-        onError: (err) => console.error(err)
+        onError: (err) => {
+            formulario.unidad_compra = unidadCompraOriginal;
+            console.error(err);
+        }
     });
 };
 </script>
@@ -420,7 +484,7 @@ const guardar = () => {
 
                     <div class="flex items-center gap-1.5 mb-1">
                         <svg class="w-3.5 h-3.5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Información básica</span>
+                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Identificación</span>
                     </div>
 
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
@@ -449,16 +513,16 @@ const guardar = () => {
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cód. Barras / PLU <span class="text-rose-500">*</span></label>
+                            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                                <div class="sm:col-span-2">
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cód. Barras / PLU</label>
                                     <div class="flex gap-1.5">
                                         <input v-model="formulario.codigo_barras" type="text" minlength="2" maxlength="14"
                                             @input="formulario.codigo_barras = formulario.codigo_barras.replace(/[^0-9]/g, '')"
                                             @keyup.enter="buscarCodigo(formulario.codigo_barras)"
                                             class="flex-1 bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm font-mono focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
                                             :class="{'border-rose-500': formulario.errors.codigo_barras}"
-                                            placeholder="Ej: 7791234567890 o 1001" required>
+                                            placeholder="Ej: 7791234567890 o 1001">
                                         <button type="button" @click="mostrarEscaner = true" title="Escanear"
                                             class="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 rounded-lg px-2 flex items-center justify-center transition-colors">
                                             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="2" y="4" width="2" height="16" rx="0.5"/><rect x="5" y="5" width="1" height="14" rx="0.3"/><rect x="7" y="3" width="3" height="18" rx="0.5"/><rect x="11" y="6" width="1" height="12" rx="0.3"/><rect x="13" y="4" width="2" height="16" rx="0.5"/><rect x="16" y="7" width="1" height="10" rx="0.3"/><rect x="18" y="3" width="3" height="18" rx="0.5"/><rect x="22" y="5" width="1" height="14" rx="0.3"/></svg>
@@ -481,28 +545,11 @@ const guardar = () => {
                                     </select>
                                     <p v-if="formulario.errors.categoria_id" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.categoria_id }}</p>
                                 </div>
-                            </div>
-
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                                 <div>
                                     <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Marca</label>
                                     <select v-model="formulario.marca_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
                                         <option :value="null">Ninguna</option>
                                         <option v-for="m in marcas" :key="m.id" :value="m.id">{{ m.nombreMarca }}</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Proveedor</label>
-                                    <select v-model="formulario.proveedor_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
-                                        <option :value="null">Ninguno</option>
-                                        <option v-for="prov in proveedores" :key="prov.id" :value="prov.id">{{ prov.razon_social }}</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Forma de Venta <span class="text-rose-500">*</span></label>
-                                    <select v-model="formulario.unidad_medida" class="w-full bg-slate-50 border border-slate-200 text-sky-700 font-bold rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
-                                        <option value="Unidad">Por Unidad</option>
-                                        <option value="Kg">Por Peso (Kg)</option>
                                     </select>
                                 </div>
                             </div>
@@ -521,22 +568,29 @@ const guardar = () => {
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-1.5 mb-1 pt-1 border-t border-slate-100">
+                    <div class="flex items-center gap-1.5 mb-1.5 pt-1 border-t border-slate-100">
                         <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Precios</span>
+                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Venta</span>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Costo ($) <span class="text-rose-500">*</span></label>
-                            <input v-model="formulario.precio_costo" type="number" step="0.01" min="0"
-                                class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
-                                :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-slate-200 text-rose-700'"
-                                required>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Se vende por <span class="text-rose-500">*</span></label>
+                            <select v-model="formulario.unidad_medida" class="w-full bg-slate-50 border border-slate-200 text-sky-700 font-bold rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                                <option value="Unidad">Unidad</option>
+                                <option value="Kg">Peso (Kg)</option>
+                            </select>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Venta ($) <span class="text-rose-500">*</span></label>
-                            <input v-model="formulario.precio_venta" type="number" step="0.01" min="0"
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Precio de costo</label>
+                            <input v-model="formulario.precio_costo" type="number" step="0.01" min="0"
+                                class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
+                                :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-slate-200 text-slate-800'"
+                                placeholder="Opcional">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Precio de venta <span class="text-rose-500">*</span></label>
+                            <input v-model="formulario.precio_venta" type="number" step="0.01" min="0.01"
                                 class="w-full bg-emerald-50 border rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
                                 :class="precioVentaInvalido ? 'border-rose-300 text-rose-700' : 'border-emerald-200 text-emerald-800'"
                                 required>
@@ -546,23 +600,47 @@ const guardar = () => {
                         </div>
                     </div>
 
-                    <div class="pt-1 border-t border-slate-100">
+                    <div v-if="margenEstimado !== null" class="mt-2 flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                        <span class="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Margen estimado</span>
+                        <span class="text-sm font-black text-emerald-800">{{ margenEstimado }}%</span>
+                    </div>
+                    <div v-else-if="margenPendiente" class="mt-2 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+                        <span class="text-[10px] font-medium text-slate-600">Calcularemos el margen cuando definas el costo.</span>
+                    </div>
+
+                    <div v-if="!formulario.id" class="pt-1 border-t border-slate-100">
                         <div class="flex items-center gap-1.5 mb-1.5">
                             <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                             <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Stock</span>
                         </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                            <div v-if="!formulario.id">
-                                <label class="block text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Stock Inicial</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div>
+                                <label class="flex items-center gap-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">
+                                    Stock Inicial
+                                    <AyudaTooltip posicion="left" texto="Cantidad disponible al momento de crear el producto." />
+                                </label>
                                 <div class="flex items-center border border-amber-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-amber-500 bg-amber-50/50 transition-all">
                                     <input v-model="formulario.stock_inicial_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" placeholder="0" class="w-full border-none bg-transparent px-3 py-1.5 text-sm focus:ring-0 text-slate-800 font-bold">
                                     <span class="bg-amber-100 px-2 py-1.5 text-[10px] font-black text-amber-700 uppercase">{{ sufijoStock }}</span>
                                 </div>
                             </div>
+                        </div>
+                    </div>
 
+                    <div class="pt-1 border-t border-slate-100">
+                        <div class="flex items-center gap-1.5 mb-1.5">
+                            <svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Reposición</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                             <div>
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Mínimo <span class="text-rose-500">*</span></label>
+                                <label class="flex items-center gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">
+                                    Stock mínimo
+                                    <AyudaTooltip posicion="left" texto="Cuando el stock baje de este número, VendAR lo marcará para reponer." />
+                                </label>
                                 <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-sky-500 bg-slate-50 transition-all">
                                     <input v-model="formulario.stock_minimo_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" class="w-full border-none bg-transparent px-3 py-1.5 text-sm focus:ring-0 text-slate-800">
                                     <select v-if="formulario.unidad_medida === 'Kg'" v-model="formulario.unidad_peso_visual" class="border-y-0 border-r-0 border-l border-slate-200 bg-slate-100 px-1.5 py-1.5 focus:ring-0 text-[10px] font-bold text-sky-700">
@@ -574,7 +652,10 @@ const guardar = () => {
                             </div>
 
                             <div>
-                                <label class="block text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Objetivo</label>
+                                <label class="flex items-center gap-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">
+                                    Stock objetivo
+                                    <AyudaTooltip posicion="left" texto="Sin este valor el producto no participará de la reposición inteligente." />
+                                </label>
                                 <div class="flex items-center border border-amber-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-amber-500 bg-amber-50/50 transition-all">
                                     <input v-model="formulario.stock_objetivo_visual" type="number" :step="formulario.unidad_medida === 'Unidad' ? '1' : '0.001'" min="0" placeholder="Opcional" class="w-full border-none bg-transparent px-3 py-1.5 text-sm focus:ring-0 text-slate-800">
                                     <select v-if="formulario.unidad_medida === 'Kg'" v-model="formulario.unidad_peso_visual" class="border-y-0 border-r-0 border-l border-amber-200 bg-amber-100 px-1.5 py-1.5 focus:ring-0 text-[10px] font-bold text-amber-700">
@@ -583,61 +664,116 @@ const guardar = () => {
                                     </select>
                                     <span v-else class="border-l border-amber-200 bg-amber-100 px-2 py-1.5 text-[10px] font-bold text-amber-700 uppercase">Ud</span>
                                 </div>
-                                <div class="mt-1 flex items-center gap-1.5 text-[10px] text-amber-700">
-                                    <template v-if="equivalenciaBultos">
-                                        <svg class="w-3 h-3 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-                                        <span>≈ {{ equivalenciaBultos.bultos }} {{ equivalenciaBultos.unidad }} de {{ equivalenciaBultos.porBulto }} unidades</span>
+                                <div class="mt-1 flex flex-col gap-1 text-[10px] text-amber-700">
+                                    <template v-if="equivalenciaCompra">
+                                        <span class="flex items-center gap-1.5">
+                                            <svg class="w-3 h-3 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                            <span>≈ {{ equivalenciaCompra.bultos }} {{ equivalenciaCompra.unidad }}</span>
+                                        </span>
                                     </template>
-                                    <span v-else class="text-slate-400 italic">Cantidad ideal a reponer.</span>
                                 </div>
                             </div>
                         </div>
+
+                        <Transition mode="out-in"
+                                    enter-active-class="transition ease-out duration-200"
+                                    enter-from-class="opacity-0 translate-y-1"
+                                    enter-to-class="opacity-100 translate-y-0"
+                                    leave-active-class="transition ease-in duration-150"
+                                    leave-from-class="opacity-100 translate-y-0"
+                                    leave-to-class="opacity-0 translate-y-1">
+                            <div v-if="reposicionCard.estado !== 'ok'" key="reposicion-simple"
+                                 class="mt-3 bg-amber-50/70 border border-amber-200 rounded-xl px-3 py-2">
+                                <p class="flex items-start gap-1.5 text-[11px] leading-relaxed text-amber-800">
+                                    <svg class="w-3.5 h-3.5 text-amber-600 shrink-0 mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>
+                                    Definí el stock mínimo y el stock objetivo para que VendAR pueda sugerirte automáticamente cuánto comprar cuando un producto necesite reposición.
+                                </p>
+                            </div>
+                            <div v-else key="reposicion-completa"
+                                 class="mt-3 bg-amber-50/70 border border-amber-200 rounded-xl px-3 py-2.5">
+                                <p class="text-[10px] font-black text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                    <svg class="w-3 h-3 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+                                    ¿Cómo funciona la reposición?
+                                </p>
+                                <div class="grid gap-2 grid-cols-1 sm:grid-cols-2" :class="{ 'sm:grid-cols-3': reposicionCard.actual !== null }">
+                                    <div class="bg-white/70 border border-amber-100 rounded-lg px-2 py-1.5 text-center">
+                                        <p class="text-[9px] font-bold text-amber-600 uppercase tracking-wider">Stock mínimo</p>
+                                        <p class="text-sm font-black text-amber-900">{{ reposicionCard.minimo ?? '—' }} <span class="text-[10px] font-bold text-amber-500">{{ sufijoStock }}</span></p>
+                                    </div>
+                                    <div class="bg-white/70 border border-amber-100 rounded-lg px-2 py-1.5 text-center">
+                                        <p class="text-[9px] font-bold text-amber-600 uppercase tracking-wider">Stock objetivo</p>
+                                        <p class="text-sm font-black text-amber-900">{{ reposicionCard.objetivo ?? '—' }} <span class="text-[10px] font-bold text-amber-500">{{ sufijoStock }}</span></p>
+                                    </div>
+                                    <div v-if="reposicionCard.actual !== null" class="bg-white/70 border border-amber-100 rounded-lg px-2 py-1.5 text-center">
+                                        <p class="text-[9px] font-bold text-amber-600 uppercase tracking-wider">Stock actual</p>
+                                        <p class="text-sm font-black text-amber-900">{{ reposicionCard.actual }} <span class="text-[10px] font-bold text-amber-500">{{ sufijoStock }}</span></p>
+                                    </div>
+                                </div>
+                                <p class="mt-2 text-[10px] text-amber-800 leading-relaxed">
+                                    <template v-if="reposicionCard.estado === 'ok' && reposicionCard.cantidad !== null && reposicionCard.cantidad > 0">
+                                        Cuando el stock llegue al mínimo, VendAR sugerirá comprar <span class="font-black">{{ reposicionCard.cantidad }} {{ sufijoStock }}</span> para volver al stock objetivo.
+                                    </template>
+                                    <template v-else-if="reposicionCard.estado === 'ok'">
+                                        Cuando el stock llegue al mínimo, VendAR sugerirá reponer hasta alcanzar el stock objetivo.
+                                    </template>
+                                    <template v-else>
+                                        Definí el stock mínimo y el stock objetivo para que VendAR te indique cuánto reponer.
+                                    </template>
+                                </p>
+                            </div>
+                        </Transition>
                     </div>
 
                     <div class="pt-1 border-t border-slate-100">
                         <div class="flex items-center gap-1.5 mb-1.5">
                             <svg class="w-3.5 h-3.5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-                            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Presentación de Compra</span>
+                            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Compra</span>
                         </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
                             <div class="sm:col-span-4">
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Unidad</label>
-                                <select v-model="formulario.unidad_compra" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Proveedor</label>
+                                <select v-model="formulario.proveedor_id" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                                    <option :value="null">Ninguno</option>
+                                    <option v-for="prov in proveedores" :key="prov.id" :value="prov.id">{{ prov.razon_social }}</option>
+                                </select>
+                            </div>
+                            <div class="sm:col-span-4">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Se compra en</label>
+                                <select v-model="formulario.unidad_compra" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.unidad_compra}">
                                     <option :value="null">Sin configurar</option>
                                     <option v-for="opcion in OPCIONES_UNIDAD_COMPRA" :key="opcion" :value="opcion">{{ opcion }}</option>
                                 </select>
                             </div>
-                            <div v-if="formulario.unidad_compra === 'Otro'" class="sm:col-span-4">
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Especifique</label>
-                                <input v-model="formulario.unidad_compra" type="text" placeholder="Ej: Tarro, Botella..." class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
-                            </div>
                             <div class="sm:col-span-4">
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cantidad</label>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Unidades por presentación</label>
                                 <input v-model="formulario.cantidad_por_compra" type="number" step="1" min="1" placeholder="Ej: 12" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors" :class="{'border-rose-500': formulario.errors.cantidad_por_compra}">
                                 <p v-if="formulario.errors.cantidad_por_compra" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.cantidad_por_compra }}</p>
+                            </div>
+                            <div v-if="formulario.unidad_compra === 'Otro'" class="sm:col-span-4">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Otra presentación</label>
+                                <input v-model="formulario.unidad_compra_otro" type="text" placeholder="Ej: Tarro, Botella..." class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors">
+                            </div>
+                            <div class="sm:col-span-12 -mt-1">
+                                <p v-if="formulario.errors.unidad_compra" class="text-rose-500 text-[10px] font-medium">{{ formulario.errors.unidad_compra }}</p>
+                                <p v-else class="text-[10px] text-slate-400">Si completás uno de estos dos campos, el otro pasa a ser obligatorio.</p>
+                            </div>
+                            <div class="sm:col-span-12">
+                                <label class="flex items-center gap-2 p-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors" :class="{'bg-sky-50 border-sky-200': formulario.es_retornable}">
+                                    <input type="checkbox" v-model="formulario.es_retornable" class="w-3.5 h-3.5 text-sky-600 rounded border-slate-300">
+                                    <span class="text-xs font-bold text-slate-700">Envase Retornable</span>
+                                </label>
                             </div>
                         </div>
                     </div>
 
                     <div class="pt-1 border-t border-slate-100">
                         <div class="flex items-center gap-1.5 mb-1.5">
-                            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
-                            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Opciones</span>
+                            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Descripción</span>
                         </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
-                            <div class="sm:col-span-1">
-                                <label class="flex items-center gap-2 p-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors h-[38px]" :class="{'bg-sky-50 border-sky-200': formulario.es_retornable}">
-                                    <input type="checkbox" v-model="formulario.es_retornable" class="w-3.5 h-3.5 text-sky-600 rounded border-slate-300">
-                                    <span class="text-xs font-bold text-slate-700">Envase Retornable</span>
-                                </label>
-                            </div>
-                            <div class="sm:col-span-2">
-                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Descripción</label>
-                                <textarea v-model="formulario.descripcion" rows="1" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors resize-none" placeholder="Anotaciones internas..."></textarea>
-                            </div>
-                        </div>
+                        <textarea v-model="formulario.descripcion" rows="3" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors resize-none" placeholder="Anotaciones internas..."></textarea>
                     </div>
 
                 </form>

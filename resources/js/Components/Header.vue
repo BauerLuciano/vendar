@@ -15,7 +15,7 @@
                 <span>Vend<span class="text-orange-500 font-bold">AR</span></span>
             </h2>
 
-            <button v-if="sucursalActiva && !esAdminGlobal" @click="cambiarSucursal"
+            <button v-if="sucursalActiva && !esAdminGlobal && masDeUnLocal" @click="cambiarSucursal"
                 class="hidden md:inline-flex items-center gap-1.5 bg-sky-500/10 border border-sky-500/30 text-sky-400 text-[10px] font-bold px-2.5 py-1.5 rounded-lg hover:bg-sky-500/20 transition-colors group cursor-pointer">
                 <i class="ri-store-2-line text-xs"></i>
                 <span>{{ sucursalActiva.nombre }}</span>
@@ -230,14 +230,19 @@ defineEmits(['abrirMenu']);
 const page = usePage();
 const user = computed(() => page.props.auth.user);
 const rolesUsuario = computed(() => page.props.auth.user.roles || []);
-const rolesFormateados = computed(() => rolesUsuario.value.length > 0 ? rolesUsuario.value.join(' - ') : 'Sin Rol');
 
 const alertasInfo = computed(() => page.props.auth.alertas || { total: 0, detalle: [] });
 const sucursalActiva = computed(() => page.props.sucursal_activa || null);
 const esAdminGlobal = computed(() => rolesUsuario.value.includes('Administrador Global'));
+const planActual = computed(() => page.props.plan_actual || null);
+const masDeUnLocal = computed(() => (planActual.value?.sucursales_actuales ?? 0) > 1);
+
+const etiquetaRol = (rol) => rol === 'SuperAdmin' ? 'Dueño' : rol;
+const rolesFormateados = computed(() => rolesUsuario.value.length > 0 ? rolesUsuario.value.map(etiquetaRol).join(' - ') : 'Sin Rol');
 
 const cambiarSucursal = () => {
-    router.get(route('elegir.sucursal', { redirect: route('dashboard') }));
+    const destino = window.location.pathname + window.location.search;
+    router.get(route('elegir.sucursal', { redirect: destino }));
 };
 
 const turnoActivo = ref(null);

@@ -11,8 +11,6 @@
             </div>
         </template>
 
-        <div v-if="menuAbierto" @click="cerrarMenu" class="fixed inset-0 z-30"></div>
-
         <div class="py-8 bg-slate-50 min-h-screen">
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-5">
 
@@ -180,11 +178,17 @@
                                             <div>
                                                 <p class="text-sm font-semibold text-slate-800 leading-snug">{{ p.nombre }}</p>
                                                 <div class="flex items-center gap-1.5 mt-1 flex-wrap">
-                                                    <span class="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                        {{ p.categoria?.nombreCategoria }}
+                                                    <span v-if="p.categoria" class="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                        {{ p.categoria.nombreCategoria }}
                                                     </span>
-                                                    <span class="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                        {{ p.marca?.nombreMarca }}
+                                                    <span v-else class="text-[10px] font-medium text-slate-400 bg-slate-50 border border-dashed border-slate-200 px-1.5 py-0.5 rounded">
+                                                        Sin categoría
+                                                    </span>
+                                                    <span v-if="p.marca" class="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                        {{ p.marca.nombreMarca }}
+                                                    </span>
+                                                    <span v-else class="text-[10px] font-medium text-slate-400 bg-slate-50 border border-dashed border-slate-200 px-1.5 py-0.5 rounded">
+                                                        Sin marca
                                                     </span>
                                                 </div>
                                             </div>
@@ -193,15 +197,10 @@
 
                                     <td class="px-5 py-4 text-center" :class="{ 'opacity-40 grayscale': !p.estado }">
                                         <div class="inline-flex flex-col items-center gap-1">
-                                            <span :class="calcularTotalStock(p) <= p.stock_minimo
-                                                    ? 'text-red-700 bg-red-50 border-red-200'
-                                                    : (p.stock_objetivo && calcularTotalStock(p) < p.stock_objetivo)
-                                                        ? 'text-amber-700 bg-amber-50 border-amber-200'
-                                                        : 'text-emerald-700 bg-emerald-50 border-emerald-200'"
+                                            <span :class="estadoStock(stockDelLocalActivo(p), p).clase"
+                                                :title="esMultiLocal ? `Stock en ${sucursalActiva?.nombre || 'el local activo'}` : undefined"
                                                 class="px-3 py-1 rounded-lg text-xs font-bold border tabular-nums">
-                                                
-                                                {{ formatearCantidad(calcularTotalStock(p)) }}
-                                                
+                                                {{ formatearCantidad(stockDelLocalActivo(p)) }}
                                             </span>
                                             <span class="text-[9px] text-slate-400 uppercase tracking-widest font-medium">{{ p.unidad_medida }}</span>
                                         </div>
@@ -224,18 +223,16 @@
                                         </span>
                                     </td>
 
-                                    <td class="px-5 py-4 text-center relative opacity-100">
-                                        <!-- Botón de acciones: solo ícono tres puntos (igual a órdenes de compra) -->
-                                        <button @click.stop="toggleMenu(p.id)"
-                                            class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
-                                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                                            </svg>
-                                        </button>
-
-                                        <!-- Menú desplegable con posición ajustada -->
-                                        <div v-if="menuAbierto === p.id"
-                                            class="absolute right-10 top-10 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] py-1.5 overflow-hidden">
+                                    <td class="px-5 py-4 text-center">
+                                        <DropdownAcciones :abierto="menuAbierto === p.id" @close="menuAbierto = null">
+                                            <template #trigger>
+                                                <button @click.stop="toggleMenu(p.id)"
+                                                    class="p-2 rounded-full text-slate-400 hover:text-sky-600 hover:bg-sky-100 transition-colors focus:outline-none">
+                                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                                    </svg>
+                                                </button>
+                                            </template>
 
                                             <div class="px-4 py-2 border-b border-slate-50 mb-1">
                                                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest truncate">{{ p.nombre }}</p>
@@ -253,10 +250,10 @@
                                                 Historial
                                             </button>
 
-                                            <button @click="abrirStock(p)"
+                                            <button v-if="esSuperAdmin" @click="abrirStock(p)"
                                                 class="w-full text-left px-4 py-2.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 flex items-center gap-2.5">
                                                 <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                                                Stock por suc.
+                                                Stock por local
                                             </button>
 
                                             <button @click="abrirDetalle(p)"
@@ -280,7 +277,7 @@
                                                 <svg v-else class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                                 {{ p.estado ? 'Dar de baja' : 'Reactivar' }}
                                             </button>
-                                        </div>
+                                        </DropdownAcciones>
                                     </td>
                                 </tr>
                             </tbody>
@@ -334,26 +331,63 @@
         />
 
         <div v-if="verStock && seleccionado" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
                 <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
                     <div>
-                        <p class="text-[10px] font-medium text-slate-400 uppercase tracking-widest">Disponibilidad física</p>
+                        <p class="text-[10px] font-medium text-slate-400 uppercase tracking-widest">Stock por local</p>
                         <h3 class="text-base font-semibold text-slate-700 mt-0.5">{{ seleccionado.nombre }}</h3>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Unidad de medida: {{ seleccionado.unidad_medida }}</p>
                     </div>
                     <button @click="verStock = false" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 text-lg leading-none">✕</button>
                 </div>
-                <div class="p-6 space-y-2">
+                <div class="p-6">
                     <div v-if="!seleccionado.sucursales || seleccionado.sucursales.length === 0"
                         class="text-center py-8 text-slate-400 text-sm bg-slate-50 rounded-xl">
                         Sin stock registrado en sucursales.
                     </div>
-                    <div v-for="suc in seleccionado.sucursales" :key="suc.id"
-                        class="flex justify-between items-center px-4 py-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <span class="text-sm font-medium text-slate-600">{{ suc.nombre }}</span>
-                        <span class="text-sm font-semibold text-indigo-700">
-                            {{ fmtMov(suc.pivot?.cantidad_fisica || 0) }}
-                            <span class="text-[10px] text-indigo-400 ml-1">{{ seleccionado.unidad_medida }}</span>
+                    <div v-else class="overflow-x-auto rounded-xl border border-slate-100">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+                                    <th class="px-4 py-3">Local</th>
+                                    <th class="px-4 py-3 text-right">Stock</th>
+                                    <th class="px-4 py-3 text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-50">
+                                <tr v-for="suc in seleccionado.sucursales" :key="suc.id"
+                                    :class="{ 'bg-indigo-50/40': esSucursalActiva(suc.id) }">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-sm font-medium text-slate-700">{{ suc.nombre }}</span>
+                                            <span v-if="esSucursalActiva(suc.id)"
+                                                class="text-[9px] font-bold text-indigo-600 bg-indigo-100 border border-indigo-200 px-1.5 py-0.5 rounded">Actual</span>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <span class="font-mono text-sm font-semibold text-slate-800 tabular-nums">{{ formatearCantidad(suc.pivot?.cantidad_fisica || 0) }}</span>
+                                        <span class="text-[10px] text-slate-400 ml-1">{{ seleccionado.unidad_medida }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-center">
+                                        <span :class="estadoStock(suc.pivot?.cantidad_fisica, seleccionado).clase"
+                                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border">
+                                            {{ estadoStock(suc.pivot?.cantidad_fisica, seleccionado).texto }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div v-if="seleccionado.sucursales && seleccionado.sucursales.length > 0"
+                        class="mt-3 flex items-center justify-between px-4 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-xs font-medium text-slate-500">Stock total del comercio</span>
+                        <span class="text-sm font-bold text-slate-800 tabular-nums">
+                            {{ formatearCantidad(calcularTotalStock(seleccionado)) }}
+                            <span class="text-[10px] text-slate-400 font-medium">{{ seleccionado.unidad_medida }}</span>
                         </span>
+                    </div>
+                    <div v-if="seleccionado.stock_minimo" class="mt-2 text-center">
+                        <span class="text-[10px] text-slate-400">Stock mínimo de referencia: {{ formatearCantidad(seleccionado.stock_minimo) }} {{ seleccionado.unidad_medida }}</span>
                     </div>
                 </div>
                 <div class="px-6 pb-6">
@@ -555,6 +589,7 @@ import { ref, watch, computed } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import EmptyState from '@/Components/EmptyState.vue';
+import DropdownAcciones from '@/Components/DropdownAcciones.vue';
 
 const props = defineProps({ 
     productos: Array, 
@@ -652,6 +687,28 @@ const calcularTotalStock = (producto) => {
     if (!producto.sucursales) return 0;
     return producto.sucursales.reduce((acc, suc) => acc + Number(suc.pivot?.cantidad_fisica || 0), 0);
 };
+
+const sucursalActiva = computed(() => page.props.sucursal_activa || null);
+const esMultiLocal = computed(() => props.sucursales.length > 1);
+const esSuperAdmin = computed(() => (page.props.auth?.user?.roles || []).includes('SuperAdmin'));
+
+const stockDelLocalActivo = (producto) => {
+    if (!sucursalActiva.value?.id) return calcularTotalStock(producto);
+    const suc = (producto.sucursales || []).find((s) => s.id == sucursalActiva.value.id);
+    return Number(suc?.pivot?.cantidad_fisica || 0);
+};
+
+const estadoStock = (cantidad, producto) => {
+    const num = Number(cantidad) || 0;
+    if (num <= 0) return { texto: 'Sin stock', clase: 'text-red-700 bg-red-50 border-red-200' };
+    const minimo = Number(producto.stock_minimo);
+    if (minimo > 0 && num <= minimo) return { texto: 'Stock bajo', clase: 'text-amber-700 bg-amber-50 border-amber-200' };
+    const objetivo = Number(producto.stock_objetivo);
+    if (objetivo > 0 && num < objetivo) return { texto: 'Stock bajo', clase: 'text-amber-700 bg-amber-50 border-amber-200' };
+    return { texto: 'Disponible', clase: 'text-emerald-700 bg-emerald-50 border-emerald-200' };
+};
+
+const esSucursalActiva = (id) => sucursalActiva.value?.id != null && Number(id) === Number(sucursalActiva.value.id);
 
 const formAjuste = useForm({
     sucursal_id: '',

@@ -1,8 +1,11 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm, usePage, router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import Swal from 'sweetalert2';
+import axios from 'axios';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
+import AlertaError from '@/Components/AlertaError.vue';
 
 const props = defineProps({
     configuraciones: Object,
@@ -13,12 +16,24 @@ const props = defineProps({
 });
 
 const tabActiva = ref('general');
+const page = usePage();
+const tieneModulo = (moduloKey) => !!page.props.auth.modulos?.[moduloKey];
+const groupedMetodoPagoOptions = computed(() => {
+    const groups = {};
+    for (const opt of props.metodoPagoOptions || []) {
+        const g = opt.grupo || 'Otros';
+        (groups[g] ||= []).push(opt);
+    }
+    return groups;
+});
 const logoPreview = ref(props.comercio.url_logo || (props.configuraciones.logo_empresa ? '/storage/' + props.configuraciones.logo_empresa : null));
 
 const form = useForm({
     // --- Configuraciones Globales ---
     nombre_empresa: props.configuraciones.nombre_empresa || '',
     cuit: props.configuraciones.cuit || '',
+    razon_social: props.configuraciones.razon_social || '',
+    condicion_iva: props.configuraciones.condicion_iva || '',
     telefono: props.configuraciones.telefono || '',
     direccion: props.configuraciones.direccion || '',
     ticket_mensaje_pie: props.configuraciones.ticket_mensaje_pie || '',
@@ -54,11 +69,103 @@ const form = useForm({
 const handleLogoUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
+        if (!file.type.match(/^image\/(jpeg|png|webp|jpg)$/)) {
+            Swal.fire({ icon: 'error', title: 'Formato no válido', text: 'El logo debe ser JPG, PNG o WebP.' });
+            event.target.value = '';
+            return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+            Swal.fire({ icon: 'error', title: 'Logo demasiado grande', text: 'El logo no debe superar los 2MB.' });
+            event.target.value = '';
+            return;
+        }
         form.logo_empresa = file;
         form.logo = file;
         logoPreview.value = URL.createObjectURL(file);
     }
 };
+
+// --- Autocomplete de Dirección Central (Nominatim, igual que en Sucursales) ---
+const sugerenciasDireccion = ref([]);
+const buscandoSugerencias = ref(false);
+const mostrarSugerencias = ref(false);
+let timerSugerencias = null;
+
+// Arma un string legible "calle altura, ciudad" desde el objeto address de Nominatim
+const armarDireccion = (addr) => {
+    const calle = addr.road || addr.pedestrian || addr.path || addr.cycleway || addr.suburb || 'Calle s/n';
+    const altura = addr.house_number || '';
+    const ciudad = addr.city || addr.town || addr.village || '';
+
+    let direccionFinal = calle;
+    if (altura) direccionFinal += ` ${altura}`;
+    if (ciudad) direccionFinal += `, ${ciudad}`;
+    return direccionFinal;
+};
+
+// Autocomplete: sugiere coincidencias mientras se escribe (forward geocoding)
+const buscarDireccion = (texto) => {
+    clearTimeout(timerSugerencias);
+    if (!texto || texto.trim().length < 3) {
+        sugerenciasDireccion.value = [];
+        mostrarSugerencias.value = false;
+        return;
+    }
+
+    timerSugerencias = setTimeout(async () => {
+        buscandoSugerencias.value = true;
+        try {
+            const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+                params: {
+                    q: texto.trim(),
+                    format: 'jsonv2',
+                    addressdetails: 1,
+                    limit: 5,
+                }
+            });
+            sugerenciasDireccion.value = response.data || [];
+            mostrarSugerencias.value = true;
+        } catch (error) {
+            sugerenciasDireccion.value = [];
+            console.error("Error buscando dirección:", error);
+        } finally {
+            buscandoSugerencias.value = false;
+        }
+    }, 500);
+};
+
+const seleccionarDireccion = (s) => {
+    form.direccion = armarDireccion(s.address || {});
+    cerrarSugerencias();
+};
+
+const cerrarSugerencias = () => {
+    clearTimeout(timerSugerencias);
+    sugerenciasDireccion.value = [];
+    mostrarSugerencias.value = false;
+};
+
+const ocultarSugerenciasConDelay = () => setTimeout(cerrarSugerencias, 150);
+
+// Teléfono: solo números, máximo 15 dígitos (coincide con la validación del backend)
+const normalizarTelefono = () => {
+    form.telefono = (form.telefono || '').replace(/\D/g, '').slice(0, 15);
+};
+
+// CUIT/RUT: solo números (coincide con la validación del backend)
+const normalizarCuit = () => {
+    form.cuit = (form.cuit || '').replace(/\D/g, '').slice(0, 20);
+};
+
+const normalizarCvu = (val) => (val || '').replace(/\D/g, '').slice(0, 22);
+
+const normalizarTitular = (val) => (val || '').replace(/[^\p{L}\s.,]/gu, '');
+
+const normalizarBanco = (val) => (val || '').replace(/[^\p{L}\s.]/gu, '');
+
+onBeforeUnmount(() => {
+    clearTimeout(timerSugerencias);
+});
 
 const pmcForm = useForm({
     metodo_pago: 'TRANSFERENCIA',
@@ -75,7 +182,21 @@ const pmcForm = useForm({
 
 const editingPmcId = ref(null);
 
+const grupoMetodoSeleccionado = computed(() => {
+    const opt = (props.metodoPagoOptions || []).find(o => o.value === pmcForm.metodo_pago);
+    return opt?.grupo || 'Otros';
+});
+
+watch(() => pmcForm.metodo_pago, (val) => {
+    if (editingPmcId.value) return;
+    if (grupoMetodoSeleccionado.value !== 'Transferencias') {
+        pmcForm.provider = '';
+        pmcForm.display_data = { alias: '', cvu: '', cbu: '', banco: '', titular: '' };
+    }
+});
+
 function editPmc(pmc) {
+    pmcForm.clearErrors();
     editingPmcId.value = pmc.id;
     pmcForm.metodo_pago = pmc.metodo_pago;
     pmcForm.provider = pmc.provider || '';
@@ -84,6 +205,7 @@ function editPmc(pmc) {
 }
 
 function resetPmcForm() {
+    pmcForm.clearErrors();
     editingPmcId.value = null;
     pmcForm.reset();
     pmcForm.display_data = { alias: '', cvu: '', cbu: '', banco: '', titular: '' };
@@ -176,19 +298,26 @@ const guardarConfiguracion = () => {
                 showConfirmButton: false,
                 timer: 3000
             });
+        },
+        onError: (errors) => {
+            Swal.fire({
+                icon: 'error',
+                title: 'No se pudieron guardar los cambios',
+                text: Object.values(errors)[0] || 'Revisá los campos marcados en rojo.',
+            });
         }
     });
 };
 </script>
 
 <template>
-    <Head title="Configuración de la Empresa" />
+    <Head title="Mi Negocio" />
 
     <AuthenticatedLayout>
         <div class="py-6 px-4 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
             
             <div class="mb-8">
-                <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Ajustes Globales</h1>
+                <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Mi Negocio</h1>
                 <div class="h-1 w-16 bg-sky-500 mt-2"></div>
                 <p class="text-sm text-slate-500 mt-2 font-medium">Administrá la identidad y reglas operativas de tu negocio.</p>
             </div>
@@ -202,6 +331,10 @@ const guardarConfiguracion = () => {
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                                 General e Identidad
                             </button>
+                            <button @click="tabActiva = 'fiscal'" :class="tabActiva === 'fiscal' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3-2 2 2 2-2 2 2 3-2z" /></svg>
+                                Datos Fiscales
+                            </button>
                             <button @click="tabActiva = 'pos'" :class="tabActiva === 'pos' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                                 Punto de Venta (POS)
@@ -210,7 +343,7 @@ const guardarConfiguracion = () => {
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                                 Reglas del Sistema
                             </button>
-                            <button @click="tabActiva = 'tienda'" :class="tabActiva === 'tienda' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
+                            <button v-if="tieneModulo('pedidos_web')" @click="tabActiva = 'tienda'" :class="tabActiva === 'tienda' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                                 Tienda Online y Pagos
                             </button>
@@ -218,9 +351,9 @@ const guardarConfiguracion = () => {
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                                 POS - Medios de Pago
                             </button>
-                            <button @click="tabActiva = 'storefront'" :class="tabActiva === 'storefront' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
+                            <button v-if="tieneModulo('pedidos_web')" @click="tabActiva = 'storefront'" :class="tabActiva === 'storefront' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
-                                Storefront
+                                Apariencia de la Tienda
                             </button>
                             <button @click="router.visit(route('recargos.index'))" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
@@ -233,6 +366,9 @@ const guardarConfiguracion = () => {
                 <div class="lg:flex-1">
                     <div class="bg-white rounded-2xl shadow-sm border border-slate-200">
                         <div v-show="tabActiva === 'general'" class="p-8">
+                            <div v-if="form.hasErrors" class="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl">
+                                <p class="text-sm font-bold text-rose-700">No se pudieron guardar los cambios. Revisá los campos marcados en rojo.</p>
+                            </div>
                             <div class="flex gap-6">
                                 <div class="flex-shrink-0">
                                     <div class="relative group">
@@ -252,20 +388,89 @@ const guardarConfiguracion = () => {
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Nombre Comercial</label>
                                         <input v-model="form.nombre_empresa" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">CUIT / RUT</label>
-                                        <input v-model="form.cuit" type="text" maxlength="20" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <p v-if="form.errors.nombre_empresa" class="text-xs font-bold text-rose-500 mt-1">{{ form.errors.nombre_empresa }}</p>
                                     </div>
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Teléfono Principal</label>
-                                        <input v-model="form.telefono" type="tel" maxlength="50" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <input v-model="form.telefono" type="tel" maxlength="20" @input="normalizarTelefono" placeholder="Ej: 3758123456" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800" :class="{ 'border-rose-400 bg-rose-50': form.errors.telefono }">
+                                        <p v-if="form.errors.telefono" class="text-xs font-bold text-rose-500 mt-1">{{ form.errors.telefono }}</p>
                                     </div>
                                     <div>
                                         <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Dirección Central</label>
-                                        <input v-model="form.direccion" type="text" maxlength="255" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <div class="relative">
+                                            <input v-model="form.direccion" type="text" maxlength="255" placeholder="Ej: Calle Rivadavia 123" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800" @input="buscarDireccion(form.direccion)" @blur="ocultarSugerenciasConDelay">
+                                            <div v-if="buscandoSugerencias" class="absolute right-3 top-1/2 -translate-y-1/2">
+                                                <svg class="animate-spin h-4 w-4 text-sky-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                            </div>
+                                            <div v-if="mostrarSugerencias && sugerenciasDireccion.length" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden max-h-56 overflow-y-auto">
+                                                <button v-for="s in sugerenciasDireccion" :key="s.place_id" type="button" @mousedown.prevent="seleccionarDireccion(s)"
+                                                    class="w-full text-left px-3 py-2 hover:bg-sky-50 transition-colors border-b border-slate-100 last:border-0 flex flex-col gap-0.5">
+                                                    <span class="text-xs font-bold text-slate-700 leading-tight">{{ armarDireccion(s.address || {}) }}</span>
+                                                    <span class="text-[10px] text-slate-400 truncate">{{ s.display_name }}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <p v-if="form.errors.direccion" class="text-xs font-bold text-rose-500 mt-1">{{ form.errors.direccion }}</p>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div v-show="tabActiva === 'fiscal'" class="p-8">
+                            <h2 class="text-lg font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-2">Información Fiscal</h2>
+
+                            <div class="mb-6 flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl">
+                                <svg class="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                <div>
+                                    <p class="text-sm font-bold text-emerald-800">No es obligatorio para comenzar</p>
+                                    <p class="text-sm text-emerald-700 mt-0.5 leading-relaxed">Los datos fiscales solo son necesarios cuando quieras emitir comprobantes electrónicos mediante AFIP. Podés completarlos más adelante.</p>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">CUIT</label>
+                                    <input v-model="form.cuit" type="text" maxlength="20" @input="normalizarCuit" placeholder="Solo números" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800" :class="{ 'border-rose-400 bg-rose-50': form.errors.cuit }">
+                                    <p v-if="form.errors.cuit" class="text-xs font-bold text-rose-500 mt-1">{{ form.errors.cuit }}</p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Razón Social</label>
+                                    <input v-model="form.razon_social" type="text" maxlength="255" placeholder="Ej: Pérez Juan S.R.L." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Condición frente al IVA</label>
+                                    <select v-model="form.condicion_iva" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
+                                        <option value="" disabled>Seleccioná tu condición...</option>
+                                        <option value="responsable_inscripto">Responsable Inscripto</option>
+                                        <option value="monotributista">Monotributista</option>
+                                        <option value="exento">Exento</option>
+                                        <option value="no_inscripto">No Inscripto</option>
+                                        <option value="consumidor_final">Consumidor Final</option>
+                                        <option value="otro">Otro</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mt-8 p-5 bg-slate-50 border border-slate-200 rounded-2xl">
+                                <div class="flex items-center gap-3 mb-4">
+                                    <h3 class="text-sm font-black text-slate-700 uppercase tracking-widest">Datos para Comprobantes Electrónicos</h3>
+                                    <span class="text-[10px] font-black uppercase tracking-widest bg-slate-200 text-slate-600 px-2 py-1 rounded-full">Próximamente</span>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <div>
+                                        <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Punto de Venta AFIP</label>
+                                        <input type="text" disabled placeholder="Ej: 0001" class="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 font-medium text-slate-400 cursor-not-allowed">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">N° de Comprobante Autorizado</label>
+                                        <input type="text" disabled placeholder="CAI / CAEA" class="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 font-medium text-slate-400 cursor-not-allowed">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Certificado Digital (AFIP)</label>
+                                        <input type="text" disabled placeholder="Servicio WSDL" class="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 font-medium text-slate-400 cursor-not-allowed">
+                                    </div>
+                                </div>
+                                <p class="mt-4 text-xs font-medium text-slate-500">La emisión de comprobantes electrónicos mediante AFIP estará disponible próximamente. Estos campos no afectan el uso normal del sistema.</p>
                             </div>
                         </div>
 
@@ -288,7 +493,7 @@ const guardarConfiguracion = () => {
                                         <input v-model="form.permitir_stock_negativo" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
                                         <div>
                                             <p class="font-bold text-slate-800">Permitir facturar sin stock (Stock Negativo)</p>
-                                            <p class="text-xs text-slate-500 font-medium">Si está activo, el sistema te dejará cobrar un producto aunque el stock llegue a menos de cero.</p>
+                                            <p class="text-sm font-medium text-slate-600">Si está activo, el sistema te dejará cobrar un producto aunque el stock llegue a menos de cero.</p>
                                         </div>
                                     </label>
                                 </div>
@@ -297,7 +502,7 @@ const guardarConfiguracion = () => {
                                         <input v-model="form.ticket_digital_auto_email" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
                                         <div>
                                             <p class="font-bold text-slate-800">Enviar ticket por email automáticamente</p>
-                                            <p class="text-xs text-slate-500 font-medium">Si el cliente tiene email registrado, se le envía el ticket en PDF al finalizar la venta. Requiere worker de colas activo.</p>
+                                            <p class="text-sm font-medium text-slate-600">Si el cliente tiene email registrado, se le envía el ticket en PDF al finalizar la venta. Requiere worker de colas activo.</p>
                                         </div>
                                     </label>
                                 </div>
@@ -314,7 +519,7 @@ const guardarConfiguracion = () => {
                                         <span class="absolute left-4 top-2.5 font-black text-slate-400">$</span>
                                         <input v-model="form.limite_fiado_defecto" type="number" step="0.01" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                     </div>
-                                    <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Monto inicial para nuevos clientes</p>
+                                    <p class="mt-1 text-xs font-medium text-slate-600">Monto inicial para nuevos clientes</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Símbolo de Moneda</label>
@@ -334,7 +539,7 @@ const guardarConfiguracion = () => {
                                                 <span class="absolute left-4 top-2.5 font-black text-slate-400">$</span>
                                                 <input v-model="form.costo_delivery_defecto" type="number" step="0.01" class="w-full bg-white border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
                                             </div>
-                                            <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Tarifa base para todos tus locales.</p>
+                                            <p class="mt-1 text-xs font-medium text-slate-600">Tarifa base para todos tus locales.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -345,7 +550,7 @@ const guardarConfiguracion = () => {
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Días de Gracia</label>
                                     <input v-model="form.mora_dias_gracia" type="number" min="0" max="365" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
-                                    <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Días de tolerancia antes de castigar la deuda.</p>
+                                    <p class="mt-1 text-xs font-medium text-slate-600">Días de tolerancia antes de castigar la deuda.</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Interés por Mora Automática</label>
@@ -353,7 +558,7 @@ const guardarConfiguracion = () => {
                                         <input v-model="form.mora_tasa_interes" type="number" step="0.1" min="0" max="100" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800">
                                         <span class="absolute right-4 top-2.5 font-black text-slate-400">%</span>
                                     </div>
-                                    <p class="text-[10px] text-slate-400 font-bold mt-1 uppercase">Recargo aplicado por el sistema.</p>
+                                    <p class="mt-1 text-xs font-medium text-slate-600">Recargo aplicado por el sistema.</p>
                                 </div>
                             </div>
                         </div>
@@ -387,7 +592,7 @@ const guardarConfiguracion = () => {
                                     <input v-model="form.acepta_efectivo" type="checkbox" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 border-slate-300">
                                     <div>
                                         <p class="font-bold text-slate-800">Aceptar Efectivo contra entrega</p>
-                                        <p class="text-xs text-slate-500 font-medium">El cliente paga al cadete cuando recibe el pedido.</p>
+                                        <p class="text-sm font-medium text-slate-600">El cliente paga al cadete cuando recibe el pedido.</p>
                                     </div>
                                 </label>
                             </div>
@@ -398,7 +603,7 @@ const guardarConfiguracion = () => {
                                     <div class="space-y-4">
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">CBU / CVU</label>
-                                            <input v-model="form.transferencia_cbu" type="text" maxlength="50" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                            <input v-model="form.transferencia_cbu" type="text" inputmode="numeric" maxlength="22" @input="form.transferencia_cbu = normalizarCvu(form.transferencia_cbu)" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
@@ -406,7 +611,7 @@ const guardarConfiguracion = () => {
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular de la Cuenta</label>
-                                            <input v-model="form.transferencia_titular" type="text" maxlength="100" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
+                                            <input v-model="form.transferencia_titular" type="text" maxlength="100" @input="form.transferencia_titular = normalizarTitular(form.transferencia_titular)" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800">
                                         </div>
                                     </div>
                                 </div>
@@ -417,13 +622,13 @@ const guardarConfiguracion = () => {
                                         <input v-model="form.mp_enabled" type="checkbox" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-slate-300">
                                         <div>
                                             <p class="font-bold text-slate-800 text-sm">Habilitar Mercado Pago</p>
-                                            <p class="text-xs text-slate-500">Mostrar MP como opción de pago en la tienda online</p>
+                                            <p class="text-sm font-medium text-slate-600">Mostrar MP como opción de pago en la tienda online</p>
                                         </div>
                                     </label>
                                     <div>
                                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Access Token (Producción)</label>
                                         <input v-model="form.mp_access_token" type="password" maxlength="255" placeholder="APP_USR-..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
-                                        <p class="text-[10px] text-slate-500 mt-2 font-bold">Requerido para cobrar online desde el catálogo web.</p>
+                                        <p class="mt-2 text-xs font-bold text-slate-700">Requerido para cobrar online desde el catálogo web.</p>
                                     </div>
                                 </div>
 
@@ -433,7 +638,7 @@ const guardarConfiguracion = () => {
                                         <input v-model="form.viumi_enabled" type="checkbox" class="w-5 h-5 text-violet-600 rounded focus:ring-violet-500 border-slate-300">
                                         <div>
                                             <p class="font-bold text-slate-800 text-sm">Habilitar viüMi</p>
-                                            <p class="text-xs text-slate-500">Mostrar viüMi como opción de pago en la tienda online</p>
+                                            <p class="text-sm font-medium text-slate-600">Mostrar viüMi como opción de pago en la tienda online</p>
                                         </div>
                                     </label>
                                     <div class="space-y-4">
@@ -444,7 +649,7 @@ const guardarConfiguracion = () => {
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Client Secret</label>
                                             <input v-model="form.viumi_client_secret" type="password" maxlength="255" placeholder="Completar solo si se desea cambiar" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-mono text-slate-800">
-                                            <p class="text-[10px] text-slate-500 mt-1 font-bold">No se muestra por seguridad. Dejá vacío para mantener el actual.</p>
+                                            <p class="mt-1 text-xs font-bold text-slate-700">No se muestra por seguridad. Dejá vacío para mantener el actual.</p>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Entorno</label>
@@ -494,33 +699,48 @@ const guardarConfiguracion = () => {
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Método de Pago</label>
                                             <select v-model="pmcForm.metodo_pago" :disabled="!!editingPmcId"
-                                                class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800"
+                                                class="select-metodos-pago w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-800"
                                             >
-                                                <option v-for="opt in metodoPagoOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                                                <optgroup v-for="(group, gname) in groupedMetodoPagoOptions" :key="gname" :label="gname">
+                                                    <option v-for="opt in group" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                                                </optgroup>
                                             </select>
                                         </div>
-                                        <div>
+                                        <div v-if="grupoMetodoSeleccionado === 'Transferencias'">
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Pasarela (opcional)</label>
                                             <input v-model="pmcForm.provider" type="text" placeholder="mercadopago, viumi..." class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
                                         </div>
                                     </div>
 
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div v-if="grupoMetodoSeleccionado === 'Transferencias'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
                                             <input v-model="pmcForm.display_data.alias" type="text" placeholder="ej: mercopago.pago.facil" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">CVU / CBU</label>
-                                            <input v-model="pmcForm.display_data.cvu" type="text" placeholder="0000003100000000000000" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                            <input v-model="pmcForm.display_data.cvu" type="text" inputmode="numeric" maxlength="22" placeholder="0000003100000000000000" @input="pmcForm.display_data.cvu = normalizarCvu(pmcForm.display_data.cvu)" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Banco</label>
-                                            <input v-model="pmcForm.display_data.banco" type="text" placeholder="Banco Ejemplo" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                            <input v-model="pmcForm.display_data.banco" type="text" placeholder="Banco Ejemplo" @input="pmcForm.display_data.banco = normalizarBanco(pmcForm.display_data.banco)" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular</label>
-                                            <input v-model="pmcForm.display_data.titular" type="text" placeholder="Nombre del titular" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                            <input v-model="pmcForm.display_data.titular" type="text" placeholder="Nombre del titular" @input="pmcForm.display_data.titular = normalizarTitular(pmcForm.display_data.titular)" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800">
+                                        </div>
+                                    </div>
+
+                                    <div v-if="grupoMetodoSeleccionado === 'Transferencias'">
+                                        <AlertaError v-if="pmcForm.errors.display_data">{{ pmcForm.errors.display_data }}</AlertaError>
+                                        <AlertaAyuda>Necesitás al menos un Alias o CVU/CBU para que el cliente sepa a dónde transferir.</AlertaAyuda>
+                                    </div>
+
+                                    <div v-if="grupoMetodoSeleccionado === 'Tarjetas'" class="flex items-start gap-3 p-4 bg-violet-50 border border-violet-200 rounded-xl">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-violet-500 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2" stroke-width="1.5"/><line x1="2" y1="10" x2="22" y2="10" stroke-width="1.5"/></svg>
+                                        <div class="text-sm text-violet-800">
+                                            <p class="font-bold">Las tarjetas se cobran con la terminal de tarjeta física.</p>
+                                            <p class="mt-0.5">Acá no hacen falta datos bancarios. Las cuotas y recargos por banco se configuran en la sección <span class="font-bold">Recargos por Tarjeta</span>.</p>
                                         </div>
                                     </div>
 
@@ -553,7 +773,7 @@ const guardarConfiguracion = () => {
                                     <div class="max-w-lg space-y-5">
                                         <div>
                                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Color principal</label>
-                                            <p class="text-xs text-slate-400 mb-2">Se usa en botones, ofertas y banners</p>
+                                            <p class="text-xs font-medium text-slate-600 mb-2">Se usa en botones, ofertas y banners</p>
                                             <div class="flex gap-2">
                                                 <input v-model="storefrontForm.theme.primary_color" type="color" class="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer shrink-0">
                                                 <input v-model="storefrontForm.theme.primary_color" type="text" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono focus:ring-sky-500">
@@ -568,7 +788,7 @@ const guardarConfiguracion = () => {
                                         </div>
                                         <div>
                                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Mensaje de WhatsApp</label>
-                                            <p class="text-xs text-slate-400 mb-2">Texto que se envía cuando alguien hace clic en WhatsApp</p>
+                                            <p class="text-xs font-medium text-slate-600 mb-2">Texto que se envía cuando alguien hace clic en WhatsApp</p>
                                             <input v-model="storefrontForm.sections.whatsapp.greeting" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-sky-500">
                                         </div>
                                     </div>
@@ -836,3 +1056,20 @@ const guardarConfiguracion = () => {
         </div>
     </AuthenticatedLayout>
 </template>
+
+<style scoped>
+.select-metodos-pago optgroup {
+    color: #0f766e;
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.select-metodos-pago optgroup option {
+    color: #334155;
+    font-weight: 500;
+    font-size: 0.875rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+</style>

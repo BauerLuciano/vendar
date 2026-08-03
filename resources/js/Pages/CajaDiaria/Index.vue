@@ -6,6 +6,7 @@ import axios from 'axios';
 import Swal from 'sweetalert2';
 import { formatearMoneda, formatearFecha, formatearFechaCorta, calcularTotalActual } from '@/Utils/formatters.js';
 import Pagination from '@/Components/Pagination.vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 import { useCajaDiaria } from '@/Composables/useCajaDiaria.js';
 
 const { abrirCajaApi } = useCajaDiaria();
@@ -989,10 +990,9 @@ onUnmounted(() => {
             </table>
           </div>
 
-          <div class="mt-4 flex items-center gap-2 text-[11px] text-slate-400 bg-slate-50 rounded-lg p-3 border border-slate-200">
-            <i class="ri-information-line text-sky-500"></i>
-            <span>Modo <strong class="text-slate-700">solo lectura</strong>. No podés realizar movimientos en estas cajas. Solo quién abrió la caja puede registrar movimientos o cerrarla.</span>
-          </div>
+          <AlertaAyuda titulo="Modo solo lectura" class="mt-4">
+            No podés realizar movimientos en estas cajas. Solo quién abrió la caja puede registrar movimientos o cerrarla.
+          </AlertaAyuda>
         </div>
 
         <div class="px-6 py-4 bg-slate-50 border-t shrink-0 flex justify-end">
@@ -1033,10 +1033,9 @@ onUnmounted(() => {
         </div>
 
         <div class="flex-1 overflow-auto p-6 bg-white">
-          <div class="flex items-center gap-2 mb-4 pb-2 border-b">
-            <span class="bg-sky-100 text-sky-800 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1"><i class="ri-eye-line"></i> Solo lectura</span>
-            <span class="text-xs text-slate-400">No podés realizar movimientos en esta caja.</span>
-          </div>
+          <AlertaAyuda titulo="Solo lectura" class="mb-4">
+            No podés realizar movimientos en esta caja.
+          </AlertaAyuda>
 
           <div v-if="cargandoMovimientosGlobal" class="flex justify-center items-center py-12 text-slate-400">
             <i class="ri-loader-4-line animate-spin text-4xl mr-3"></i> Cargando movimientos...
@@ -1159,7 +1158,7 @@ onUnmounted(() => {
                 <label class="block text-sm font-bold mb-1 transition-colors" :class="hayDiferencia ? 'text-slate-700' : 'text-slate-400'">
                   Observaciones / Justificación
                   <span v-if="hayDiferencia" class="text-rose-500 ml-1">*</span>
-                  <span class="text-xs font-normal ml-2" v-else>(Solo habilitado si hay diferencias)</span>
+                  <span class="text-xs font-medium text-slate-600 ml-2" v-else>(Solo habilitado si hay diferencias)</span>
                 </label>
                 <textarea 
                   v-model="formCierre.observaciones" 

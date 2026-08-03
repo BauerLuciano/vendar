@@ -16,25 +16,38 @@ class AplicarMoraCuentas extends Command
 
     public function handle()
     {
-        $config = Configuracion::pluck('valor', 'clave');
-
-        $diasDeGracia = (int) ($config['mora_dias_gracia'] ?? 15);
-        $tasaInteres = (float) ($config['mora_tasa_interes'] ?? 5);
-
-        $this->info("Iniciando proceso de mora (Gracia: {$diasDeGracia} días, Tasa: {$tasaInteres}%)...");
-
-        $fechaLimite = Carbon::now()->subDays($diasDeGracia);
+        $this->info("Iniciando proceso de mora...");
 
         $cuentasAfectadas = 0;
+        $configPorComercio = [];
 
-        DB::transaction(function () use ($fechaLimite, $tasaInteres, $diasDeGracia, &$cuentasAfectadas) {
-            $cuentasEnMora = CuentaCorriente::where('estado', true)
+        DB::transaction(function () use (&$cuentasAfectadas, &$configPorComercio) {
+            $cuentasEnMora = CuentaCorriente::with('consumidor')
+                ->where('estado', true)
                 ->where('saldo_deudor', '>', 0)
-                ->whereDate('fecha_ultimo_movimiento', '<=', $fechaLimite)
                 ->lockForUpdate()
                 ->get();
 
             foreach ($cuentasEnMora as $cuenta) {
+                $comercioId = $cuenta->consumidor?->comercio_id;
+
+                if (!isset($configPorComercio[$comercioId])) {
+                    $configPorComercio[$comercioId] = Configuracion::paraComercio($comercioId);
+                }
+                $config = $configPorComercio[$comercioId];
+
+                $diasDeGracia = (int) ($config['mora_dias_gracia'] ?? 15);
+                $tasaInteres = (float) ($config['mora_tasa_interes'] ?? 5);
+
+                if (!$cuenta->fecha_ultimo_movimiento) {
+                    continue;
+                }
+
+                $fechaLimite = Carbon::now()->subDays($diasDeGracia);
+                if ($cuenta->fecha_ultimo_movimiento->greaterThan($fechaLimite)) {
+                    continue;
+                }
+
                 $montoInteres = $cuenta->saldo_deudor * ($tasaInteres / 100);
 
                 if ($montoInteres > 0) {

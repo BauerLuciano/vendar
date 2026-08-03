@@ -57,11 +57,23 @@ enum MetodoPago: string
         return array_map(fn (self $case) => $case->value, self::cases());
     }
 
+    // Grupo de presentación: Mercado Pago y viüMi son también transferencias,
+    // así que van agrupados con la Transferencia bancaria (mismo criterio que el POS y la caja).
+    public function grupo(): string
+    {
+        return match ($this) {
+            self::TRANSFERENCIA, self::MERCADO_PAGO, self::VIUMI => 'Transferencias',
+            self::DEBITO, self::CREDITO => 'Tarjetas',
+            default => 'Otros',
+        };
+    }
+
     public static function options(): array
     {
         return array_map(fn (self $case) => [
             'value' => $case->value,
             'label' => $case->label(),
+            'grupo' => $case->grupo(),
         ], self::cases());
     }
 }

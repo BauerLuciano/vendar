@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import AlertaAyuda from '@/Components/AlertaAyuda.vue';
 
 const props = defineProps({
     pedidos: Array,
@@ -203,17 +204,7 @@ const prepSelectClass = (estado) => ({
 
                 <div class="flex flex-col gap-4">
 
-                    <div v-if="pedidosFiltrados.length === 0" class="py-20 text-center bg-white rounded-2xl border border-slate-200/60 shadow-sm">
-                        <div class="flex flex-col items-center gap-3">
-                            <div class="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100">
-                                <span class="text-2xl">🍽️</span>
-                            </div>
-                            <div>
-                                <p class="text-sm font-bold text-slate-600">No hay pedidos{{ filtroActivo !== 'todos' ? ' en este estado' : ' en curso' }}</p>
-                                <p class="text-xs text-slate-400 mt-1">Cuando los clientes compren desde la web, aparecerán aquí.</p>
-                            </div>
-                        </div>
-                    </div>
+                    <AlertaAyuda v-if="pedidosFiltrados.length === 0" :titulo="'No hay pedidos' + (filtroActivo !== 'todos' ? ' en este estado' : ' en curso')">Cuando los clientes compren desde la web, aparecerán aquí.</AlertaAyuda>
 
                     <template v-for="pedido in pedidosFiltrados" :key="pedido.id">
                         

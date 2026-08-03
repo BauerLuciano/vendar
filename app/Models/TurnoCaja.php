@@ -36,7 +36,7 @@ class TurnoCaja extends Model
     // Relaciones
     public function caja() 
     { 
-        return $this->belongsTo(Caja::class); 
+        return $this->belongsTo(Caja::class)->withTrashed(); 
     }
 
     public function sucursal()
@@ -46,17 +46,17 @@ class TurnoCaja extends Model
 
     public function cajero() 
     { 
-        return $this->belongsTo(User::class, 'user_id'); 
+        return $this->belongsTo(User::class, 'user_id')->withTrashed(); 
     }
 
     public function usuarioApertura() 
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id')->withTrashed();
     }
 
     public function usuarioCierre() 
     {
-        return $this->belongsTo(User::class, 'user_cierre_id');
+        return $this->belongsTo(User::class, 'user_cierre_id')->withTrashed();
     }
 
     public function ventas() 
