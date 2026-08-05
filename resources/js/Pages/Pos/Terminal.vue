@@ -17,6 +17,7 @@ const props = defineProps({
     metodosBase: Array,
     recargos: Object,
     bancosDisponibles: Array,
+    configuracionFiscal: Object,
 });
 
 const page = usePage();
@@ -35,8 +36,40 @@ const mostrarDropdownClientes = ref(false);
 const inputBusqueda = ref(null);
 
 const modalCrearCliente = ref(false);
-const formCliente = ref({ nombre: '', apellido: '', telefono: '' });
+const formCliente = ref({ nombre: '', apellido: '', telefono: '', cuit: '', razon_social: '', domicilio_fiscal: '', tipo_documento: '' });
 const creandoCliente = ref(false);
+
+const moduloFiscalListo = computed(() => !!props.configuracionFiscal);
+const letraComprobante = ref(null);
+const errorFiscal = ref(null);
+
+const receptorIncompletoParaFacturaA = computed(() => {
+    if (letraComprobante.value !== 'A') return false;
+    const c = clienteActivoObj.value;
+    if (!c) return true;
+    return !c.razon_social?.trim() || !c.domicilio_fiscal?.trim();
+});
+
+const actualizarLetraEsperada = async () => {
+    if (!moduloFiscalListo.value) {
+        letraComprobante.value = null;
+        errorFiscal.value = null;
+        return;
+    }
+    try {
+        const res = await axios.get(route('pos.letra_esperada'), {
+            params: { consumidor_id: clienteSeleccionado.value || '' },
+        });
+        letraComprobante.value = res.data.letra;
+        errorFiscal.value = null;
+    } catch (e) {
+        letraComprobante.value = null;
+        errorFiscal.value = e.response?.data?.error || 'No se pudo determinar el comprobante a emitir.';
+    }
+};
+
+watch(clienteSeleccionado, actualizarLetraEsperada);
+watch(moduloFiscalListo, actualizarLetraEsperada, { immediate: true });
 
 const mostrarEscaner = ref(false);
 
@@ -458,7 +491,7 @@ const seleccionarCliente = (cliente) => {
 };
 
 const abrirModalCliente = () => {
-    formCliente.value = { nombre: '', apellido: '', telefono: '' };
+    formCliente.value = { nombre: '', apellido: '', telefono: '', cuit: '', razon_social: '', domicilio_fiscal: '', tipo_documento: '' };
     modalCrearCliente.value = true;
 };
 
@@ -471,8 +504,11 @@ const guardarCliente = async () => {
         props.clientes.push(nuevo);
         seleccionarCliente(nuevo);
         modalCrearCliente.value = false;
-    } catch {
-        Swal.fire('Error', 'No se pudo crear el cliente.', 'error');
+    } catch (e) {
+        const msg = e.response?.data?.errors?.cuit?.[0]
+            || e.response?.data?.errors?.nombre?.[0]
+            || 'No se pudo crear el cliente.';
+        Swal.fire('Error', msg, 'error');
     } finally {
         creandoCliente.value = false;
     }
@@ -843,6 +879,20 @@ const finalizarVenta = () => {
     
     if (tieneCuentaCorriente.value && !clienteSeleccionado.value) {
         Swal.fire('Falta Cliente', 'Tenés que seleccionar a quién le vas a fiar.', 'warning');
+        return;
+    }
+
+    if (moduloFiscalListo.value && letraComprobante.value === 'A' && receptorIncompletoParaFacturaA.value) {
+        Swal.fire(
+            'Datos fiscales incompletos',
+            'Para emitir Factura A el cliente debe tener CUIT, razón social y domicilio fiscal. Completalos desde el selector de cliente.',
+            'warning'
+        );
+        return;
+    }
+
+    if (moduloFiscalListo.value && errorFiscal.value) {
+        Swal.fire('Facturación no disponible', errorFiscal.value, 'warning');
         return;
     }
 
@@ -1387,9 +1437,32 @@ onUnmounted(() => {
                                     </ul>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- MODAL CREAR CLIENTE -->
+                            <div v-if="moduloFiscalListo" class="mt-2">
+                                <div v-if="errorFiscal" class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11px] font-bold text-amber-700">
+                                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                    <span>{{ errorFiscal }}</span>
+                                </div>
+                                <div v-else class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Comprobante</span>
+                                    <span
+                                        v-if="letraComprobante === 'A'"
+                                        class="px-2 py-0.5 rounded-lg text-[11px] font-black text-white"
+                                        :class="receptorIncompletoParaFacturaA ? 'bg-amber-500' : 'bg-sky-600'"
+                                        :title="receptorIncompletoParaFacturaA ? 'Faltan datos fiscales del receptor' : ''"
+                                    >
+                                        Factura A
+                                    </span>
+                                    <span v-else-if="letraComprobante === 'B'" class="px-2 py-0.5 rounded-lg text-[11px] font-black text-white bg-slate-500">
+                                        Factura B
+                                    </span>
+                                    <span v-else class="text-[11px] text-slate-400 font-bold">—</span>
+                                </div>
+                                <p v-if="letraComprobante === 'A' && receptorIncompletoParaFacturaA" class="mt-1 px-1 text-[10px] font-bold text-amber-600">
+                                    Completá CUIT, razón social y domicilio fiscal del cliente para emitir Factura A.
+                                </p>
+                            </div>
+                        </div>
                         <Teleport to="body">
                             <div v-if="modalCrearCliente" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" @click.self="modalCrearCliente = false">
                                 <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
@@ -1412,6 +1485,20 @@ onUnmounted(() => {
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Teléfono</label>
                                                 <input v-model="formCliente.telefono" type="text" placeholder="Teléfono" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                            </div>
+                                            <div>
+                                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">CUIT</label>
+                                                <input v-model="formCliente.cuit" type="text" inputmode="numeric" placeholder="11 dígitos (para Factura A)"
+                                                    @input="formCliente.cuit = formCliente.cuit.replace(/\D/g, '').slice(0, 11)"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                            </div>
+                                            <div>
+                                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Razón Social</label>
+                                                <input v-model="formCliente.razon_social" type="text" placeholder="Solo si facturás a una empresa" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                            </div>
+                                            <div>
+                                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Domicilio Fiscal</label>
+                                                <input v-model="formCliente.domicilio_fiscal" type="text" placeholder="Domicilio fiscal (para Factura A)" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
                                             </div>
                                         </div>
                                         <div class="flex gap-2 mt-5">

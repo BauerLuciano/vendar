@@ -3,17 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MetodoPago;
+use App\Facturacion\Domain\ValueObjects\Cuit;
 use App\Models\Consumidor;
 use App\Models\CuentaCorriente;
-use App\Models\MovimientoCuentaCorriente;
 use App\Models\MovimientoCaja;
+use App\Models\MovimientoCuentaCorriente;
+use App\Models\PaymentMethodConfiguration;
 use App\Models\TurnoCaja;
 use App\Services\SucursalScopeService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
 
 class ConsumidorController extends Controller
 {
@@ -57,7 +60,7 @@ class ConsumidorController extends Controller
 
         return Inertia::render('Consumidores/Index', [
             'consumidores' => $consumidores,
-            'filtros' => $request->only(['search', 'estado', 'deuda'])
+            'filtros' => $request->only(['search', 'estado', 'deuda']),
         ]);
     }
 
@@ -72,6 +75,18 @@ class ConsumidorController extends Controller
         if ($request->input('email') === '') {
             $request->merge(['email' => null]);
         }
+        if ($request->input('cuit') === '') {
+            $request->merge(['cuit' => null]);
+        }
+    }
+
+    private function reglaCuit(): callable
+    {
+        return function (string $attribute, $value, $fail) {
+            if (! empty($value) && ! Cuit::esValido($value)) {
+                $fail('El CUIT no es válido.');
+            }
+        };
     }
 
     public function store(Request $request)
@@ -87,6 +102,10 @@ class ConsumidorController extends Controller
             'email' => ['nullable', 'email', 'max:255', $comercioId ? Rule::unique('consumidores', 'email')->where(fn ($q) => $q->where('comercio_id', $comercioId)) : Rule::unique('consumidores', 'email')],
             'telefono' => 'nullable|string|max:15|regex:/^\d+$/',
             'direccion' => 'nullable|string|max:255',
+            'cuit' => ['nullable', 'string', $this->reglaCuit()],
+            'tipo_documento' => 'nullable|string|in:CUIT,DNI',
+            'razon_social' => 'nullable|string|max:255',
+            'domicilio_fiscal' => 'nullable|string|max:255',
             'limite_cuenta_corriente' => 'required|numeric|min:0',
             'estado' => 'boolean',
             'password' => 'nullable|string|min:6',
@@ -102,7 +121,7 @@ class ConsumidorController extends Controller
 
         $validated['comercio_id'] = $comercioId;
 
-        $consumidor = new Consumidor();
+        $consumidor = new Consumidor;
         $consumidor->comercio_id = $validated['comercio_id'];
         $consumidor->nombre = $validated['nombre'];
         $consumidor->apellido = $validated['apellido'];
@@ -110,13 +129,17 @@ class ConsumidorController extends Controller
         $consumidor->email = $validated['email'] ?? null;
         $consumidor->telefono = $validated['telefono'] ?? null;
         $consumidor->direccion = $validated['direccion'] ?? null;
+        $consumidor->cuit = $validated['cuit'] ?? null;
+        $consumidor->tipo_documento = $validated['tipo_documento'] ?? null;
+        $consumidor->razon_social = $validated['razon_social'] ?? null;
+        $consumidor->domicilio_fiscal = $validated['domicilio_fiscal'] ?? null;
         $consumidor->limite_cuenta_corriente = $validated['limite_cuenta_corriente'];
         $consumidor->estado = $validated['estado'] ?? true;
         if ($request->filled('password')) {
             $consumidor->password = Hash::make($request->password);
         }
         $consumidor->save();
-        
+
         return redirect()->back()->with('success', 'Cliente registrado exitosamente.');
     }
 
@@ -142,6 +165,10 @@ class ConsumidorController extends Controller
             'email' => ['nullable', 'email', 'max:255', $uniqueEmail],
             'telefono' => ['nullable', 'string', 'max:15', 'regex:/^\d+$/'],
             'direccion' => 'nullable|string|max:255',
+            'cuit' => ['nullable', 'string', $this->reglaCuit()],
+            'tipo_documento' => 'nullable|string|in:CUIT,DNI',
+            'razon_social' => 'nullable|string|max:255',
+            'domicilio_fiscal' => 'nullable|string|max:255',
             'limite_cuenta_corriente' => 'required|numeric|min:0',
             'estado' => 'boolean',
             'password' => 'nullable|string|min:6',
@@ -161,13 +188,17 @@ class ConsumidorController extends Controller
         $consumidor->email = $validated['email'] ?? null;
         $consumidor->telefono = $validated['telefono'] ?? null;
         $consumidor->direccion = $validated['direccion'] ?? null;
+        $consumidor->cuit = $validated['cuit'] ?? null;
+        $consumidor->tipo_documento = $validated['tipo_documento'] ?? null;
+        $consumidor->razon_social = $validated['razon_social'] ?? null;
+        $consumidor->domicilio_fiscal = $validated['domicilio_fiscal'] ?? null;
         $consumidor->limite_cuenta_corriente = $validated['limite_cuenta_corriente'];
         $consumidor->estado = $validated['estado'] ?? true;
         if ($request->filled('password')) {
             $consumidor->password = Hash::make($request->password);
         }
         $consumidor->save();
-        
+
         return redirect()->back()->with('success', 'Datos del cliente actualizados.');
     }
 
@@ -178,9 +209,9 @@ class ConsumidorController extends Controller
             abort(403);
         }
 
-        $consumidor->estado = !$consumidor->estado;
+        $consumidor->estado = ! $consumidor->estado;
         $consumidor->save();
-        
+
         return redirect()->back()->with('success', 'Estado del cliente modificado.');
     }
 
@@ -192,7 +223,7 @@ class ConsumidorController extends Controller
         }
 
         $cuenta = $consumidor->cuentaCorriente;
-        if (!$cuenta) {
+        if (! $cuenta) {
             return response()->json([]);
         }
 
@@ -214,15 +245,15 @@ class ConsumidorController extends Controller
         $request->validate([
             'pagos' => 'required|array|min:1',
             'pagos.*.monto' => 'required|numeric|min:0.01',
-            'pagos.*.metodo_pago' => 'required|string|distinct'
+            'pagos.*.metodo_pago' => 'required|string|distinct',
         ], [
-            'pagos.*.metodo_pago.distinct' => 'No puedes repetir el mismo método de pago.'
+            'pagos.*.metodo_pago.distinct' => 'No puedes repetir el mismo método de pago.',
         ]);
 
         $cuenta = $consumidor->cuentaCorriente;
         $totalAbono = collect($request->pagos)->sum('monto');
 
-        if (!$cuenta || $cuenta->saldo_deudor < $totalAbono) {
+        if (! $cuenta || $cuenta->saldo_deudor < $totalAbono) {
             return back()->withErrors(['monto' => 'El monto total a abonar supera la deuda actual del cliente.']);
         }
 
@@ -236,11 +267,11 @@ class ConsumidorController extends Controller
 
             $user = auth()->user();
             $turno = TurnoCaja::where('user_id', $user->id)
-                        ->where('estado', 'Abierto')
-                        ->first();
+                ->where('estado', 'Abierto')
+                ->first();
 
             $detallesPago = [];
-            $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
+            $labelMap = $comercioId ? PaymentMethodConfiguration::labelMap($comercioId) : [];
 
             if ($turno) {
                 foreach ($request->pagos as $pago) {
@@ -248,30 +279,32 @@ class ConsumidorController extends Controller
                     $metodoPagoLabel = $labelMap[$pago['metodo_pago']] ?? MetodoPago::fromString($pago['metodo_pago'])->label();
                     MovimientoCaja::create([
                         'turno_caja_id' => $turno->id,
-                        'tipo'          => 'INGRESO',
-                        'concepto'      => 'COBRO_CUENTA_CORRIENTE',
-                        'metodo_pago'   => $metodoPagoNormalizado,
-                        'monto'         => $pago['monto'],
-                        'descripcion'   => 'Pago deuda: ' . $consumidor->nombre . ' ' . $consumidor->apellido . ' (' . $metodoPagoLabel . ')'
+                        'tipo' => 'INGRESO',
+                        'concepto' => 'COBRO_CUENTA_CORRIENTE',
+                        'metodo_pago' => $metodoPagoNormalizado,
+                        'monto' => $pago['monto'],
+                        'descripcion' => 'Pago deuda: '.$consumidor->nombre.' '.$consumidor->apellido.' ('.$metodoPagoLabel.')',
                     ]);
 
-                    $detallesPago[] = $metodoPagoLabel . ': $' . number_format($pago['monto'], 2, ',', '.');
+                    $detallesPago[] = $metodoPagoLabel.': $'.number_format($pago['monto'], 2, ',', '.');
                 }
             }
 
             MovimientoCuentaCorriente::create([
                 'cuenta_corriente_id' => $cuenta->id,
-                'monto'               => $totalAbono,
-                'tipo'                => 'abono',
-                'descripcion'         => 'Abono a cuenta (' . implode(' | ', $detallesPago) . ')',
+                'monto' => $totalAbono,
+                'tipo' => 'abono',
+                'descripcion' => 'Abono a cuenta ('.implode(' | ', $detallesPago).')',
             ]);
 
             DB::commit();
+
             return back()->with('success', 'Cobro registrado exitosamente.');
-            
+
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->withErrors(['monto' => 'Error de BD al procesar el pago: ' . $e->getMessage()]);
+
+            return back()->withErrors(['monto' => 'Error de BD al procesar el pago: '.$e->getMessage()]);
         }
     }
 
@@ -279,7 +312,7 @@ class ConsumidorController extends Controller
     {
         $request->validate([
             'documento' => 'nullable|string|regex:/^\d{7,8}$/',
-            'ignore_id' => 'nullable|integer|exists:consumidores,id'
+            'ignore_id' => 'nullable|integer|exists:consumidores,id',
         ]);
 
         if (empty($request->documento)) {
@@ -292,16 +325,16 @@ class ConsumidorController extends Controller
         if ($comercioId) {
             $query->where('comercio_id', $comercioId);
         }
-        
+
         if ($request->has('ignore_id')) {
             $query->where('id', '!=', $request->ignore_id);
         }
-        
+
         $exists = $query->exists();
-        
+
         return response()->json([
-            'available' => !$exists,
-            'message' => $exists ? 'Este DNI ya está registrado' : 'DNI disponible'
+            'available' => ! $exists,
+            'message' => $exists ? 'Este DNI ya está registrado' : 'DNI disponible',
         ]);
     }
 
@@ -309,7 +342,7 @@ class ConsumidorController extends Controller
     {
         $request->validate([
             'email' => 'nullable|email|max:255',
-            'ignore_id' => 'nullable|integer|exists:consumidores,id'
+            'ignore_id' => 'nullable|integer|exists:consumidores,id',
         ]);
 
         if (empty($request->email)) {
@@ -330,8 +363,8 @@ class ConsumidorController extends Controller
         $exists = $query->exists();
 
         return response()->json([
-            'available' => !$exists,
-            'message' => $exists ? 'Este email ya está registrado' : 'Email disponible'
+            'available' => ! $exists,
+            'message' => $exists ? 'Este email ya está registrado' : 'Email disponible',
         ]);
     }
 
@@ -340,7 +373,7 @@ class ConsumidorController extends Controller
         $request->validate([
             'nombre' => 'required|string|max:50',
             'apellido' => 'required|string|max:50',
-            'ignore_id' => 'nullable|integer|exists:consumidores,id'
+            'ignore_id' => 'nullable|integer|exists:consumidores,id',
         ]);
 
         $query = Consumidor::where('nombre', $request->nombre)
@@ -360,11 +393,11 @@ class ConsumidorController extends Controller
 
         return response()->json([
             'duplicados' => $duplicados,
-            'total' => $duplicados->count()
+            'total' => $duplicados->count(),
         ]);
     }
 
-    public function apiIndex(): \Illuminate\Http\JsonResponse
+    public function apiIndex(): JsonResponse
     {
         $comercioId = $this->scope->obtenerComercioId();
         $query = Consumidor::query();

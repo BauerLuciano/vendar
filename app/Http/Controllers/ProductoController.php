@@ -2,28 +2,32 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Producto;
 use App\Models\Categoria;
 use App\Models\Marca;
+use App\Models\Producto;
 use App\Models\Proveedor;
 use App\Models\Sucursal;
 use App\Services\ProductLookupService;
-use App\Services\SucursalScopeService;
-use App\Services\Promotion\PromotionEngineService;
 use App\Services\Promotion\DTOs\PromotionResult;
+use App\Services\Promotion\PromotionEngineService;
+use App\Services\SucursalScopeService;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Inertia\Inertia;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\RichText\RichText;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Color;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 
@@ -38,13 +42,13 @@ class ProductoController extends Controller
 
         return Inertia::render('Productos/Index', [
             'productos' => Producto::with(['categoria', 'marca', 'sucursales', 'proveedor'])
-                ->when(!empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
+                ->when(! empty($sucursalIds), fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->whereIn('sucursales.id', $sucursalIds)))
                 ->orderBy('id', 'desc')
                 ->get(),
             'categorias' => Categoria::deComercio($comercioId)->get(),
             'marcas' => Marca::deComercio($comercioId)->get(),
             'proveedores' => Proveedor::deComercio($comercioId)->where('estado', true)->get(),
-            'sucursales' => !empty($sucursalIds)
+            'sucursales' => ! empty($sucursalIds)
                 ? Sucursal::whereIn('id', $sucursalIds)->get()
                 : collect(),
         ]);
@@ -57,23 +61,24 @@ class ProductoController extends Controller
         ]);
 
         $validados = $request->validate([
-            'nombre'              => 'required|string|min:4|max:255|regex:/\S/',
-            'codigo_barras'       => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
-            'categoria_id'        => 'nullable|exists:categorias,id',
-            'marca_id'            => 'nullable|exists:marcas,id',
-            'proveedor_id'        => 'nullable|exists:proveedores,id',
-            'unidad_medida'       => 'required|in:Unidad,Kg,Gramos',
-            'unidad_compra'       => 'nullable|string|max:50',
+            'nombre' => 'required|string|min:4|max:255|regex:/\S/',
+            'codigo_barras' => 'required|string|min:2|max:14|regex:/^[0-9]+$/|unique:productos,codigo_barras',
+            'categoria_id' => 'nullable|exists:categorias,id',
+            'marca_id' => 'nullable|exists:marcas,id',
+            'proveedor_id' => 'nullable|exists:proveedores,id',
+            'unidad_medida' => 'required|in:Unidad,Kg,Gramos',
+            'unidad_compra' => 'nullable|string|max:50',
             'cantidad_por_compra' => 'nullable|integer|min:1',
-            'es_retornable'       => 'boolean',
-            'precio_costo'        => 'required|numeric|min:0',
-            'precio_venta'        => 'required|numeric|min:0',
-            'stock_minimo'        => 'required|numeric|min:0',
-            'stock_objetivo'     => 'nullable|numeric|min:0',
-            'stock_inicial'       => 'nullable|numeric|min:0',
-            'descripcion'         => 'nullable|string',
-            'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
-            'imagen_url'          => 'nullable|url',
+            'es_retornable' => 'boolean',
+            'precio_costo' => 'required|numeric|min:0',
+            'precio_venta' => 'required|numeric|min:0',
+            'alicuota_iva' => 'required|numeric|min:0|max:100',
+            'stock_minimo' => 'required|numeric|min:0',
+            'stock_objetivo' => 'nullable|numeric|min:0',
+            'stock_inicial' => 'nullable|numeric|min:0',
+            'descripcion' => 'nullable|string',
+            'imagen' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'imagen_url' => 'nullable|url',
         ], [
             'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
             'nombre.regex' => 'El nombre no puede estar compuesto solo por espacios.',
@@ -82,6 +87,7 @@ class ProductoController extends Controller
             'codigo_barras.max' => 'El código no puede superar los 14 números.',
             'cantidad_por_compra.integer' => 'La cantidad por compra debe ser un número entero.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
+            'alicuota_iva.required' => 'La alícuota de IVA es obligatoria.',
         ]);
 
         if ($validados['precio_costo'] >= $validados['precio_venta']) {
@@ -94,15 +100,15 @@ class ProductoController extends Controller
         try {
             if ($request->hasFile('imagen')) {
                 $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
-            } elseif (!empty($validados['imagen_url'])) {
+            } elseif (! empty($validados['imagen_url'])) {
                 try {
                     $imageUrl = filter_var($validados['imagen_url'], FILTER_VALIDATE_URL);
                     $host = $imageUrl ? parse_url($imageUrl, PHP_URL_HOST) : null;
                     $ip = $host ? gethostbyname($host) : null;
 
-                    $blocked = !$imageUrl
+                    $blocked = ! $imageUrl
                         || parse_url($imageUrl, PHP_URL_SCHEME) !== 'https'
-                        || !$ip
+                        || ! $ip
                         || in_array($ip, ['127.0.0.1', '::1'])
                         || str_starts_with($ip, '10.')
                         || str_starts_with($ip, '172.')
@@ -115,13 +121,13 @@ class ProductoController extends Controller
                     } else {
                         $imageContents = Http::timeout(10)->get($validados['imagen_url'])->body();
                         if ($imageContents) {
-                            $filename = 'productos/' . Str::uuid() . '.jpg';
+                            $filename = 'productos/'.Str::uuid().'.jpg';
                             Storage::disk('public')->put($filename, $imageContents);
                             $validados['imagen'] = $filename;
                         }
                     }
                 } catch (\Exception $e) {
-                    Log::warning("No se pudo descargar la imagen externa del producto: " . $e->getMessage());
+                    Log::warning('No se pudo descargar la imagen externa del producto: '.$e->getMessage());
                 }
             }
 
@@ -132,16 +138,16 @@ class ProductoController extends Controller
             $producto = Producto::create($validados);
 
             DB::table('historico_costos')->insert([
-                'producto_id'           => $producto->id,
-                'costo_anterior'        => 0,
-                'costo_nuevo'           => $validados['precio_costo'],
+                'producto_id' => $producto->id,
+                'costo_anterior' => 0,
+                'costo_nuevo' => $validados['precio_costo'],
                 'precio_venta_anterior' => 0,
-                'precio_venta_nuevo'    => $validados['precio_venta'],
-                'user_id'               => auth()->id(),
-                'origen_tipo'           => 'Alta de producto',
-                'origen_id'             => $producto->id,
-                'created_at'            => now(),
-                'updated_at'            => now(),
+                'precio_venta_nuevo' => $validados['precio_venta'],
+                'user_id' => auth()->id(),
+                'origen_tipo' => 'Alta de producto',
+                'origen_id' => $producto->id,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
             $lookup->createFromManual([
@@ -151,8 +157,8 @@ class ProductoController extends Controller
                 'imagen' => $validados['imagen'] ?? null,
             ]);
 
-            $sucursalId = $this->scope->obtenerSucursalActiva()?->id;
-            if (!$sucursalId) {
+            $sucursalId = $this->scope->obtenerSucursalActiva();
+            if (! $sucursalId) {
                 throw new \Exception('No tenés una sucursal asignada para registrar productos.');
             }
             $cantidadInicial = $request->stock_inicial ?? 0;
@@ -180,18 +186,20 @@ class ProductoController extends Controller
             }
 
             DB::commit();
+
             return redirect()->back()->with('success', 'Producto registrado correctamente.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', 'Error al crear producto: ' . $e->getMessage());
+
+            return redirect()->back()->with('error', 'Error al crear producto: '.$e->getMessage());
         }
     }
 
     public function update(Request $request, Producto $producto)
     {
         $comercioId = $this->scope->obtenerComercioId();
-        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+        if ($comercioId && ! $producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
 
@@ -200,28 +208,30 @@ class ProductoController extends Controller
         ]);
 
         $validados = $request->validate([
-            'nombre'              => 'required|string|min:4|max:255|regex:/\S/',
-            'codigo_barras'       => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
-            'categoria_id'        => 'nullable|exists:categorias,id',
-            'marca_id'            => 'nullable|exists:marcas,id',
-            'proveedor_id'        => 'nullable|exists:proveedores,id',
-            'unidad_medida'       => 'required|in:Unidad,Kg,Gramos',
-            'unidad_compra'       => 'nullable|string|max:50',
+            'nombre' => 'required|string|min:4|max:255|regex:/\S/',
+            'codigo_barras' => ['required', 'string', 'min:2', 'max:14', 'regex:/^[0-9]+$/', Rule::unique('productos')->ignore($producto->id)],
+            'categoria_id' => 'nullable|exists:categorias,id',
+            'marca_id' => 'nullable|exists:marcas,id',
+            'proveedor_id' => 'nullable|exists:proveedores,id',
+            'unidad_medida' => 'required|in:Unidad,Kg,Gramos',
+            'unidad_compra' => 'nullable|string|max:50',
             'cantidad_por_compra' => 'nullable|integer|min:1',
-            'es_retornable'       => 'boolean',
-            'precio_costo'        => 'required|numeric|min:0',
-            'precio_venta'        => 'required|numeric|min:0',
-            'stock_minimo'        => 'required|numeric|min:0',
-            'stock_objetivo'     => 'nullable|numeric|min:0',
-            'descripcion'         => 'nullable|string',
-            'imagen'              => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
-            'imagen_url'          => 'nullable|url',
+            'es_retornable' => 'boolean',
+            'precio_costo' => 'required|numeric|min:0',
+            'precio_venta' => 'required|numeric|min:0',
+            'alicuota_iva' => 'required|numeric|min:0|max:100',
+            'stock_minimo' => 'required|numeric|min:0',
+            'stock_objetivo' => 'nullable|numeric|min:0',
+            'descripcion' => 'nullable|string',
+            'imagen' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'imagen_url' => 'nullable|url',
         ], [
             'nombre.min' => 'El nombre debe tener al menos 4 caracteres.',
             'nombre.regex' => 'El nombre no puede estar compuesto solo por espacios.',
             'codigo_barras.regex' => 'El código de barras solo puede contener números.',
             'cantidad_por_compra.integer' => 'La cantidad por compra debe ser un número entero.',
             'cantidad_por_compra.min' => 'La cantidad por compra debe ser al menos 1.',
+            'alicuota_iva.required' => 'La alícuota de IVA es obligatoria.',
         ]);
 
         if ($validados['precio_costo'] >= $validados['precio_venta']) {
@@ -235,16 +245,16 @@ class ProductoController extends Controller
                 Storage::disk('public')->delete($producto->imagen);
             }
             $validados['imagen'] = $request->file('imagen')->store('productos', 'public');
-        } elseif (!empty($validados['imagen_url']) && !$producto->imagen) {
+        } elseif (! empty($validados['imagen_url']) && ! $producto->imagen) {
             try {
                 $imageContents = Http::get($validados['imagen_url'])->body();
                 if ($imageContents) {
-                    $filename = 'productos/' . uniqid('prod_api_') . '.jpg';
+                    $filename = 'productos/'.uniqid('prod_api_').'.jpg';
                     Storage::disk('public')->put($filename, $imageContents);
                     $validados['imagen'] = $filename;
                 }
             } catch (\Exception $e) {
-                Log::warning("No se pudo descargar la imagen externa: " . $e->getMessage());
+                Log::warning('No se pudo descargar la imagen externa: '.$e->getMessage());
             }
         } else {
             unset($validados['imagen']);
@@ -266,16 +276,16 @@ class ProductoController extends Controller
 
         if ($cambioCosto || $cambioVenta) {
             DB::table('historico_costos')->insert([
-                'producto_id'           => $producto->id,
-                'costo_anterior'        => $costoAnterior,
-                'costo_nuevo'           => $validados['precio_costo'] ?? $costoAnterior,
+                'producto_id' => $producto->id,
+                'costo_anterior' => $costoAnterior,
+                'costo_nuevo' => $validados['precio_costo'] ?? $costoAnterior,
                 'precio_venta_anterior' => $ventaAnterior,
-                'precio_venta_nuevo'    => $validados['precio_venta'] ?? $ventaAnterior,
-                'user_id'               => auth()->id(),
-                'origen_tipo'           => 'Edición manual',
-                'origen_id'             => $producto->id,
-                'created_at'            => now(),
-                'updated_at'            => now(),
+                'precio_venta_nuevo' => $validados['precio_venta'] ?? $ventaAnterior,
+                'user_id' => auth()->id(),
+                'origen_tipo' => 'Edición manual',
+                'origen_id' => $producto->id,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
         }
 
@@ -285,26 +295,27 @@ class ProductoController extends Controller
     public function status(Producto $producto)
     {
         $comercioId = $this->scope->obtenerComercioId();
-        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+        if ($comercioId && ! $producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
 
-        $producto->update(['estado' => !$producto->estado]);
+        $producto->update(['estado' => ! $producto->estado]);
+
         return redirect()->back()->with('success', 'Estado modificado.');
     }
 
     public function ajustarStock(Request $request, Producto $producto)
     {
         $comercioId = $this->scope->obtenerComercioId();
-        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+        if ($comercioId && ! $producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
 
         $validados = $request->validate([
             'sucursal_id' => 'required|exists:sucursales,id',
             'tipo_ajuste' => 'required|in:Sumar,Restar',
-            'cantidad'    => 'required|numeric|min:0.001', 
-            'motivo'      => 'required|string|max:255',
+            'cantidad' => 'required|numeric|min:0.001',
+            'motivo' => 'required|string|max:255',
         ]);
 
         DB::beginTransaction();
@@ -321,9 +332,9 @@ class ProductoController extends Controller
 
             $producto->sucursales()->syncWithoutDetaching([
                 $validados['sucursal_id'] => [
-                    'cantidad_fisica'    => $cantidadActual,
+                    'cantidad_fisica' => $cantidadActual,
                     'cantidad_reservada' => $sucursalPivot ? $sucursalPivot->pivot->cantidad_reservada : 0,
-                ]
+                ],
             ]);
 
             DB::table('movimientos_stock')->insert([
@@ -340,18 +351,20 @@ class ProductoController extends Controller
             ]);
 
             DB::commit();
+
             return redirect()->back()->with('exito', 'Stock ajustado correctamente.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', 'Error al procesar el ajuste de stock: ' . $e->getMessage());
+
+            return redirect()->back()->with('error', 'Error al procesar el ajuste de stock: '.$e->getMessage());
         }
     }
 
     public function auditoria(Request $request, Producto $producto)
     {
         $comercioId = $this->scope->obtenerComercioId();
-        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+        if ($comercioId && ! $producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
 
@@ -363,10 +376,10 @@ class ProductoController extends Controller
             ->orderBy('movimientos_stock.created_at', 'desc');
 
         if ($request->filled('fecha_desde')) {
-            $query->where('movimientos_stock.created_at', '>=', $request->fecha_desde . ' 00:00:00');
+            $query->where('movimientos_stock.created_at', '>=', $request->fecha_desde.' 00:00:00');
         }
         if ($request->filled('fecha_hasta')) {
-            $query->where('movimientos_stock.created_at', '<=', $request->fecha_hasta . ' 23:59:59');
+            $query->where('movimientos_stock.created_at', '<=', $request->fecha_hasta.' 23:59:59');
         }
         if ($request->filled('sucursal_id')) {
             $query->where('movimientos_stock.sucursal_id', $request->sucursal_id);
@@ -393,7 +406,7 @@ class ProductoController extends Controller
 
             $tenantProduct = Producto::where('codigo_barras', $codigo)
                 ->where('estado', true)
-                ->whereHas('sucursales', fn($q) => $q->where('comercio_id', $comercioId))
+                ->whereHas('sucursales', fn ($q) => $q->where('comercio_id', $comercioId))
                 ->first();
 
             $basePrice = $tenantProduct?->precio_venta
@@ -402,7 +415,7 @@ class ProductoController extends Controller
 
             $promotions = $tenantProduct
                 ? $engine->forProducto($tenantProduct, $comercioId, $basePrice)
-                : new PromotionResult();
+                : new PromotionResult;
 
             return response()->json([
                 'found' => true,
@@ -435,7 +448,7 @@ class ProductoController extends Controller
         $termino = trim($request->q);
 
         $productos = Producto::with('marca')
-            ->where('nombre', 'ILIKE', '%' . $termino . '%')
+            ->where('nombre', 'ILIKE', '%'.$termino.'%')
             ->where('estado', true)
             ->when($comercioId, fn ($q) => $q->whereHas('sucursales', fn ($sq) => $sq->where('comercio_id', $comercioId)))
             ->select('id', 'nombre', 'codigo_barras', 'unidad_medida', 'estado', 'marca_id')
@@ -452,8 +465,13 @@ class ProductoController extends Controller
             ->sortBy(function ($p) use ($termino) {
                 $nombreLower = mb_strtolower($p['nombre']);
                 $terminoLower = mb_strtolower($termino);
-                if ($nombreLower === $terminoLower) return 0;
-                if (str_starts_with($nombreLower, $terminoLower)) return 1;
+                if ($nombreLower === $terminoLower) {
+                    return 0;
+                }
+                if (str_starts_with($nombreLower, $terminoLower)) {
+                    return 1;
+                }
+
                 return 2;
             })
             ->values();
@@ -474,33 +492,33 @@ class ProductoController extends Controller
         $user = auth()->user();
         $comercioNombre = $user->branch?->comercio?->nombre ?? 'Productos';
 
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Productos');
 
-        $sheet->mergeCells('A1:N1');
+        $sheet->mergeCells('A1:O1');
         $sheet->setCellValue('A1', $comercioNombre);
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        $sheet->mergeCells('A2:N2');
-        $sheet->setCellValue('A2', 'Exportado por: ' . $user->name . ' | Fecha: ' . now()->format('d/m/Y H:i') . ' | Total: ' . $productos->count() . ' productos');
-        $sheet->getStyle('A2')->getFont()->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('666666'));
+        $sheet->mergeCells('A2:O2');
+        $sheet->setCellValue('A2', 'Exportado por: '.$user->name.' | Fecha: '.now()->format('d/m/Y H:i').' | Total: '.$productos->count().' productos');
+        $sheet->getStyle('A2')->getFont()->setSize(10)->setColor(new Color('666666'));
         $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
         $headers = [
             'Nombre', 'Código de Barras', 'Categoría', 'Marca', 'Proveedor',
-            'Precio Costo', 'Precio Venta', 'Stock Mínimo', 'Unidad',
+            'Precio Costo', 'Precio Venta', 'Alícuota IVA', 'Stock Mínimo', 'Unidad',
             'Unidad Compra', 'Cant. por Compra', 'Descripción', 'Retornable', 'Estado',
         ];
 
         $headerRow = 4;
         foreach ($headers as $col => $header) {
-            $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col + 1) . $headerRow;
+            $ref = Coordinate::stringFromColumnIndex($col + 1).$headerRow;
             $sheet->setCellValue($ref, $header);
-            $sheet->getStyle($ref)->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFFFFF'));
+            $sheet->getStyle($ref)->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
             $fill = $sheet->getStyle($ref)->getFill();
-            $fill->setFillType(Fill::FILL_SOLID)->setStartColor(new \PhpOffice\PhpSpreadsheet\Style\Color('1E40AF'));
+            $fill->setFillType(Fill::FILL_SOLID)->setStartColor(new Color('1E40AF'));
             $sheet->getStyle($ref)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $sheet->getStyle($ref)->getBorders()->getBottom()->setBorderStyle(Border::BORDER_THIN);
         }
@@ -515,6 +533,7 @@ class ProductoController extends Controller
                 $p->proveedor?->razon_social ?? '',
                 $p->precio_costo ? (float) $p->precio_costo : '',
                 $p->precio_venta ? (float) $p->precio_venta : '',
+                $p->alicuota_iva !== null && $p->alicuota_iva !== '' ? (float) $p->alicuota_iva : '',
                 $p->stock_minimo !== null && $p->stock_minimo !== '' ? (float) $p->stock_minimo : '',
                 $p->unidad_medida ?? '',
                 $p->unidad_compra ?? '',
@@ -525,13 +544,13 @@ class ProductoController extends Controller
             ];
 
             foreach ($row as $col => $value) {
-                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col + 1) . $dataRow;
+                $ref = Coordinate::stringFromColumnIndex($col + 1).$dataRow;
                 $sheet->setCellValue($ref, $value);
                 $borders = $sheet->getStyle($ref)->getBorders();
-                $borders->getTop()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
-                $borders->getBottom()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
-                $borders->getLeft()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
-                $borders->getRight()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
+                $borders->getTop()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
+                $borders->getBottom()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
+                $borders->getLeft()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
+                $borders->getRight()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
 
                 if ($col === 5 || $col === 6) {
                     $sheet->getStyle($ref)->getNumberFormat()->setFormatCode('#,##0.00');
@@ -540,9 +559,9 @@ class ProductoController extends Controller
 
             if (($dataRow - $headerRow) % 2 === 0) {
                 foreach (range(1, count($headers)) as $col) {
-                    $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $dataRow;
+                    $ref = Coordinate::stringFromColumnIndex($col).$dataRow;
                     $sheet->getStyle($ref)->getFill()
-                        ->setFillType(Fill::FILL_SOLID)->setStartColor(new \PhpOffice\PhpSpreadsheet\Style\Color('F3F4F6'));
+                        ->setFillType(Fill::FILL_SOLID)->setStartColor(new Color('F3F4F6'));
                 }
             }
 
@@ -552,11 +571,11 @@ class ProductoController extends Controller
         foreach (range(1, count($headers)) as $col) {
             $maxLen = strlen($headers[$col - 1]);
             for ($r = $headerRow + 1; $r < $dataRow; $r++) {
-                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $r;
+                $ref = Coordinate::stringFromColumnIndex($col).$r;
                 $val = $sheet->getCell($ref)->getValue();
                 $maxLen = max($maxLen, strlen((string) $val));
             }
-            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col))->setWidth(min($maxLen + 4, 40));
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($col))->setWidth(min($maxLen + 4, 40));
         }
 
         $sheet->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);
@@ -564,8 +583,8 @@ class ProductoController extends Controller
         $sheet->getPageSetup()->setFitToWidth(1);
         $sheet->getPageSetup()->setFitToHeight(0);
 
-        $nombre = 'productos_' . now()->format('Ymd_His') . '.xlsx';
-        $tempPath = storage_path('app/' . $nombre);
+        $nombre = 'productos_'.now()->format('Ymd_His').'.xlsx';
+        $tempPath = storage_path('app/'.$nombre);
         $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
         $writer->save($tempPath);
         $spreadsheet->disconnectWorksheets();
@@ -578,57 +597,57 @@ class ProductoController extends Controller
 
     public function plantilla()
     {
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Productos');
 
-        $sheet->mergeCells('A1:N1');
+        $sheet->mergeCells('A1:O1');
         $sheet->setCellValue('A1', 'Plantilla de Productos');
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        $sheet->mergeCells('A2:N2');
-        $sheet->setCellValue('A2', 'Completá este archivo y importalo desde el sistema. No modifiques los nombres de las columnas.');
-        $sheet->getStyle('A2')->getFont()->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('666666'));
+        $sheet->mergeCells('A2:O2');
+        $sheet->setCellValue('A2', 'Completá este archivo y importalo desde el sistema. No modifiques los nombres de las columnas. La columna "Alícuota IVA" es opcional: si queda vacía se aplica 21%.');
+        $sheet->getStyle('A2')->getFont()->setSize(10)->setColor(new Color('666666'));
         $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        $sheet->mergeCells('A3:N3');
+        $sheet->mergeCells('A3:O3');
         $sheet->setCellValue('A3', '# Las filas de abajo son EJEMPLO — borralas y poné tus productos');
-        $sheet->getStyle('A3')->getFont()->setSize(9)->setItalic(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('999999'));
+        $sheet->getStyle('A3')->getFont()->setSize(9)->setItalic(true)->setColor(new Color('999999'));
         $sheet->getStyle('A3')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
         $headers = [
             'Nombre', 'Código de Barras', 'Categoría', 'Marca', 'Proveedor',
-            'Precio Costo', 'Precio Venta', 'Stock Mínimo', 'Unidad',
+            'Precio Costo', 'Precio Venta', 'Alícuota IVA', 'Stock Mínimo', 'Unidad',
             'Unidad Compra', 'Cant. por Compra', 'Descripción', 'Retornable', 'Estado',
         ];
 
         $headerRow = 4;
         foreach ($headers as $col => $header) {
-            $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col + 1) . $headerRow;
+            $ref = Coordinate::stringFromColumnIndex($col + 1).$headerRow;
             $sheet->setCellValue($ref, $header);
-            $sheet->getStyle($ref)->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFFFFF'));
+            $sheet->getStyle($ref)->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
             $fill = $sheet->getStyle($ref)->getFill();
-            $fill->setFillType(Fill::FILL_SOLID)->setStartColor(new \PhpOffice\PhpSpreadsheet\Style\Color('1E40AF'));
+            $fill->setFillType(Fill::FILL_SOLID)->setStartColor(new Color('1E40AF'));
             $sheet->getStyle($ref)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $sheet->getStyle($ref)->getBorders()->getBottom()->setBorderStyle(Border::BORDER_THIN);
         }
 
         $ejemplos = [
-            ['Coca Cola 500ml', '7790000000012', 'Bebidas', 'Coca Cola', '', 350.00, 550.00, 10, 'Unidad', 'Unidad', 12, 'Gaseosa 500ml', 'Sí', 'Activo'],
-            ['Papa Lays', '7790000000029', 'Snacks', 'Lays', '', 200.00, 380.00, 5, 'Unidad', 'Unidad', 6, 'Papa frita porción', 'No', 'Activo'],
+            ['Coca Cola 500ml', '7790000000012', 'Bebidas', 'Coca Cola', '', 350.00, 550.00, 21, 10, 'Unidad', 'Unidad', 12, 'Gaseosa 500ml', 'Sí', 'Activo'],
+            ['Papa Lays', '7790000000029', 'Snacks', 'Lays', '', 200.00, 380.00, 21, 5, 'Unidad', 'Unidad', 6, 'Papa frita porción', 'No', 'Activo'],
         ];
 
         $dataRow = $headerRow + 1;
         foreach ($ejemplos as $row) {
             foreach ($row as $col => $value) {
-                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col + 1) . $dataRow;
+                $ref = Coordinate::stringFromColumnIndex($col + 1).$dataRow;
                 $sheet->setCellValue($ref, $value);
                 $borders = $sheet->getStyle($ref)->getBorders();
-                $borders->getTop()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
-                $borders->getBottom()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
-                $borders->getLeft()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
-                $borders->getRight()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('D1D5DB'));
+                $borders->getTop()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
+                $borders->getBottom()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
+                $borders->getLeft()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
+                $borders->getRight()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D1D5DB'));
 
                 if ($col === 5 || $col === 6) {
                     $sheet->getStyle($ref)->getNumberFormat()->setFormatCode('#,##0.00');
@@ -637,9 +656,9 @@ class ProductoController extends Controller
 
             if (($dataRow - $headerRow) % 2 === 0) {
                 foreach (range(1, count($headers)) as $col) {
-                    $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $dataRow;
+                    $ref = Coordinate::stringFromColumnIndex($col).$dataRow;
                     $sheet->getStyle($ref)->getFill()
-                        ->setFillType(Fill::FILL_SOLID)->setStartColor(new \PhpOffice\PhpSpreadsheet\Style\Color('F3F4F6'));
+                        ->setFillType(Fill::FILL_SOLID)->setStartColor(new Color('F3F4F6'));
                 }
             }
 
@@ -649,11 +668,11 @@ class ProductoController extends Controller
         foreach (range(1, count($headers)) as $col) {
             $maxLen = strlen($headers[$col - 1]);
             for ($r = $headerRow + 1; $r < $dataRow; $r++) {
-                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $r;
+                $ref = Coordinate::stringFromColumnIndex($col).$r;
                 $val = $sheet->getCell($ref)->getValue();
                 $maxLen = max($maxLen, strlen((string) $val));
             }
-            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col))->setWidth(min($maxLen + 4, 40));
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($col))->setWidth(min($maxLen + 4, 40));
         }
 
         $sheet->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);
@@ -662,7 +681,7 @@ class ProductoController extends Controller
         $sheet->getPageSetup()->setFitToHeight(0);
 
         $nombre = 'plantilla_productos.xlsx';
-        $tempPath = storage_path('app/' . $nombre);
+        $tempPath = storage_path('app/'.$nombre);
         $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
         $writer->save($tempPath);
         $spreadsheet->disconnectWorksheets();
@@ -700,16 +719,17 @@ class ProductoController extends Controller
         $headerMap = $this->obtenerMapeoHeadersImportacion();
         $headerResult = $this->detectarHeaders($rows, $headerMap);
 
-        if (!$headerResult['found']) {
+        if (! $headerResult['found']) {
             return response()->json(['success' => false, 'error' => $headerResult['error']], 422);
         }
 
         $mappedHeaders = $headerResult['mapped'];
         $headerIndex = $headerResult['index'];
 
-        if (!in_array('codigo_barras', $mappedHeaders) && !$this->tieneColumnaIdentificadorAlternativo($mappedHeaders)) {
+        if (! in_array('codigo_barras', $mappedHeaders) && ! $this->tieneColumnaIdentificadorAlternativo($mappedHeaders)) {
             $debugMapped = implode(', ', $mappedHeaders);
-            return response()->json(['success' => false, 'error' => 'Falta columna de identificador. Columnas: [' . $debugMapped . ']. Se necesita "Código de Barras" o "PLU".'], 422);
+
+            return response()->json(['success' => false, 'error' => 'Falta columna de identificador. Columnas: ['.$debugMapped.']. Se necesita "Código de Barras" o "PLU".'], 422);
         }
 
         // Recortar filas: quitar metadata antes de headers y los headers mismos
@@ -722,7 +742,7 @@ class ProductoController extends Controller
         foreach ($dataRows as $rowIndex => $row) {
             $numFila = $numFilaBase + $rowIndex;
 
-            $trimmedRow = array_map(fn($v) => $this->celdaAString($v), $row);
+            $trimmedRow = array_map(fn ($v) => $this->celdaAString($v), $row);
             if (count($trimmedRow) < count($mappedHeaders)) {
                 $trimmedRow = array_pad($trimmedRow, count($mappedHeaders), '');
             } elseif (count($trimmedRow) > count($mappedHeaders)) {
@@ -734,10 +754,17 @@ class ProductoController extends Controller
             // Filas vacías o de comentario
             $allEmpty = true;
             foreach ($data as $v) {
-                if (trim((string) $v) !== '') { $allEmpty = false; break; }
+                if (trim((string) $v) !== '') {
+                    $allEmpty = false;
+                    break;
+                }
             }
-            if ($allEmpty) continue;
-            if (str_starts_with(trim((string) ($data['nombre'] ?? '')), '#')) continue;
+            if ($allEmpty) {
+                continue;
+            }
+            if (str_starts_with(trim((string) ($data['nombre'] ?? '')), '#')) {
+                continue;
+            }
 
             // Identificador: codigo_barras o plu (todo va a parar en codigo_barras)
             $codigoBarrasRaw = trim((string) ($data['codigo_barras'] ?? ''));
@@ -761,12 +788,13 @@ class ProductoController extends Controller
         $conflictos = [];
         $barrasEnArchivo = [];
         $filasValidas = [];
+        $avisoAlicuotaDefault = false;
 
         // Precargar códigos existentes en DB (performance: una sola query)
         $identificadoresEnArchivo = array_unique(array_column($filasNormalizadas, 'identificador'));
         $identificadoresEnArchivo = array_filter($identificadoresEnArchivo);
         $existentesEnDB = [];
-        if (!empty($identificadoresEnArchivo)) {
+        if (! empty($identificadoresEnArchivo)) {
             $existentesEnDB = Producto::whereIn('codigo_barras', $identificadoresEnArchivo)
                 ->get()
                 ->keyBy('codigo_barras')
@@ -792,7 +820,7 @@ class ProductoController extends Controller
             }
 
             // Validar duplicado dentro del archivo
-            if (!empty($identificador)) {
+            if (! empty($identificador)) {
                 if (isset($barrasEnArchivo[$identificador])) {
                     $filaErrores[] = "El código \"{$identificador}\" ya fue utilizado en la fila {$barrasEnArchivo[$identificador]} del mismo archivo.";
                 } else {
@@ -803,7 +831,7 @@ class ProductoController extends Controller
             // Detectar conflicto: mismo código, nombre diferente en DB
             $esNuevo = true;
             $existente = null;
-            if (!empty($identificador) && isset($existentesEnDB[$identificador])) {
+            if (! empty($identificador) && isset($existentesEnDB[$identificador])) {
                 $existente = $existentesEnDB[$identificador];
                 $esNuevo = false;
                 $nombreExistente = $this->normalizarString($existente['nombre']);
@@ -815,6 +843,7 @@ class ProductoController extends Controller
                         'producto_importado' => $nombreRaw,
                         'mensaje' => "El código \"{$identificador}\" ya pertenece al producto \"{$existente['nombre']}\", pero el archivo intenta importarlo como \"{$nombreRaw}\".",
                     ];
+
                     continue;
                 }
             }
@@ -849,11 +878,30 @@ class ProductoController extends Controller
                 }
             }
 
+            // Validar alícuota de IVA (opcional: si falta, se usa 21% por defecto)
+            $alicuotaRaw = trim((string) ($data['alicuota_iva'] ?? ''));
+            $alicuotaIva = null;
+            $alicuotaDefault = false;
+            if ($alicuotaRaw === '') {
+                $alicuotaIva = 21.0;
+                $alicuotaDefault = true;
+                if (! $avisoAlicuotaDefault) {
+                    $warnings[] = ['fila' => null, 'mensaje' => 'El archivo utiliza la alícuota por defecto (21%). Revise los productos importados.'];
+                    $avisoAlicuotaDefault = true;
+                }
+            } else {
+                $alicuotaIva = $this->normalizarPrecioArgentino($alicuotaRaw);
+                if ($alicuotaIva === null || $alicuotaIva < 0 || $alicuotaIva > 100) {
+                    $filaErrores[] = "La alícuota de IVA ({$alicuotaRaw}) no es válida. Usá un número entre 0 y 100.";
+                }
+            }
+
             // Si hay errores de esta fila, acumular y saltar
-            if (!empty($filaErrores)) {
+            if (! empty($filaErrores)) {
                 foreach ($filaErrores as $msg) {
                     $errores[] = ['fila' => $numFila, 'tipo' => 'validacion', 'mensaje' => $msg];
                 }
+
                 continue;
             }
 
@@ -865,6 +913,8 @@ class ProductoController extends Controller
                 'identificador' => $identificador,
                 'es_nuevo' => $esNuevo,
                 'existente' => $existente,
+                'alicuota_iva' => $alicuotaIva,
+                'alicuota_default' => $alicuotaDefault,
             ];
         }
 
@@ -899,15 +949,21 @@ class ProductoController extends Controller
 
             $refCategoria = $this->resolverReferencia($data['categoria'] ?? '', Categoria::class, 'nombreCategoria', $comercioId);
             $fila['categoria_id'] = $refCategoria['id'];
-            if ($refCategoria['warning']) $warnings[] = ['fila' => $numFila, 'mensaje' => $refCategoria['warning']];
+            if ($refCategoria['warning']) {
+                $warnings[] = ['fila' => $numFila, 'mensaje' => $refCategoria['warning']];
+            }
 
             $refMarca = $this->resolverReferencia($data['marca'] ?? '', Marca::class, 'nombreMarca', $comercioId);
             $fila['marca_id'] = $refMarca['id'];
-            if ($refMarca['warning']) $warnings[] = ['fila' => $numFila, 'mensaje' => $refMarca['warning']];
+            if ($refMarca['warning']) {
+                $warnings[] = ['fila' => $numFila, 'mensaje' => $refMarca['warning']];
+            }
 
             $refProveedor = $this->resolverReferencia($data['proveedor'] ?? '', Proveedor::class, 'razon_social', $comercioId);
             $fila['proveedor_id'] = $refProveedor['id'];
-            if ($refProveedor['warning']) $warnings[] = ['fila' => $numFila, 'mensaje' => $refProveedor['warning']];
+            if ($refProveedor['warning']) {
+                $warnings[] = ['fila' => $numFila, 'mensaje' => $refProveedor['warning']];
+            }
         }
         unset($fila);
 
@@ -925,6 +981,7 @@ class ProductoController extends Controller
                 $categoriaId = $fila['categoria_id'];
                 $marcaId = $fila['marca_id'];
                 $proveedorId = $fila['proveedor_id'];
+                $alicuotaIva = $fila['alicuota_iva'] ?? 21.0;
 
                 // Precios
                 $precioCosto = $this->normalizarPrecioArgentino($data['precio_costo'] ?? '');
@@ -950,20 +1007,22 @@ class ProductoController extends Controller
                 $estado = $this->parsearBooleano($data['estado'] ?? '', true);
 
                 // Descripción y unidad compra
-                $descripcion = !empty(trim((string) ($data['descripcion'] ?? ''))) ? trim((string) $data['descripcion']) : null;
-                $unidadCompra = !empty(trim((string) ($data['unidad_compra'] ?? ''))) ? trim((string) $data['unidad_compra']) : null;
+                $descripcion = ! empty(trim((string) ($data['descripcion'] ?? ''))) ? trim((string) $data['descripcion']) : null;
+                $unidadCompra = ! empty(trim((string) ($data['unidad_compra'] ?? ''))) ? trim((string) $data['unidad_compra']) : null;
 
                 if ($esNuevo) {
                     // CREAR NUEVO
-                    if (!$comercioId) {
+                    if (! $comercioId) {
                         $errores[] = ['fila' => $numFila, 'tipo' => 'error', 'mensaje' => 'No se pudo determinar el comercio.'];
                         $omitidos++;
+
                         continue;
                     }
                     $primeraSucursal = $this->scope->obtenerSucursalesDelComercio()->first();
-                    if (!$primeraSucursal) {
+                    if (! $primeraSucursal) {
                         $errores[] = ['fila' => $numFila, 'tipo' => 'error', 'mensaje' => 'No hay sucursales para asociar el producto.'];
                         $omitidos++;
+
                         continue;
                     }
 
@@ -976,6 +1035,7 @@ class ProductoController extends Controller
                         'precio_costo' => $precioCosto ?? 0,
                         'precio_venta' => $precioVenta ?? 0,
                         'precio_venta_actualizado_en' => now(),
+                        'alicuota_iva' => $alicuotaIva,
                         'stock_minimo' => $stockMinimo ?? 0,
                         'unidad_medida' => $unidadMedida,
                         'unidad_compra' => $unidadCompra,
@@ -995,20 +1055,20 @@ class ProductoController extends Controller
                         ]);
 
                         DB::table('historico_costos')->insert([
-                            'producto_id'           => $nuevoProducto->id,
-                            'costo_anterior'        => 0,
-                            'costo_nuevo'           => $productoData['precio_costo'],
+                            'producto_id' => $nuevoProducto->id,
+                            'costo_anterior' => 0,
+                            'costo_nuevo' => $productoData['precio_costo'],
                             'precio_venta_anterior' => 0,
-                            'precio_venta_nuevo'    => $productoData['precio_venta'],
-                            'user_id'               => auth()->id(),
-                            'origen_tipo'           => 'Importación Excel',
-                            'origen_id'             => $nuevoProducto->id,
-                            'created_at'            => now(),
-                            'updated_at'            => now(),
+                            'precio_venta_nuevo' => $productoData['precio_venta'],
+                            'user_id' => auth()->id(),
+                            'origen_tipo' => 'Importación Excel',
+                            'origen_id' => $nuevoProducto->id,
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ]);
 
                         $creados++;
-                    } catch (\Illuminate\Database\QueryException $e) {
+                    } catch (QueryException $e) {
                         if (str_contains($e->getMessage(), 'duplicate key') || str_contains($e->getCode(), '23505')) {
                             $errores[] = ['fila' => $numFila, 'tipo' => 'error', 'mensaje' => "El código \"{$identificador}\" ya existe en la base de datos (creado por otra importación simultánea)."];
                             $omitidos++;
@@ -1020,19 +1080,40 @@ class ProductoController extends Controller
                     // ACTUALIZAR EXISTENTE — merge parcial
                     $existenteProducto = Producto::where('id', $existente['id'])->first();
                     $mergeData = [];
-                    if ($categoriaId !== null) $mergeData['categoria_id'] = $categoriaId;
-                    if ($marcaId !== null) $mergeData['marca_id'] = $marcaId;
-                    if ($proveedorId !== null) $mergeData['proveedor_id'] = $proveedorId;
-                    if ($precioCosto !== null) $mergeData['precio_costo'] = round($precioCosto, 2);
+                    if ($categoriaId !== null) {
+                        $mergeData['categoria_id'] = $categoriaId;
+                    }
+                    if ($marcaId !== null) {
+                        $mergeData['marca_id'] = $marcaId;
+                    }
+                    if ($proveedorId !== null) {
+                        $mergeData['proveedor_id'] = $proveedorId;
+                    }
+                    if ($precioCosto !== null) {
+                        $mergeData['precio_costo'] = round($precioCosto, 2);
+                    }
                     if ($precioVenta !== null) {
                         $mergeData['precio_venta'] = round($precioVenta, 2);
                         $mergeData['precio_venta_actualizado_en'] = now();
                     }
-                    if ($stockMinimo !== null) $mergeData['stock_minimo'] = $stockMinimo;
-                    if ($unidadMedida !== null) $mergeData['unidad_medida'] = $unidadMedida;
-                    if ($cantidadCompra !== null) $mergeData['cantidad_por_compra'] = $cantidadCompra;
-                    if ($unidadCompra !== null) $mergeData['unidad_compra'] = $unidadCompra;
-                    if ($descripcion !== null) $mergeData['descripcion'] = $descripcion;
+                    if ($alicuotaIva !== null && ! $fila['alicuota_default']) {
+                        $mergeData['alicuota_iva'] = round($alicuotaIva, 2);
+                    }
+                    if ($stockMinimo !== null) {
+                        $mergeData['stock_minimo'] = $stockMinimo;
+                    }
+                    if ($unidadMedida !== null) {
+                        $mergeData['unidad_medida'] = $unidadMedida;
+                    }
+                    if ($cantidadCompra !== null) {
+                        $mergeData['cantidad_por_compra'] = $cantidadCompra;
+                    }
+                    if ($unidadCompra !== null) {
+                        $mergeData['unidad_compra'] = $unidadCompra;
+                    }
+                    if ($descripcion !== null) {
+                        $mergeData['descripcion'] = $descripcion;
+                    }
 
                     // Siempre actualizar nombre, retornable y estado si vienen del Excel
                     $mergeData['nombre'] = $nombre;
@@ -1042,22 +1123,22 @@ class ProductoController extends Controller
                     $cambioCostoImport = $precioCosto !== null && (float) $precioCosto !== (float) $existenteProducto->precio_costo;
                     $cambioVentaImport = $precioVenta !== null && (float) $precioVenta !== (float) $existenteProducto->precio_venta;
 
-                    if (!empty($mergeData)) {
+                    if (! empty($mergeData)) {
                         Producto::where('id', $existente['id'])->update($mergeData);
                     }
 
                     if ($cambioCostoImport || $cambioVentaImport) {
                         DB::table('historico_costos')->insert([
-                            'producto_id'           => $existente['id'],
-                            'costo_anterior'        => $existenteProducto->precio_costo,
-                            'costo_nuevo'           => $cambioCostoImport ? round($precioCosto, 2) : $existenteProducto->precio_costo,
+                            'producto_id' => $existente['id'],
+                            'costo_anterior' => $existenteProducto->precio_costo,
+                            'costo_nuevo' => $cambioCostoImport ? round($precioCosto, 2) : $existenteProducto->precio_costo,
                             'precio_venta_anterior' => $existenteProducto->precio_venta,
-                            'precio_venta_nuevo'    => $cambioVentaImport ? round($precioVenta, 2) : $existenteProducto->precio_venta,
-                            'user_id'               => auth()->id(),
-                            'origen_tipo'           => 'Importación Excel',
-                            'origen_id'             => $existente['id'],
-                            'created_at'            => now(),
-                            'updated_at'            => now(),
+                            'precio_venta_nuevo' => $cambioVentaImport ? round($precioVenta, 2) : $existenteProducto->precio_venta,
+                            'user_id' => auth()->id(),
+                            'origen_tipo' => 'Importación Excel',
+                            'origen_id' => $existente['id'],
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ]);
                     }
 
@@ -1071,7 +1152,7 @@ class ProductoController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Importación finalizada: {$creados} creados, {$actualizados} actualizados, {$omitidos} omitidos, " . count($conflictos) . " conflictos.",
+                'message' => "Importación finalizada: {$creados} creados, {$actualizados} actualizados, {$omitidos} omitidos, ".count($conflictos).' conflictos.',
                 'resumen' => [
                     'total_filas' => $totalFilas,
                     'creados' => $creados,
@@ -1091,7 +1172,8 @@ class ProductoController extends Controller
             if (str_contains($msg, 'array_combine')) {
                 $msg = 'El archivo tiene un formato inválido. Verificá columnas.';
             }
-            return response()->json(['success' => false, 'error' => 'Error al importar: ' . $msg], 500);
+
+            return response()->json(['success' => false, 'error' => 'Error al importar: '.$msg], 500);
         }
     }
 
@@ -1107,7 +1189,7 @@ class ProductoController extends Controller
                 $cellIterator->setIterateOnlyExistingCells(false);
                 foreach ($cellIterator as $cell) {
                     $rawValue = $cell->getValue();
-                    if ($rawValue instanceof \PhpOffice\PhpSpreadsheet\RichText\RichText) {
+                    if ($rawValue instanceof RichText) {
                         $rowData[] = $rawValue->getPlainText();
                     } else {
                         $rowData[] = $cell->getValue();
@@ -1128,6 +1210,7 @@ class ProductoController extends Controller
             }
             fclose($handle);
         }
+
         return $rows;
     }
 
@@ -1136,29 +1219,32 @@ class ProductoController extends Controller
         $maxSearch = min(10, count($rows));
 
         for ($i = 0; $i < $maxSearch; $i++) {
-            $candidateRaw = array_map(fn($h) => $this->celdaAString($h), $rows[$i]);
+            $candidateRaw = array_map(fn ($h) => $this->celdaAString($h), $rows[$i]);
             $candidate = array_map(function ($h) {
                 $h = str_replace("\0", '', $h);
                 $h = str_replace("\xc2\xa0", ' ', $h);
                 $h = str_replace("\xa0", ' ', $h);
                 $h = trim(mb_strtolower($h));
                 $h = preg_replace('/\s+/', ' ', $h);
+
                 return $h;
             }, $candidateRaw);
-            $candidate = array_map(fn($h) => strtr($h, $this->obtenerMapaAcentos()), $candidate);
+            $candidate = array_map(fn ($h) => strtr($h, $this->obtenerMapaAcentos()), $candidate);
 
-            $candidateMapped = array_map(fn($h) => $headerMap[$h] ?? $h, $candidate);
+            $candidateMapped = array_map(fn ($h) => $headerMap[$h] ?? $h, $candidate);
 
             if (in_array('nombre', $candidateMapped)) {
-                Log::info('Importación: headers detectados en fila ' . ($i + 1), [
+                Log::info('Importación: headers detectados en fila '.($i + 1), [
                     'mapped' => array_slice($candidateMapped, 0, 15),
                 ]);
+
                 return ['found' => true, 'mapped' => $candidateMapped, 'index' => $i];
             }
         }
 
-        $lastRaw = !empty($candidateRaw) ? implode(', ', array_slice($candidateRaw, 0, 10)) : '(ninguna)';
-        return ['found' => false, 'error' => 'No se encontraron columnas válidas. Última fila analizada: ' . $lastRaw];
+        $lastRaw = ! empty($candidateRaw) ? implode(', ', array_slice($candidateRaw, 0, 10)) : '(ninguna)';
+
+        return ['found' => false, 'error' => 'No se encontraron columnas válidas. Última fila analizada: '.$lastRaw];
     }
 
     private function resolverReferencia(string $valor, string $modelo, string $columna, ?int $comercioId): array
@@ -1172,6 +1258,7 @@ class ProductoController extends Controller
 
         if ($id === null) {
             $nombreModelo = class_basename($modelo);
+
             return ['id' => null, 'warning' => "No se pudo crear el registro \"{$valor}\" en {$nombreModelo}. Se guardó sin esta referencia."];
         }
 
@@ -1196,18 +1283,18 @@ class ProductoController extends Controller
         $user = auth()->user();
 
         $logoBase64 = null;
-        if (!empty($config['logo_empresa'])) {
-            $pathLogo = storage_path('app/public/' . $config['logo_empresa']);
+        if (! empty($config['logo_empresa'])) {
+            $pathLogo = storage_path('app/public/'.$config['logo_empresa']);
             if (file_exists($pathLogo) && is_file($pathLogo)) {
                 $ext = pathinfo($pathLogo, PATHINFO_EXTENSION);
-                $logoBase64 = 'data:image/' . $ext . ';base64,' . base64_encode(file_get_contents($pathLogo));
+                $logoBase64 = 'data:image/'.$ext.';base64,'.base64_encode(file_get_contents($pathLogo));
             }
         }
-        if (!$logoBase64 && $user->branch?->comercio?->logo) {
-            $pathLogo = storage_path('app/public/' . $user->branch->comercio->logo);
+        if (! $logoBase64 && $user->branch?->comercio?->logo) {
+            $pathLogo = storage_path('app/public/'.$user->branch->comercio->logo);
             if (file_exists($pathLogo) && is_file($pathLogo)) {
                 $ext = pathinfo($pathLogo, PATHINFO_EXTENSION);
-                $logoBase64 = 'data:image/' . $ext . ';base64,' . base64_encode(file_get_contents($pathLogo));
+                $logoBase64 = 'data:image/'.$ext.';base64,'.base64_encode(file_get_contents($pathLogo));
             }
         }
 
@@ -1227,12 +1314,14 @@ class ProductoController extends Controller
 
         $pdf->setPaper('A4', 'landscape');
 
-        return $pdf->download('productos_' . now()->format('Ymd_His') . '.pdf');
+        return $pdf->download('productos_'.now()->format('Ymd_His').'.pdf');
     }
 
     private function buscarOCrearReferencia(string $modelo, string $columna, ?string $valor, array $extra = [], ?int $comercioId = null): ?int
     {
-        if (empty($valor)) return null;
+        if (empty($valor)) {
+            return null;
+        }
 
         $valorNormalizado = $this->normalizarString($valor);
 
@@ -1242,7 +1331,7 @@ class ProductoController extends Controller
             })
             ->first();
 
-        if (!$registro) {
+        if (! $registro) {
             $extra[$columna] = $valor;
             if ($comercioId) {
                 $extra['comercio_id'] = $comercioId;
@@ -1250,16 +1339,17 @@ class ProductoController extends Controller
             if (in_array('slug', (new $modelo)->getFillable()) && empty($extra['slug'])) {
                 $base = Str::slug($valor);
                 $existe = $modelo::where('slug', $base)->exists();
-                $extra['slug'] = $existe ? $base . '-' . Str::random(5) : $base;
+                $extra['slug'] = $existe ? $base.'-'.Str::random(5) : $base;
             }
             try {
                 $registro = $modelo::create($extra);
-            } catch (\Illuminate\Database\QueryException $e) {
-                Log::warning("buscarOCrearReferencia: no se pudo crear registro", [
+            } catch (QueryException $e) {
+                Log::warning('buscarOCrearReferencia: no se pudo crear registro', [
                     'modelo' => $modelo,
                     'valor' => $valor,
                     'error' => $e->getMessage(),
                 ]);
+
                 return null;
             }
         }
@@ -1285,6 +1375,8 @@ class ProductoController extends Controller
             'descripción' => 'descripcion', 'descripcion' => 'descripcion', 'description' => 'descripcion',
             'retornable' => 'es_retornable', 'es_retornable' => 'es_retornable', 'returnable' => 'es_retornable',
             'estado' => 'estado', 'status' => 'estado', 'active' => 'estado', 'activo' => 'estado',
+            'alícuota iva' => 'alicuota_iva', 'alicuota iva' => 'alicuota_iva', 'alicuota_iva' => 'alicuota_iva',
+            'alicuota' => 'alicuota_iva', 'alícuota' => 'alicuota_iva', 'iva' => 'alicuota_iva',
         ];
     }
 
@@ -1298,22 +1390,28 @@ class ProductoController extends Controller
         $valor = str_replace("\0", '', $valor);
         $valor = trim(mb_strtolower($valor));
         $valor = preg_replace('/\s+/', ' ', $valor);
+
         return $valor;
     }
 
     private function normalizarPrecioArgentino($valor): ?float
     {
-        if ($valor === null || $valor === '') return null;
+        if ($valor === null || $valor === '') {
+            return null;
+        }
         $valor = (string) $valor;
         $valor = str_replace(['$', 'USD', 'U\$S', 'ARS'], '', $valor);
         $valor = trim($valor);
-        if ($valor === '') return null;
+        if ($valor === '') {
+            return null;
+        }
         $valor = rtrim($valor, '-');
         $valor = str_replace(',', '.', $valor);
         $valor = preg_replace('/\.(?=.*\.)/', '', $valor);
         if (is_numeric($valor)) {
             return (float) $valor;
         }
+
         return null;
     }
 
@@ -1321,13 +1419,17 @@ class ProductoController extends Controller
     {
         $valor = strtolower(trim((string) $valor));
         $map = ['unidad' => 'Unidad', 'unid' => 'Unidad', 'un' => 'Unidad', 'kg' => 'Kg', 'kilo' => 'Kg', 'kilos' => 'Kg', 'gramos' => 'Gramos', 'g' => 'Gramos', 'gr' => 'Gramos', 'litro' => 'Litros', 'l' => 'Litros', 'lt' => 'Litros', 'litros' => 'Litros'];
+
         return $map[$valor] ?? 'Unidad';
     }
 
     private function parsearBooleano($valor, bool $default = false): bool
     {
-        if ($valor === null || $valor === '') return $default;
+        if ($valor === null || $valor === '') {
+            return $default;
+        }
         $valor = strtolower(trim((string) $valor));
+
         return in_array($valor, ['1', 'sí', 'si', 'true', 'activo', 'yes', 'verdadero']);
     }
 
@@ -1338,17 +1440,20 @@ class ProductoController extends Controller
 
     private function celdaAString($value): string
     {
-        if ($value === null) return '';
-        if ($value instanceof \PhpOffice\PhpSpreadsheet\RichText\RichText) {
+        if ($value === null) {
+            return '';
+        }
+        if ($value instanceof RichText) {
             $value = $value->getPlainText();
         }
+
         return trim((string) $value);
     }
 
     public function generarPlu()
     {
         $maxPlu = DB::table('productos')
-            ->whereRaw("codigo_barras ~ '^[0-9]{1,5}$'") 
+            ->whereRaw("codigo_barras ~ '^[0-9]{1,5}$'")
             ->max(DB::raw('codigo_barras::integer'));
 
         $proximo = $maxPlu ? $maxPlu + 1 : 1000;
@@ -1382,7 +1487,7 @@ class ProductoController extends Controller
             case 'busqueda':
                 $query->where(function ($q) use ($request) {
                     $q->where('nombre', 'ilike', "%{$request->busqueda}%")
-                      ->orWhere('codigo_barras', 'ilike', "%{$request->busqueda}%");
+                        ->orWhere('codigo_barras', 'ilike', "%{$request->busqueda}%");
                 });
                 break;
         }
@@ -1401,13 +1506,13 @@ class ProductoController extends Controller
 
         $pdf->setPaper('A4', 'portrait');
 
-        return $pdf->download('etiquetas_' . now()->format('Ymd_His') . '.pdf');
+        return $pdf->download('etiquetas_'.now()->format('Ymd_His').'.pdf');
     }
 
     public function historialPrecios(Request $request, Producto $producto)
     {
         $comercioId = auth()->user()->branch?->comercio_id;
-        if ($comercioId && !$producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
+        if ($comercioId && ! $producto->sucursales()->where('comercio_id', $comercioId)->exists()) {
             abort(403, 'Este producto no pertenece a tu comercio.');
         }
 
@@ -1426,10 +1531,10 @@ class ProductoController extends Controller
             ->orderBy('historico_costos.created_at', 'desc');
 
         if ($request->filled('fecha_desde')) {
-            $query->where('historico_costos.created_at', '>=', $request->fecha_desde . ' 00:00:00');
+            $query->where('historico_costos.created_at', '>=', $request->fecha_desde.' 00:00:00');
         }
         if ($request->filled('fecha_hasta')) {
-            $query->where('historico_costos.created_at', '<=', $request->fecha_hasta . ' 23:59:59');
+            $query->where('historico_costos.created_at', '<=', $request->fecha_hasta.' 23:59:59');
         }
 
         $historial = $query->paginate(8);

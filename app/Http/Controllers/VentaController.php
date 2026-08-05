@@ -5,41 +5,48 @@ namespace App\Http\Controllers;
 use App\Enums\MetodoPago;
 use App\Enums\PaymentChannel;
 use App\Enums\VentaStatus;
-use App\Models\Venta;
-use App\Models\DetalleVenta;
-use App\Models\Producto;
-use App\Models\Lote;
-use App\Models\TurnoCaja;
+use App\Facturacion\Application\EmisionVentaService;
+use App\Facturacion\Application\VentaOperacionFiscalService;
+use App\Jobs\EnviarTicketDigital;
+use App\Models\ComprobanteFiscal;
+use App\Models\Configuracion;
 use App\Models\Consumidor;
 use App\Models\CuentaCorriente;
-use App\Models\MovimientoCuentaCorriente;
+use App\Models\DetalleVenta;
+use App\Models\Lote;
 use App\Models\MovimientoCaja;
+use App\Models\MovimientoCuentaCorriente;
 use App\Models\PaymentMethodConfiguration;
-use App\Jobs\EnviarTicketDigital;
+use App\Models\Producto;
+use App\Models\TurnoCaja;
+use App\Models\Venta;
 use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\PaymentRecorder;
 use App\Services\Payment\PaymentService;
-use Illuminate\Http\Request;
+use App\Services\Ticket\ComprobanteImpresionResolver;
+use App\Services\Ticket\TicketPdfService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
-use Carbon\Carbon;
 
 class VentaController extends Controller
 {
     public function __construct(
         private readonly PaymentRecorder $paymentRecorder,
         private readonly PaymentService $paymentService,
+        private readonly EmisionVentaService $emisionVenta,
+        private readonly VentaOperacionFiscalService $operacionesVenta,
     ) {}
 
     public function index(Request $request)
     {
         $user = auth()->user();
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
-        if (!$sucursalId) {
+        if (! $sucursalId) {
             abort(403, 'No tienes una sucursal asignada.');
         }
-        
+
         $search = $request->input('search');
         $estado = $request->input('estado', 'all');
         $fecha_desde = $request->input('fecha_desde');
@@ -76,21 +83,79 @@ class VentaController extends Controller
             ->paginate(10)
             ->withQueryString();
 
+        // F9 §11: historial fiscal. Se exponen los comprobantes del ledger de las
+        // ventas de la página (una venta puede tener su comprobante original y la
+        // nota de crédito posterior).
+        $fiscales = ComprobanteFiscal::whereIn('venta_id', $ventas->pluck('id'))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (ComprobanteFiscal $c) => [
+                'id' => $c->id,
+                'venta_id' => $c->venta_id,
+                'tipo' => $c->tipo,
+                'letra' => $c->letra,
+                'punto_venta' => $c->punto_venta,
+                'numero' => (int) $c->numero,
+                'numero_completo' => $c->numero_completo,
+                'cae' => $c->cae,
+                'vencimiento_cae' => $c->vencimiento_cae?->format('d/m/Y'),
+                'estado' => $c->estado,
+                'es_nota_credito' => $c->comprobante_original_id !== null,
+                'comprobante_original_id' => $c->comprobante_original_id,
+            ])
+            ->groupBy('venta_id');
+
+        $ventas->through(function ($venta) use ($fiscales) {
+            $venta->fiscal = $fiscales->get($venta->id, collect());
+
+            return $venta;
+        });
+
         return Inertia::render('Ventas/Index', [
             'ventas' => $ventas,
-            'filtros' => $request->only(['search', 'estado', 'fecha_desde', 'fecha_hasta'])
+            'filtros' => $request->only(['search', 'estado', 'fecha_desde', 'fecha_hasta']),
         ]);
+    }
+
+    /**
+     * F9 §11/§12: descarga el PDF de una venta. Con comprobante fiscal se emite
+     * la vista legal A4 (QR, CAE, desglose); sin módulo fiscal el ticket A4.
+     * Acepta ?comprobante_id para descargar un comprobante específico (NC).
+     */
+    public function pdf(Request $request, Venta $venta, TicketPdfService $pdfService, ComprobanteImpresionResolver $resolver)
+    {
+        $comercioId = auth()->user()->branch?->comercio_id;
+        if ($comercioId) {
+            $existe = Venta::where('id', $venta->id)
+                ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
+                ->exists();
+            if (! $existe) {
+                abort(403, 'Esta venta no pertenece a tu comercio.');
+            }
+        }
+
+        $comprobante = $comercioId
+            ? $resolver->resolver($request, $venta, $comercioId)
+            : null;
+
+        $pdf = $pdfService->generar($venta, $comprobante);
+
+        $nombre = $comprobante !== null
+            ? "comprobante_{$comprobante->numeroCompleto()}.pdf"
+            : "ticket_{$venta->id}.pdf";
+
+        return $pdf->download($nombre);
     }
 
     public function store(Request $request)
     {
         $request->validate([
             'turno_caja_id' => 'required|exists:turno_cajas,id',
-            'consumidor_id' => 'nullable|exists:consumidores,id', 
-            'items'         => 'required|array|min:1',
-            'total'         => 'required|numeric|min:0',
-            'metodo_pago'   => 'required_without:pagos|string',
-            'pagos'         => 'nullable|array|min:1',
+            'consumidor_id' => 'nullable|exists:consumidores,id',
+            'items' => 'required|array|min:1',
+            'total' => 'required|numeric|min:0',
+            'metodo_pago' => 'required_without:pagos|string',
+            'pagos' => 'nullable|array|min:1',
             'pagos.*.metodo_pago' => 'required_with:pagos|string',
             'pagos.*.monto' => 'required_with:pagos|numeric|min:0',
             'pagos.*.banco' => 'nullable|string|max:255',
@@ -100,11 +165,11 @@ class VentaController extends Controller
             'pagos.*.recargo_monto' => 'nullable|numeric|min:0',
         ]);
 
-        $permitirStockNegativo = \App\Models\Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
+        $permitirStockNegativo = Configuracion::where('clave', 'permitir_stock_negativo')->value('valor');
         $permitirStockNegativo = filter_var($permitirStockNegativo, FILTER_VALIDATE_BOOLEAN);
 
         $comercioId = auth()->user()->branch?->comercio_id;
-        $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
+        $labelMap = $comercioId ? PaymentMethodConfiguration::labelMap($comercioId) : [];
         $items = collect($request->items)->sortBy('id')->values()->all();
         $totalCalculado = collect($items)->sum(fn ($item) => (float) ($item['precio_venta'] ?? 0) * (float) ($item['cantidad'] ?? 0));
 
@@ -114,7 +179,7 @@ class VentaController extends Controller
         $sucursalId = $turno->caja->sucursal_id;
 
         $pagos = $request->pagos;
-        if (!$pagos) {
+        if (! $pagos) {
             $pagos = [['metodo_pago' => $request->metodo_pago, 'monto' => (float) $request->total]];
         }
 
@@ -146,8 +211,7 @@ class VentaController extends Controller
 
         $sumaPagos = $pagosNormalizados->sum('monto');
         if (abs($sumaPagos - $totalCalculado) > 0.01) {
-            return redirect()->back()->withErrors(['error' =>
-                "La suma de los pagos (\$$sumaPagos) no coincide con el total calculado (\${$totalCalculado})."
+            return redirect()->back()->withErrors(['error' => "La suma de los pagos (\$$sumaPagos) no coincide con el total calculado (\${$totalCalculado}).",
             ]);
         }
 
@@ -155,6 +219,18 @@ class VentaController extends Controller
         $recargoMontoCalculado = $pagosNormalizados
             ->filter(fn ($p) => isset($p['tipo_tarjeta']) && in_array($p['tipo_tarjeta'], ['DEBITO', 'CREDITO']))
             ->sum('recargo_monto');
+
+        // F4 §10: el recargo se suma al monto efectivamente cobrado del pago con tarjeta,
+        // para que entre al total, a los pagos y a los movimientos de caja (arqueo = cobrado = facturado).
+        $pagosNormalizados = $pagosNormalizados->map(function ($pago) {
+            if (isset($pago['tipo_tarjeta']) && in_array($pago['tipo_tarjeta'], ['DEBITO', 'CREDITO'])) {
+                $pago['monto'] = round((float) $pago['monto'] + (float) ($pago['recargo_monto'] ?? 0), 2);
+            }
+
+            return $pago;
+        });
+
+        $totalFinal = round((float) $pagosNormalizados->sum('monto'), 2);
 
         $tieneCuentaCorriente = $pagosNormalizados->contains('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value);
         $montoCC = $pagosNormalizados->where('metodo_pago', MetodoPago::CUENTA_CORRIENTE->value)->sum('monto');
@@ -164,9 +240,8 @@ class VentaController extends Controller
             : 'MULTIPLE';
 
         if ($tieneCuentaCorriente) {
-            if (!$request->consumidor_id) {
-                return redirect()->back()->withErrors(['error' =>
-                    'Debe seleccionar un cliente para realizar una venta en cuenta corriente.'
+            if (! $request->consumidor_id) {
+                return redirect()->back()->withErrors(['error' => 'Debe seleccionar un cliente para realizar una venta en cuenta corriente.',
                 ]);
             }
 
@@ -175,7 +250,7 @@ class VentaController extends Controller
                 ->where('estado', true)
                 ->find($request->consumidor_id);
 
-            if (!$consumidor) {
+            if (! $consumidor) {
                 return redirect()->back()->withErrors(['error' => 'El cliente no existe o no pertenece a tu comercio.']);
             }
 
@@ -187,8 +262,8 @@ class VentaController extends Controller
 
             if ($montoCC > $disponible) {
                 $montoFormateado = number_format($disponible, 2, ',', '.');
-                return redirect()->back()->withErrors(['error' =>
-                    "Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado."
+
+                return redirect()->back()->withErrors(['error' => "Crédito insuficiente. El límite disponible del cliente es de $$montoFormateado.",
                 ]);
             }
         }
@@ -201,8 +276,7 @@ class VentaController extends Controller
         $esFlujoGateway = $pagosNormalizados->contains(fn ($p) => isset($gatewayConfigs[$p['metodo_pago']]));
 
         if ($esFlujoManual && $esFlujoGateway) {
-            return redirect()->back()->withErrors(['error' =>
-                'No podés combinar métodos manuales con pagos electrónicos en una misma venta.'
+            return redirect()->back()->withErrors(['error' => 'No podés combinar métodos manuales con pagos electrónicos en una misma venta.',
             ]);
         }
 
@@ -214,12 +288,23 @@ class VentaController extends Controller
         try {
             DB::beginTransaction();
 
+            $alicuotasPorProducto = [];
+
             foreach ($items as $item) {
-                $productoActivo = Producto::where('id', $item['id'])->where('estado', true)->exists();
-                if (!$productoActivo) {
+                // La tabla productos no tiene comercio_id: el scope multi-tenant es
+                // por sucursal (producto_sucursal → sucursal.comercio_id, ya validado
+                // vía el turno). Filtrar por sucursal evita usar la alícuota de un
+                // producto de otro comercio en el comprobante (auditoría F10, H3.2).
+                $producto = Producto::where('id', $item['id'])
+                    ->where('estado', true)
+                    ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId))
+                    ->first();
+                if (! $producto) {
                     $nombre = $item['nombre'] ?? "Producto ID: {$item['id']}";
                     throw new \Exception("El producto {$nombre} no está activo y no puede venderse.");
                 }
+
+                $alicuotasPorProducto[$item['id']] = $producto->alicuota_iva;
 
                 $stockActual = DB::table('producto_sucursal')
                     ->where('producto_id', $item['id'])
@@ -231,8 +316,8 @@ class VentaController extends Controller
                     ? $stockActual->cantidad_fisica - $stockActual->cantidad_reservada
                     : 0;
 
-                if (!$permitirStockNegativo) {
-                    if (!$stockActual || $cantDisponible < $item['cantidad']) {
+                if (! $permitirStockNegativo) {
+                    if (! $stockActual || $cantDisponible < $item['cantidad']) {
                         $nombre = $item['nombre'] ?? "Producto ID: {$item['id']}";
                         throw new \Exception("Stock insuficiente para: {$nombre}. Disponible: {$cantDisponible}");
                     }
@@ -242,17 +327,17 @@ class VentaController extends Controller
             $venta = Venta::create([
                 'turno_caja_id' => $request->turno_caja_id,
                 'consumidor_id' => $request->consumidor_id,
-                'metodo_pago'   => $metodoPagoNormalizado,
-                'pagos'         => $pagosNormalizados->toArray(),
-                'total'         => $totalCalculado,
+                'metodo_pago' => $metodoPagoNormalizado,
+                'pagos' => $pagosNormalizados->toArray(),
+                'total' => $totalFinal,
                 'recargo_monto' => $recargoMontoCalculado,
-                'estado'        => $esPendiente ? VentaStatus::PENDING : VentaStatus::COMPLETED,
+                'estado' => $esPendiente ? VentaStatus::PENDING : VentaStatus::COMPLETED,
             ]);
 
-            if (!$esPendiente) {
+            if (! $esPendiente) {
                 foreach ($pagosNormalizados as $pago) {
                     if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value) {
-                        if (!isset($cuenta)) {
+                        if (! isset($cuenta)) {
                             $cuenta = CuentaCorriente::firstOrCreate(
                                 ['consumidor_id' => $request->consumidor_id],
                                 ['saldo_deudor' => 0],
@@ -263,19 +348,19 @@ class VentaController extends Controller
 
                         MovimientoCuentaCorriente::create([
                             'cuenta_corriente_id' => $cuenta->id,
-                            'venta_id'            => $venta->id,
-                            'monto'               => $pago['monto'],
-                            'tipo'                => 'cargo',
-                            'descripcion'         => 'Compra en POS (' . $pago['metodo_pago'] . ')',
+                            'venta_id' => $venta->id,
+                            'monto' => $pago['monto'],
+                            'tipo' => 'cargo',
+                            'descripcion' => 'Compra en POS ('.$pago['metodo_pago'].')',
                         ]);
                     } else {
                         MovimientoCaja::create([
                             'turno_caja_id' => $request->turno_caja_id,
-                            'tipo'          => 'INGRESO',
-                            'concepto'      => 'VENTA_MOSTRADOR',
-                            'metodo_pago'   => $pago['metodo_pago'],
-                            'monto'         => $pago['monto'],
-                            'descripcion'   => 'Ticket de venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
+                            'tipo' => 'INGRESO',
+                            'concepto' => 'VENTA_MOSTRADOR',
+                            'metodo_pago' => $pago['metodo_pago'],
+                            'monto' => $pago['monto'],
+                            'descripcion' => 'Ticket de venta #'.$venta->id.' ('.$pago['metodo_pago'].')',
                         ]);
                     }
                 }
@@ -285,11 +370,12 @@ class VentaController extends Controller
                 $cantidadAVender = $item['cantidad'];
 
                 $detalle = DetalleVenta::create([
-                    'venta_id'        => $venta->id,
-                    'producto_id'     => $item['id'],
-                    'cantidad'        => $cantidadAVender,
+                    'venta_id' => $venta->id,
+                    'producto_id' => $item['id'],
+                    'cantidad' => $cantidadAVender,
                     'precio_unitario' => $item['precio_venta'],
-                    'subtotal'        => $cantidadAVender * $item['precio_venta'],
+                    'alicuota_iva' => $alicuotasPorProducto[$item['id']] ?? null,
+                    'subtotal' => $cantidadAVender * $item['precio_venta'],
                 ]);
 
                 $lotes = Lote::where('producto_id', $item['id'])
@@ -303,7 +389,9 @@ class VentaController extends Controller
                 $lotesConsumidos = [];
 
                 foreach ($lotes as $lote) {
-                    if ($pendientePorRestar <= 0) break;
+                    if ($pendientePorRestar <= 0) {
+                        break;
+                    }
 
                     if ($lote->stock_actual >= $pendientePorRestar) {
                         $cantidadRestada = $pendientePorRestar;
@@ -317,14 +405,14 @@ class VentaController extends Controller
 
                     $lotesConsumidos[] = [
                         'detalle_venta_id' => $detalle->id,
-                        'lote_id'          => $lote->id,
-                        'cantidad'         => $cantidadRestada,
-                        'created_at'       => now(),
-                        'updated_at'       => now(),
+                        'lote_id' => $lote->id,
+                        'cantidad' => $cantidadRestada,
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ];
                 }
 
-                if (!empty($lotesConsumidos)) {
+                if (! empty($lotesConsumidos)) {
                     DB::table('detalle_venta_lote')->insert($lotesConsumidos);
                 }
 
@@ -342,23 +430,23 @@ class VentaController extends Controller
                 );
 
                 DB::table('movimientos_stock')->insert([
-                    'producto_id'         => $item['id'],
-                    'sucursal_id'         => $sucursalId,
-                    'user_id'             => auth()->id(),
-                    'tipo_movimiento'     => 'Venta',
-                    'cantidad_anterior'   => $cantidadAnterior,
+                    'producto_id' => $item['id'],
+                    'sucursal_id' => $sucursalId,
+                    'user_id' => auth()->id(),
+                    'tipo_movimiento' => 'Venta',
+                    'cantidad_anterior' => $cantidadAnterior,
                     'cantidad_movimiento' => -$cantidadAVender,
-                    'cantidad_actual'     => $nuevaCantidad,
-                    'motivo'              => "Venta POS #{$venta->id}" . ($nuevaCantidad < 0 ? " (STOCK NEGATIVO)" : ""),
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
+                    'cantidad_actual' => $nuevaCantidad,
+                    'motivo' => "Venta POS #{$venta->id}".($nuevaCantidad < 0 ? ' (STOCK NEGATIVO)' : ''),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             }
 
             if ($esFlujoManual) {
                 foreach ($pagosNormalizados as $pago) {
                     $config = $manualConfigs[$pago['metodo_pago']] ?? null;
-                    if (!$config) {
+                    if (! $config) {
                         continue;
                     }
 
@@ -375,7 +463,7 @@ class VentaController extends Controller
             if ($esFlujoGateway) {
                 foreach ($pagosNormalizados as $pago) {
                     $config = $gatewayConfigs[$pago['metodo_pago']] ?? null;
-                    if (!$config) {
+                    if (! $config) {
                         continue;
                     }
 
@@ -389,22 +477,32 @@ class VentaController extends Controller
                 }
             }
 
+            // F5: emisión fiscal dentro de la misma transacción que completa la
+            // venta directa (invariante 1). Si falla, la excepción revierte todo
+            // y la venta no queda completada sin comprobante.
+            $comprobante = null;
+            if (! $esPendiente) {
+                $comprobante = $this->emisionVenta->emitirSiCorresponde($venta);
+            }
+
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
             \Log::error($e->getMessage());
+
             return redirect()->back()->withErrors(['error' => $e->getMessage()]);
         }
 
         // ──────────────────────────────────────────────
         // 2. Si es instantáneo → ticket y respuesta
         // ──────────────────────────────────────────────
-        if (!$esPendiente) {
+        if (! $esPendiente) {
             EnviarTicketDigital::dispatch($venta->id);
 
             return redirect()->back()->with([
                 'success' => 'Venta exitosa',
                 'venta_id' => $venta->id,
+                'comprobante' => $comprobante?->numeroCompleto(),
             ]);
         }
 
@@ -443,7 +541,7 @@ class VentaController extends Controller
 
         foreach ($pagosNormalizados as $pago) {
             $config = $gatewayConfigs[$pago['metodo_pago']] ?? null;
-            if (!$config) {
+            if (! $config) {
                 continue;
             }
 
@@ -465,10 +563,10 @@ class VentaController extends Controller
                     request: new CheckoutRequest(
                         referenceId: "venta_{$venta->id}",
                         title: "Venta POS #{$venta->id}",
-                        description: "Venta en POS",
+                        description: 'Venta en POS',
                         amount: $pago['monto'],
                         items: $itemsMapped,
-                        notificationUrl: route('mercadopago.notificacion', ['comercio_id' => $comercioId]),
+                        notificationUrl: config('services.mercadopago.public_url').'/api/mercadopago/notificacion?comercio_id='.$comercioId,
                     ),
                     channel: $channel,
                     options: [
@@ -507,8 +605,7 @@ class VentaController extends Controller
         }
 
         if ($gatewayError) {
-            return redirect()->back()->withErrors(['error' =>
-                "Venta creada pero el pago electrónico falló: {$gatewayError}. Cancelá la venta e intentá de nuevo."
+            return redirect()->back()->withErrors(['error' => "Venta creada pero el pago electrónico falló: {$gatewayError}. Cancelá la venta e intentá de nuevo.",
             ]);
         }
 
@@ -534,62 +631,76 @@ class VentaController extends Controller
             $existe = Venta::where('id', $venta->id)
                 ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
                 ->exists();
-            if (!$existe) {
+            if (! $existe) {
                 abort(403, 'Esta venta no pertenece a tu comercio.');
             }
         }
 
-        return DB::transaction(function () use ($venta) {
-            $venta = Venta::lockForUpdate()->with('turno.caja')->findOrFail($venta->id);
+        try {
+            return DB::transaction(function () use ($venta) {
+                $venta = Venta::lockForUpdate()->with('turno.caja')->findOrFail($venta->id);
 
-            if ($venta->estado !== VentaStatus::PENDING) {
-                return redirect()->back()->withErrors(['error' => 'La venta no está pendiente de pago.']);
-            }
-
-            $pagos = $venta->pagos ?? [['metodo_pago' => $venta->metodo_pago, 'monto' => $venta->total]];
-
-            $manualConfigs = $this->loadManualConfigs(auth()->user()->branch?->comercio_id);
-
-            foreach ($pagos as $pago) {
-                $metodo = MetodoPago::fromString($pago['metodo_pago']);
-                $config = $manualConfigs[$pago['metodo_pago']] ?? null;
-                $provider = $config['provider'] ?? $pago['metodo_pago'];
-
-                if ($metodo === MetodoPago::CUENTA_CORRIENTE) {
-                    $cuenta = CuentaCorriente::firstOrCreate(
-                        ['consumidor_id' => $venta->consumidor_id],
-                        ['saldo_deudor' => 0],
-                    );
-                    $cuenta->increment('saldo_deudor', $pago['monto']);
-                    MovimientoCuentaCorriente::create([
-                        'cuenta_corriente_id' => $cuenta->id,
-                        'venta_id'            => $venta->id,
-                        'monto'               => $pago['monto'],
-                        'tipo'                => 'cargo',
-                        'descripcion'         => 'Compra en POS (' . $pago['metodo_pago'] . ')',
-                    ]);
-                } else {
-                    MovimientoCaja::create([
-                        'turno_caja_id' => $venta->turno_caja_id,
-                        'tipo'          => 'INGRESO',
-                        'concepto'      => 'VENTA_MOSTRADOR',
-                        'metodo_pago'   => $pago['metodo_pago'],
-                        'monto'         => $pago['monto'],
-                        'descripcion'   => 'Confirmación pago venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
-                    ]);
+                if ($venta->estado !== VentaStatus::PENDING) {
+                    return redirect()->back()->withErrors(['error' => 'La venta no está pendiente de pago.']);
                 }
 
-                if ($config) {
-                    $this->paymentRecorder->approve($venta, $provider);
+                $pagos = $venta->pagos ?? [['metodo_pago' => $venta->metodo_pago, 'monto' => $venta->total]];
+
+                $manualConfigs = $this->loadManualConfigs(auth()->user()->branch?->comercio_id);
+
+                foreach ($pagos as $pago) {
+                    $metodo = MetodoPago::fromString($pago['metodo_pago']);
+                    $config = $manualConfigs[$pago['metodo_pago']] ?? null;
+                    $provider = $config['provider'] ?? $pago['metodo_pago'];
+
+                    if ($metodo === MetodoPago::CUENTA_CORRIENTE) {
+                        $cuenta = CuentaCorriente::firstOrCreate(
+                            ['consumidor_id' => $venta->consumidor_id],
+                            ['saldo_deudor' => 0],
+                        );
+                        $cuenta->increment('saldo_deudor', $pago['monto']);
+                        MovimientoCuentaCorriente::create([
+                            'cuenta_corriente_id' => $cuenta->id,
+                            'venta_id' => $venta->id,
+                            'monto' => $pago['monto'],
+                            'tipo' => 'cargo',
+                            'descripcion' => 'Compra en POS ('.$pago['metodo_pago'].')',
+                        ]);
+                    } else {
+                        MovimientoCaja::create([
+                            'turno_caja_id' => $venta->turno_caja_id,
+                            'tipo' => 'INGRESO',
+                            'concepto' => 'VENTA_MOSTRADOR',
+                            'metodo_pago' => $pago['metodo_pago'],
+                            'monto' => $pago['monto'],
+                            'descripcion' => 'Confirmación pago venta #'.$venta->id.' ('.$pago['metodo_pago'].')',
+                        ]);
+                    }
+
+                    if ($config) {
+                        $this->paymentRecorder->approve($venta, $provider);
+                    }
                 }
-            }
 
-            $venta->update(['estado' => VentaStatus::COMPLETED]);
+                // F5: la emisión ocurre dentro de la transacción, antes de marcar la
+                // venta completada. Si falla, el rollback deja la venta PENDING.
+                $comprobante = $this->emisionVenta->emitirSiCorresponde($venta);
 
-            EnviarTicketDigital::dispatch($venta->id);
+                $venta->update(['estado' => VentaStatus::COMPLETED]);
 
-            return redirect()->back()->with(['success' => 'Pago confirmado', 'venta_id' => $venta->id]);
-        });
+                EnviarTicketDigital::dispatch($venta->id);
+
+                return redirect()->back()->with([
+                    'success' => 'Pago confirmado',
+                    'venta_id' => $venta->id,
+                    'comprobante' => $comprobante?->numeroCompleto(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            \Log::error("Emisión fiscal fallida al confirmar pago de venta #{$venta->id}: {$e->getMessage()}");
+
+            return redirect()->back()->withErrors(['error' => 'La venta no se pudo completar: '.$e->getMessage()]);
+        }
     }
 
     public function cancelar(Request $request, Venta $venta)
@@ -601,123 +712,33 @@ class VentaController extends Controller
             $existe = Venta::where('id', $venta->id)
                 ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
                 ->exists();
-            if (!$existe) {
+            if (! $existe) {
                 abort(403, 'Esta venta no pertenece a tu comercio.');
             }
         }
 
-        return DB::transaction(function () use ($venta, $request) {
-            $venta = Venta::lockForUpdate()->with('turno.caja', 'detalles.lotes')->findOrFail($venta->id);
-
-            if ($venta->estado === VentaStatus::CANCELLED) return redirect()->back();
-
-            $sucursalId = $venta->turno->caja->sucursal_id;
-
-            $loteIds = $venta->detalles->flatMap(fn ($d) => $d->lotes->pluck('id'))->unique()->sort()->values()->all();
-            if (!empty($loteIds)) {
-                DB::table('lotes')->whereIn('id', $loteIds)->lockForUpdate()->get();
-            }
-
-            foreach ($venta->detalles as $detalle) {
-                foreach ($detalle->lotes as $lote) {
-                    $cantidad = (float) $lote->pivot->cantidad;
-                    DB::table('lotes')
-                        ->where('id', $lote->id)
-                        ->update([
-                            'stock_actual' => DB::raw("stock_actual + " . $cantidad),
-                            'updated_at'  => now(),
-                        ]);
-                }
-            }
-
-            foreach ($venta->detalles as $detalle) {
-                $stockLocked = DB::table('producto_sucursal')
-                    ->where('sucursal_id', $sucursalId)
-                    ->where('producto_id', $detalle->producto_id)
-                    ->lockForUpdate()
-                    ->first();
-
-                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
-
-                DB::table('producto_sucursal')
-                    ->where('sucursal_id', $sucursalId)
-                    ->where('producto_id', $detalle->producto_id)
-                    ->update([
-                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . (float) $detalle->cantidad),
-                        'updated_at'     => now(),
-                    ]);
-
-                DB::table('movimientos_stock')->insert([
-                    'producto_id'         => $detalle->producto_id,
-                    'sucursal_id'         => $sucursalId,
-                    'user_id'             => auth()->id(),
-                    'tipo_movimiento'     => 'Cancelación Venta',
-                    'cantidad_anterior'   => $cantidadAnterior,
-                    'cantidad_movimiento' => $detalle->cantidad,
-                    'cantidad_actual'     => $cantidadAnterior + $detalle->cantidad,
-                    'motivo'              => "Venta #{$venta->id}: {$request->motivo}",
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
-                ]);
-            }
-
-            $pagos = $venta->pagos_display;
-
-            if ($venta->estado === VentaStatus::COMPLETED) {
-                foreach ($pagos as $pagoRevertir) {
-                    if ($pagoRevertir['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
-                        $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
-                            ->lockForUpdate()
-                            ->first();
-                        if ($cuenta) {
-                            $cuenta->decrement('saldo_deudor', $pagoRevertir['monto']);
-                            MovimientoCuentaCorriente::create([
-                                'cuenta_corriente_id' => $cuenta->id,
-                                'venta_id'            => $venta->id,
-                                'monto'               => $pagoRevertir['monto'],
-                                'tipo'                => 'abono',
-                                'descripcion'         => 'Anulación Venta #' . $venta->id . ' (' . $pagoRevertir['metodo_pago'] . ')',
-                            ]);
-                        }
-                    } else {
-                        MovimientoCaja::create([
-                            'turno_caja_id' => $venta->turno_caja_id,
-                            'tipo'          => 'EGRESO',
-                            'concepto'      => 'ANULACION_VENTA',
-                            'metodo_pago'   => $pagoRevertir['metodo_pago'],
-                            'monto'         => $pagoRevertir['monto'],
-                            'descripcion'   => 'Anulación de venta #' . $venta->id . ' - Motivo: ' . $request->motivo . ' (' . $pagoRevertir['metodo_pago'] . ')',
-                        ]);
-                    }
-                }
-            }
-
-            $manualConfigsCancel = $this->loadManualConfigs(auth()->user()->branch?->comercio_id);
-
-            foreach ($pagos as $pagoRevertir) {
-                $config = $manualConfigsCancel[$pagoRevertir['metodo_pago']] ?? null;
-                if ($config) {
-                    $provider = $config['provider'] ?? $pagoRevertir['metodo_pago'];
-                    $this->paymentRecorder->cancel($venta, $provider);
-                }
-            }
-
-            $venta->update(['estado' => VentaStatus::CANCELLED, 'motivo_anulacion' => $request->motivo]);
-
-            foreach ($venta->detalles as $detalle) {
-                $detalle->update(['cantidad_devuelta' => $detalle->cantidad]);
-            }
+        try {
+            $this->operacionesVenta->anular(
+                $venta->id,
+                $request->motivo,
+                $comercioId,
+                auth()->id(),
+            );
 
             return redirect()->back();
-        });
+        } catch (\Throwable $e) {
+            \Log::error("Fallo fiscal al anular la venta #{$venta->id}: {$e->getMessage()}");
+
+            return redirect()->back()->withErrors(['error' => 'La anulación no se pudo completar: '.$e->getMessage()]);
+        }
     }
 
     public function devolver(Request $request, Venta $venta)
     {
         $request->validate([
-            'items'                       => 'required|array|min:1',
-            'items.*.detalle_id'          => 'required|integer|exists:detalle_ventas,id',
-            'items.*.cantidad'            => 'required|numeric|min:0.01',
+            'items' => 'required|array|min:1',
+            'items.*.detalle_id' => 'required|integer|exists:detalle_ventas,id',
+            'items.*.cantidad' => 'required|numeric|min:0.01',
         ]);
 
         $comercioId = auth()->user()->branch?->comercio_id;
@@ -725,138 +746,32 @@ class VentaController extends Controller
             $existe = Venta::where('id', $venta->id)
                 ->whereHas('turno.caja.sucursal', fn ($q) => $q->where('comercio_id', $comercioId))
                 ->exists();
-            if (!$existe) {
+            if (! $existe) {
                 abort(403, 'Esta venta no pertenece a tu comercio.');
             }
         }
 
-        return DB::transaction(function () use ($venta, $request) {
-            $venta = Venta::lockForUpdate()->with('turno.caja', 'detalles.lotes', 'detalles.producto')->findOrFail($venta->id);
-
-            if ($venta->estado !== VentaStatus::COMPLETED) {
-                return redirect()->back()->withErrors('Solo se pueden devolver ventas completadas.');
-            }
-
-            $sucursalId = $venta->turno->caja->sucursal_id;
-            $montoTotalDevuelto = 0;
-
-            $detallesMap = $venta->detalles->keyBy('id');
-
-            $loteIds = collect($request->items)
-                ->flatMap(fn ($i) => ($d = $detallesMap->get($i['detalle_id'])) ? $d->lotes->pluck('id') : collect())
-                ->unique()->sort()->values()->all();
-            if (!empty($loteIds)) {
-                DB::table('lotes')->whereIn('id', $loteIds)->lockForUpdate()->get();
-            }
-
-            foreach ($request->items as $item) {
-                $detalle = $detallesMap->get($item['detalle_id']);
-                if (!$detalle) continue;
-
-                $detalle = DetalleVenta::lockForUpdate()->findOrFail($detalle->id);
-
-                $cantidadADevolver = (float) $item['cantidad'];
-                $yaDevuelto = (float) ($detalle->cantidad_devuelta ?? 0);
-
-                if ($yaDevuelto + $cantidadADevolver > (float) $detalle->cantidad) {
-                    return redirect()->back()->withErrors("Ya devolviste {$yaDevuelto} de {$detalle->cantidad} unidades de {$detalle->producto->nombre}. No podés devolver {$cantidadADevolver} más.");
-                }
-                $precioUnitario = (float) $detalle->precio_unitario;
-                $montoTotalDevuelto += $precioUnitario * $cantidadADevolver;
-
-                $cantidadRestante = $cantidadADevolver;
-                foreach ($detalle->lotes as $lote) {
-                    $cantidadLote = (float) $lote->pivot->cantidad;
-                    $aRestaurar = min($cantidadRestante, $cantidadLote);
-                    if ($aRestaurar > 0) {
-                        DB::table('lotes')
-                            ->where('id', $lote->id)
-                            ->update([
-                                'stock_actual' => DB::raw("stock_actual + " . $aRestaurar),
-                                'updated_at'   => now(),
-                            ]);
-                        $cantidadRestante -= $aRestaurar;
-                    }
-                    if ($cantidadRestante <= 0) break;
-                }
-
-                $stockLocked = DB::table('producto_sucursal')
-                    ->where('sucursal_id', $sucursalId)
-                    ->where('producto_id', $detalle->producto_id)
-                    ->lockForUpdate()
-                    ->first();
-
-                $cantidadAnterior = $stockLocked ? (float) $stockLocked->cantidad_fisica : 0;
-
-                DB::table('producto_sucursal')
-                    ->where('sucursal_id', $sucursalId)
-                    ->where('producto_id', $detalle->producto_id)
-                    ->update([
-                        'cantidad_fisica' => DB::raw("cantidad_fisica + " . $cantidadADevolver),
-                        'updated_at'      => now(),
-                    ]);
-
-                DB::table('movimientos_stock')->insert([
-                    'producto_id'         => $detalle->producto_id,
-                    'sucursal_id'         => $sucursalId,
-                    'user_id'             => auth()->id(),
-                    'tipo_movimiento'     => 'Devolución',
-                    'cantidad_anterior'   => $cantidadAnterior,
-                    'cantidad_movimiento' => $cantidadADevolver,
-                    'cantidad_actual'     => $cantidadAnterior + $cantidadADevolver,
-                    'motivo'              => "Devolución Venta #{$venta->id} (detalle #{$detalle->id})",
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
-                ]);
-
-                $detalle->increment('cantidad_devuelta', $cantidadADevolver);
-            }
-
-            if ($montoTotalDevuelto > 0) {
-                $pagos = $venta->pagos_display;
-                $totalPagos = collect($pagos)->sum('monto');
-
-                foreach ($pagos as $pago) {
-                    $proporcion = $totalPagos > 0 ? $pago['monto'] / $totalPagos : 0;
-                    $montoADevolver = round($montoTotalDevuelto * $proporcion, 2);
-                    if ($montoADevolver <= 0) continue;
-
-                    if ($pago['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value && $venta->consumidor_id) {
-                        $cuenta = CuentaCorriente::where('consumidor_id', $venta->consumidor_id)
-                            ->lockForUpdate()
-                            ->first();
-                        if ($cuenta) {
-                            $cuenta->decrement('saldo_deudor', $montoADevolver);
-                            MovimientoCuentaCorriente::create([
-                                'cuenta_corriente_id' => $cuenta->id,
-                                'venta_id'            => $venta->id,
-                                'monto'               => $montoADevolver,
-                                'tipo'                => 'abono',
-                                'descripcion'         => 'Devolución Venta #' . $venta->id,
-                            ]);
-                        }
-                    } else {
-                        MovimientoCaja::create([
-                            'turno_caja_id' => $venta->turno_caja_id,
-                            'tipo'          => 'EGRESO',
-                            'concepto'      => 'DEVOLUCION',
-                            'metodo_pago'   => $pago['metodo_pago'],
-                            'monto'         => $montoADevolver,
-                            'descripcion'   => 'Devolución Venta #' . $venta->id . ' (' . $pago['metodo_pago'] . ')',
-                        ]);
-                    }
-                }
-            }
+        try {
+            $this->operacionesVenta->devolver(
+                $venta->id,
+                $request->items,
+                $comercioId,
+                auth()->id(),
+            );
 
             return redirect()->back()->with('success', 'Devolución procesada correctamente.');
-        });
+        } catch (\Throwable $e) {
+            \Log::error("Fallo fiscal al devolver la venta #{$venta->id}: {$e->getMessage()}");
+
+            return redirect()->back()->withErrors(['error' => 'La devolución no se pudo completar: '.$e->getMessage()]);
+        }
     }
 
     public function pendientes(Request $request)
     {
         $user = auth()->user();
         $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (!$turno) {
+        if (! $turno) {
             return response()->json([]);
         }
 
@@ -875,7 +790,7 @@ class VentaController extends Controller
                     'total' => (float) $v->total,
                     'metodo_pago' => $v->metodo_pago,
                     'pagos' => $v->pagos,
-                    'consumidor' => $v->consumidor ? $v->consumidor->nombre . ' ' . $v->consumidor->apellido : null,
+                    'consumidor' => $v->consumidor ? $v->consumidor->nombre.' '.$v->consumidor->apellido : null,
                     'created_at' => $v->created_at->format('H:i'),
                     'items_count' => $v->detalles_count,
                 ];
@@ -884,32 +799,9 @@ class VentaController extends Controller
         return response()->json($ventas);
     }
 
-    private function loadManualConfigs(?int $comercioId): array
-    {
-        if (!$comercioId) {
-            return [];
-        }
-
-        $configs = PaymentMethodConfiguration::where('comercio_id', $comercioId)
-            ->where('enabled', true)
-            ->where('channel', PaymentChannel::MANUAL)
-            ->get();
-
-        $indexed = [];
-        foreach ($configs as $cfg) {
-            $indexed[$cfg->metodo_pago] = [
-                'provider' => $cfg->provider,
-                'display_data' => $cfg->display_data,
-                'id' => $cfg->id,
-            ];
-        }
-
-        return $indexed;
-    }
-
     private function loadAllConfigs(?int $comercioId): array
     {
-        if (!$comercioId) {
+        if (! $comercioId) {
             return ['manual' => [], 'gateway' => []];
         }
 

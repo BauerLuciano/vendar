@@ -2,14 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use App\Traits\Auditable;
 
 class Consumidor extends Authenticatable
 {
-    use HasFactory, Notifiable, Auditable;
+    use Auditable, HasFactory, Notifiable;
 
     protected $table = 'consumidores';
 
@@ -17,10 +17,14 @@ class Consumidor extends Authenticatable
         'comercio_id',
         'nombre',
         'apellido',
+        'razon_social',
         'documento',
+        'cuit',
+        'tipo_documento',
         'email',
         'telefono',
         'direccion',
+        'domicilio_fiscal',
         'limite_cuenta_corriente',
         'estado',
     ];

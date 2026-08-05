@@ -10,7 +10,7 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // 1. PRIMERO CREAMOS LOS ROLES Y PERMISOS 
+        // 1. PRIMERO CREAMOS LOS ROLES Y PERMISOS
         // (Asegurate de tener este seeder creado, o el que uses para cargar roles)
         $this->call([
             RoleSeeder::class, // <- ESTO TIENE QUE IR ANTES DE CREAR LOS USUARIOS
@@ -26,8 +26,7 @@ class DatabaseSeeder extends Seeder
             ]
         );
         // ¡Le asignamos el rol!
-        $luciano->assignRole('SuperAdmin'); 
-
+        $luciano->assignRole('SuperAdmin');
 
         // 3. Crear el usuario de prueba y darle rol de Cajero
         $testUser = User::updateOrCreate(
@@ -39,8 +38,7 @@ class DatabaseSeeder extends Seeder
             ]
         );
         // A este lo hacemos Cajero para que puedan probar cómo se bloquea el menú
-        $testUser->assignRole('Cajero'); 
-
+        $testUser->assignRole('Cajero');
 
         // 4. Planes SaaS
         $this->call([
@@ -54,6 +52,7 @@ class DatabaseSeeder extends Seeder
             ConsumidorSeeder::class,       // 3ro: Crea el resto de los clientes
             GlobalAdminSeeder::class,      // 4to: Crea el Admin Global (si no lo creaste antes)
             StoreConfigSeeder::class,      // 5to: Crea store_configs para todos los comercios
+            ConfiguracionFiscalComerciosSeeder::class, // 6to: Config fiscal por comercio (estado sin_datos)
         ]);
     }
 }

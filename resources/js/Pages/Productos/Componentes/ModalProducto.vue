@@ -33,6 +33,7 @@ const formulario = useForm({
     es_retornable: false,
     precio_costo: 0,
     precio_venta: 0,
+    alicuota_iva: 21,
     stock_minimo: 0,
     stock_minimo_visual: 0,
     stock_objetivo: '',
@@ -84,6 +85,7 @@ watch(() => props.producto, (nuevoValor) => {
         formulario.es_retornable = Boolean(nuevoValor.es_retornable);
         formulario.precio_costo = nuevoValor.precio_costo;
         formulario.precio_venta = nuevoValor.precio_venta;
+        formulario.alicuota_iva = nuevoValor.alicuota_iva != null ? nuevoValor.alicuota_iva : 21;
         formulario.stock_minimo = nuevoValor.stock_minimo;
         formulario.stock_objetivo = nuevoValor.stock_objetivo || '';
         formulario.descripcion = nuevoValor.descripcion || '';
@@ -543,6 +545,20 @@ const guardar = () => {
                             <p v-if="precioVentaInvalido" class="text-rose-500 text-[10px] mt-0.5 font-medium">
                                 Debe ser mayor a ${{ Number(formulario.precio_costo).toLocaleString('es-AR') }}
                             </p>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">IVA (Alícuota) <span class="text-rose-500">*</span></label>
+                            <select v-model="formulario.alicuota_iva"
+                                class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-sm font-bold focus:bg-white focus:ring-2 focus:ring-sky-500 transition-colors"
+                                :class="{'border-rose-500': formulario.errors.alicuota_iva}" required>
+                                <option :value="21">21% (General)</option>
+                                <option :value="10.5">10.5% (Reducida)</option>
+                                <option :value="27">27% (General adicional)</option>
+                                <option :value="5">5% (Reducida adicional)</option>
+                                <option :value="2.5">2.5% (Reducida adicional)</option>
+                                <option :value="0">0% (Exento / No gravado)</option>
+                            </select>
+                            <p v-if="formulario.errors.alicuota_iva" class="text-rose-500 text-[10px] mt-0.5 font-medium">{{ formulario.errors.alicuota_iva }}</p>
                         </div>
                     </div>
 

@@ -11,7 +11,7 @@ class Modulo1_ProductosTest extends TestCaseMultiTenant
     {
         return array_merge([
             'nombre' => 'Prod Test',
-            'codigo_barras' => '999999' . random_int(100, 999),
+            'codigo_barras' => '999999'.random_int(100, 999),
             'categoria_id' => 1,
             'marca_id' => 1,
             'proveedor_id' => 1,
@@ -19,6 +19,7 @@ class Modulo1_ProductosTest extends TestCaseMultiTenant
             'es_retornable' => false,
             'precio_costo' => 50,
             'precio_venta' => 100,
+            'alicuota_iva' => 21,
             'stock_minimo' => 5,
             'stock_inicial' => 0,
             'descripcion' => 'Producto de prueba',
@@ -70,7 +71,7 @@ class Modulo1_ProductosTest extends TestCaseMultiTenant
         $ids = Producto::whereHas('sucursales', fn ($q) => $q->whereIn('sucursales.id', [1, 2]))
             ->pluck('id');
 
-        $this->assertTrue($ids->every(fn($id) => $id >= 1 && $id <= 10));
+        $this->assertTrue($ids->every(fn ($id) => $id >= 1 && $id <= 10));
         $this->assertTrue($ids->doesntContain(11));
     }
 
@@ -85,7 +86,7 @@ class Modulo1_ProductosTest extends TestCaseMultiTenant
         $ids = Producto::whereHas('sucursales', fn ($q) => $q->whereIn('sucursales.id', [3, 4]))
             ->pluck('id');
 
-        $this->assertTrue($ids->every(fn($id) => $id >= 11 && $id <= 20));
+        $this->assertTrue($ids->every(fn ($id) => $id >= 11 && $id <= 20));
         $this->assertTrue($ids->doesntContain(1));
     }
 
@@ -103,6 +104,7 @@ class Modulo1_ProductosTest extends TestCaseMultiTenant
             'unidad_medida' => 'Unidad',
             'precio_costo' => 600,
             'precio_venta' => 900,
+            'alicuota_iva' => 21,
             'stock_minimo' => 10,
         ])->assertRedirect();
 

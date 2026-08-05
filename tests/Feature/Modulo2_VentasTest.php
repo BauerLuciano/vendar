@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Configuracion;
+use App\Models\CuentaCorriente;
+use App\Models\MovimientoCaja;
 use App\Models\Venta;
 use Tests\TestCaseMultiTenant;
 
@@ -162,7 +165,7 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
         $this->assertEquals(1000, $venta->pagos[0]['monto']);
         $this->assertEquals(600, $venta->pagos[1]['monto']);
 
-        $movimientos = \App\Models\MovimientoCaja::where('turno_caja_id', 2)
+        $movimientos = MovimientoCaja::where('turno_caja_id', 2)
             ->where('concepto', 'VENTA_MOSTRADOR')
             ->where('descripcion', 'like', "%#{$venta->id}%")
             ->get();
@@ -199,10 +202,10 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
         $this->assertEquals('CUENTA_CORRIENTE', $venta->pagos[0]['metodo_pago']);
         $this->assertEquals('EFECTIVO', $venta->pagos[1]['metodo_pago']);
 
-        $cuenta = \App\Models\CuentaCorriente::where('consumidor_id', $this->consumidorA->id)->first();
+        $cuenta = CuentaCorriente::where('consumidor_id', $this->consumidorA->id)->first();
         $this->assertEquals(2300 + 300, (float) $cuenta->fresh()->saldo_deudor);
 
-        $movimientoCaja = \App\Models\MovimientoCaja::where('turno_caja_id', 2)
+        $movimientoCaja = MovimientoCaja::where('turno_caja_id', 2)
             ->where('metodo_pago', 'EFECTIVO')
             ->where('descripcion', 'like', "%#{$venta->id}%")
             ->first();
@@ -226,5 +229,28 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
                 ['metodo_pago' => 'DEBITO', 'monto' => 500],
             ],
         ])->assertSessionHasErrors();
+    }
+
+    // Auditoría F10 (H3.2): un producto de otro comercio no puede venderse,
+    // aunque el stock negativo esté habilitado (evita usar su alícuota en el CAE).
+    public function test_admin_a_no_puede_vender_producto_de_comercio_b(): void
+    {
+        Configuracion::where('clave', 'permitir_stock_negativo')
+            ->update(['valor' => '1']);
+        $this->actingAsAdminA();
+
+        $this->post('/ventas', [
+            'turno_caja_id' => 2,
+            'items' => [
+                ['id' => 11, 'cantidad' => 1, 'precio_venta' => 750, 'nombre' => 'Pepsi 500ml'],
+            ],
+            'total' => 750,
+            'metodo_pago' => 'Efectivo',
+        ])->assertSessionHasErrors();
+
+        $this->assertDatabaseMissing('ventas', [
+            'turno_caja_id' => 2,
+            'total' => 750,
+        ]);
     }
 }

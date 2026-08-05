@@ -2,15 +2,14 @@
 
 namespace App\Models;
 
-use App\Models\GlobalProduct;
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
-use App\Traits\Auditable;
 
 class Producto extends Model
 {
-    use HasFactory, Auditable;
+    use Auditable, HasFactory;
 
     protected $fillable = [
         'sku',
@@ -26,6 +25,7 @@ class Producto extends Model
         'es_retornable',
         'precio_costo',
         'precio_venta',
+        'alicuota_iva',
         'precio_venta_actualizado_en',
         'stock_minimo',
         'stock_objetivo',
@@ -38,6 +38,7 @@ class Producto extends Model
         'estado' => 'boolean',
         'precio_costo' => 'decimal:2',
         'precio_venta' => 'decimal:2',
+        'alicuota_iva' => 'decimal:2',
         'precio_venta_actualizado_en' => 'datetime',
         'stock_minimo' => 'decimal:3',
         'stock_objetivo' => 'decimal:3',
@@ -51,6 +52,7 @@ class Producto extends Model
         if ($this->imagen) {
             return Storage::url($this->imagen);
         }
+
         return null;
     }
 
@@ -64,26 +66,26 @@ class Producto extends Model
         return $this->hasOne(ReglaLiquidacion::class);
     }
 
-    public function categoria() 
-    { 
-        return $this->belongsTo(Categoria::class, 'categoria_id'); 
+    public function categoria()
+    {
+        return $this->belongsTo(Categoria::class, 'categoria_id');
     }
 
-    public function marca() 
-    { 
-        return $this->belongsTo(Marca::class, 'marca_id'); 
+    public function marca()
+    {
+        return $this->belongsTo(Marca::class, 'marca_id');
     }
 
-    public function proveedor() 
-    { 
-        return $this->belongsTo(Proveedor::class, 'proveedor_id'); 
+    public function proveedor()
+    {
+        return $this->belongsTo(Proveedor::class, 'proveedor_id');
     }
-    
-    public function sucursales() 
+
+    public function sucursales()
     {
         return $this->belongsToMany(Sucursal::class, 'producto_sucursal', 'producto_id', 'sucursal_id')
-                    ->withPivot('cantidad_fisica', 'cantidad_reservada')
-                    ->withTimestamps();
+            ->withPivot('cantidad_fisica', 'cantidad_reservada')
+            ->withTimestamps();
     }
 
     public function globalProduct()

@@ -4,28 +4,33 @@ namespace App\Http\Controllers;
 
 use App\Enums\MetodoPago;
 use App\Enums\PaymentChannel;
+use App\Facturacion\Application\EmisionVentaService;
+use App\Facturacion\Application\Exceptions\EmisionVentaException;
+use App\Facturacion\Domain\ValueObjects\Cuit;
+use App\Facturacion\Domain\ValueObjects\EstadoModuloFiscal;
 use App\Models\Caja;
-use App\Models\TurnoCaja;
-use App\Models\MovimientoCaja;
-use App\Models\Producto;
+use App\Models\ConfiguracionFiscalComercio;
 use App\Models\Consumidor;
 use App\Models\DetalleVenta;
-use App\Models\VentaPendiente;
+use App\Models\MovimientoCaja;
 use App\Models\PaymentMethodConfiguration;
+use App\Models\Producto;
 use App\Models\RecargoTarjeta;
+use App\Models\TurnoCaja;
+use App\Models\VentaPendiente;
+use App\Services\Promotion\PromotionConflictResolver;
+use App\Services\Promotion\PromotionEngineService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
-use App\Services\Promotion\PromotionEngineService;
-use App\Services\Promotion\PromotionConflictResolver;
 
 class PosController extends Controller
 {
     public function __construct(
         private readonly PromotionEngineService $engine,
         private readonly PromotionConflictResolver $conflictResolver,
+        private readonly EmisionVentaService $emisionVenta,
     ) {}
 
     // Esta es la puerta de entrada al POS
@@ -39,7 +44,7 @@ class PosController extends Controller
 
         if ($turnoAbierto) {
             $sucursalId = session('sucursal_activa_id', $user->branch_id);
-            if (!$sucursalId) {
+            if (! $sucursalId) {
                 return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
             }
 
@@ -64,6 +69,7 @@ class PosController extends Controller
                 ->get()
                 ->map(function ($pm) {
                     $baseLabel = MetodoPago::from($pm->metodo_pago)->label();
+
                     return [
                         'id' => $pm->id,
                         'metodo_pago' => $pm->metodo_pago,
@@ -87,7 +93,7 @@ class PosController extends Controller
                 ->where('enabled', true)
                 ->get()
                 ->groupBy('banco')
-                ->map(fn ($group) => $group->keyBy(fn ($r) => $r->tipo_tarjeta . '_' . $r->cuotas));
+                ->map(fn ($group) => $group->keyBy(fn ($r) => $r->tipo_tarjeta.'_'.$r->cuotas));
 
             $bancosDisponibles = RecargoTarjeta::where('comercio_id', $comercioId)
                 ->where('enabled', true)
@@ -101,6 +107,10 @@ class PosController extends Controller
                 'nombre' => $c->nombreCategoria,
             ]);
 
+            $configuracionFiscal = ConfiguracionFiscalComercio::where('comercio_id', $comercioId)
+                ->where('estado_modulo', EstadoModuloFiscal::LISTO_PARA_FACTURAR->value)
+                ->first();
+
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
@@ -112,11 +122,18 @@ class PosController extends Controller
                 'metodosBase' => $metodosBase,
                 'recargos' => $recargos,
                 'bancosDisponibles' => $bancosDisponibles,
+                'configuracionFiscal' => $configuracionFiscal?->only([
+                    'cuit',
+                    'razon_social',
+                    'condicion_fiscal',
+                    'entorno',
+                    'punto_venta_activo',
+                ]),
             ]);
         }
 
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
-        if (!$sucursalId) {
+        if (! $sucursalId) {
             return redirect()->back()->withErrors(['error' => 'No tenés una sucursal asignada.']);
         }
 
@@ -125,7 +142,7 @@ class PosController extends Controller
             ->get();
 
         return Inertia::render('Pos/AperturaTurno', [
-            'cajas' => $cajasDisponibles
+            'cajas' => $cajasDisponibles,
         ]);
     }
 
@@ -147,29 +164,29 @@ class PosController extends Controller
 
             if ($cajaEnUso) {
                 return redirect()->back()->withErrors([
-                    'caja_id' => 'Esta caja ya está siendo utilizada por otro cajero.'
+                    'caja_id' => 'Esta caja ya está siendo utilizada por otro cajero.',
                 ]);
             }
 
             $cajaFisica = Caja::findOrFail($request->caja_id);
 
             $turno = TurnoCaja::create([
-                'caja_id'        => $request->caja_id,
-                'user_id'        => $user->id,
-                'sucursal_id'    => $cajaFisica->sucursal_id,
-                'saldo_inicial'  => $request->saldo_inicial,
+                'caja_id' => $request->caja_id,
+                'user_id' => $user->id,
+                'sucursal_id' => $cajaFisica->sucursal_id,
+                'saldo_inicial' => $request->saldo_inicial,
                 'monto_apertura' => $request->saldo_inicial,
                 'fecha_apertura' => Carbon::now(),
-                'estado'         => 'Abierto',
+                'estado' => 'Abierto',
             ]);
 
             MovimientoCaja::create([
                 'turno_caja_id' => $turno->id,
-                'tipo'          => 'INGRESO',
-                'concepto'      => 'FONDO_INICIAL',
-                'metodo_pago'   => MetodoPago::EFECTIVO->value,
-                'monto'         => $request->saldo_inicial,
-                'descripcion'   => 'Apertura de caja (Fondo Efectivo)',
+                'tipo' => 'INGRESO',
+                'concepto' => 'FONDO_INICIAL',
+                'metodo_pago' => MetodoPago::EFECTIVO->value,
+                'monto' => $request->saldo_inicial,
+                'descripcion' => 'Apertura de caja (Fondo Efectivo)',
             ]);
 
             return redirect()->route('pos.index')->with('success', 'Turno abierto correctamente. ¡Buenas ventas!');
@@ -190,6 +207,7 @@ class PosController extends Controller
                 ->where('user_id', $userId)
                 ->where('producto_id', $request->producto_id)
                 ->delete();
+
             return response()->json(['favorito' => false]);
         }
 
@@ -210,7 +228,9 @@ class PosController extends Controller
             ->where('user_id', auth()->id())
             ->pluck('producto_id');
 
-        if ($ids->isEmpty()) return response()->json([]);
+        if ($ids->isEmpty()) {
+            return response()->json([]);
+        }
 
         return $this->cargarProductosSucursal($sucursalId, 50, $ids->toArray());
     }
@@ -219,7 +239,9 @@ class PosController extends Controller
     {
         $userId = auth()->id();
         $turno = TurnoCaja::where('user_id', $userId)->where('estado', 'Abierto')->first();
-        if (!$turno) return response()->json([]);
+        if (! $turno) {
+            return response()->json([]);
+        }
 
         $sucursalId = session('sucursal_activa_id', auth()->user()->branch_id);
         $ids = DetalleVenta::select('producto_id', DB::raw('MAX(ventas.created_at) as ultima_venta'))
@@ -231,7 +253,9 @@ class PosController extends Controller
             ->limit(20)
             ->pluck('producto_id');
 
-        if ($ids->isEmpty()) return response()->json([]);
+        if ($ids->isEmpty()) {
+            return response()->json([]);
+        }
 
         return $this->cargarProductosSucursal($sucursalId, 20, $ids->toArray());
     }
@@ -241,7 +265,7 @@ class PosController extends Controller
         $topIds = DetalleVenta::select('producto_id', DB::raw('COUNT(*) as total'))
             ->whereHas('venta', function ($q) use ($sucursalId) {
                 $q->where('estado', 'Completada')
-                  ->whereHas('turno', fn ($q) => $q->where('sucursal_id', $sucursalId));
+                    ->whereHas('turno', fn ($q) => $q->where('sucursal_id', $sucursalId));
             })
             ->groupBy('producto_id')
             ->orderByDesc('total')
@@ -261,21 +285,21 @@ class PosController extends Controller
             ->whereHas('sucursales', fn ($q) => $q->where('sucursal_id', $sucursalId));
 
         if ($ids !== null) {
-            $query->whereIn('id', $ids)->orderByRaw('array_position(ARRAY[' . implode(',', $ids) . ']::bigint[], id)');
+            $query->whereIn('id', $ids)->orderByRaw('array_position(ARRAY['.implode(',', $ids).']::bigint[], id)');
         }
 
         $query->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida', 'categoria_id')
             ->with([
-                'sucursales' => function($q) use ($sucursalId) {
+                'sucursales' => function ($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId);
                 },
                 'categoria',
                 'reglaLiquidacion',
-                'lotes' => function($q) use ($sucursalId) {
+                'lotes' => function ($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId)
-                      ->where('estado_liquidacion', true)
-                      ->where('stock_actual', '>', 0);
-                }
+                        ->where('estado_liquidacion', true)
+                        ->where('stock_actual', '>', 0);
+                },
             ]);
 
         if ($ids === null) {
@@ -286,7 +310,7 @@ class PosController extends Controller
             $query->limit($limit);
         }
 
-        return $query->get()->map(function($p) {
+        return $query->get()->map(function ($p) {
             $pivot = $p->sucursales->first();
             $p->stock_actual = $pivot
                 ? max(0, (float) $pivot->pivot->cantidad_fisica - (float) $pivot->pivot->cantidad_reservada)
@@ -306,6 +330,7 @@ class PosController extends Controller
             }
 
             unset($p->lotes);
+
             return $p;
         });
     }
@@ -323,7 +348,7 @@ class PosController extends Controller
 
         $user = auth()->user();
         $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (!$turno) {
+        if (! $turno) {
             return response()->json(['error' => 'No hay turno abierto'], 400);
         }
 
@@ -345,7 +370,7 @@ class PosController extends Controller
     {
         $user = auth()->user();
         $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (!$turno) {
+        if (! $turno) {
             return response()->json([]);
         }
 
@@ -369,7 +394,7 @@ class PosController extends Controller
     {
         $user = auth()->user();
         $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (!$turno || $ventaPendiente->turno_caja_id !== $turno->id) {
+        if (! $turno || $ventaPendiente->turno_caja_id !== $turno->id) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
@@ -390,7 +415,7 @@ class PosController extends Controller
     {
         $user = auth()->user();
         $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (!$turno || $ventaPendiente->turno_caja_id !== $turno->id) {
+        if (! $turno || $ventaPendiente->turno_caja_id !== $turno->id) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
@@ -403,7 +428,7 @@ class PosController extends Controller
     {
         $user = auth()->user();
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
-        if (!$sucursalId) {
+        if (! $sucursalId) {
             return response()->json([]);
         }
 
@@ -421,27 +446,27 @@ class PosController extends Controller
             ->select('id', 'nombre', 'codigo_barras', 'precio_venta', 'imagen', 'unidad_medida')
             ->where(function ($q) use ($query) {
                 if (is_numeric($query)) {
-                    $q->where('codigo_barras', 'LIKE', $query . '%')
-                      ->orWhere('id', (int) $query);
+                    $q->where('codigo_barras', 'LIKE', $query.'%')
+                        ->orWhere('id', (int) $query);
                 } else {
-                    $q->where('nombre', 'ILIKE', '%' . $query . '%');
+                    $q->where('nombre', 'ILIKE', '%'.$query.'%');
                 }
             })
             ->with([
-                'sucursales' => function($q) use ($sucursalId) {
+                'sucursales' => function ($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId);
                 },
                 'reglaLiquidacion',
-                'lotes' => function($q) use ($sucursalId) {
+                'lotes' => function ($q) use ($sucursalId) {
                     $q->where('sucursal_id', $sucursalId)
-                      ->where('estado_liquidacion', true)
-                      ->where('stock_actual', '>', 0);
-                }
+                        ->where('estado_liquidacion', true)
+                        ->where('stock_actual', '>', 0);
+                },
             ])
             ->orderBy('nombre')
             ->limit(30)
             ->get()
-            ->map(function($p) {
+            ->map(function ($p) {
                 $pivot = $p->sucursales->first();
                 $p->stock_actual = $pivot
                     ? max(0, (float) $pivot->pivot->cantidad_fisica - (float) $pivot->pivot->cantidad_reservada)
@@ -458,6 +483,7 @@ class PosController extends Controller
                 }
 
                 unset($p->lotes, $p->reglaLiquidacion, $p->sucursales);
+
                 return $p;
             });
 
@@ -471,23 +497,23 @@ class PosController extends Controller
             ->where('estado', 'Abierto')
             ->first();
 
-        if (!$turno) {
+        if (! $turno) {
             return response()->json([]);
         }
 
         $comercioId = $turno->caja?->sucursal?->comercio_id;
-        $labelMap = $comercioId ? \App\Models\PaymentMethodConfiguration::labelMap($comercioId) : [];
+        $labelMap = $comercioId ? PaymentMethodConfiguration::labelMap($comercioId) : [];
 
         $movimientos = $turno->movimientos()
             ->orderBy('created_at', 'desc')
             ->limit(50)
             ->get()
-            ->map(fn($m) => [
+            ->map(fn ($m) => [
                 'id' => $m->id,
                 'tipo' => $m->tipo,
                 'concepto' => $m->concepto,
                 'metodo_pago' => $m->metodo_pago,
-                'metodo_pago_display' => $labelMap[$m->metodo_pago] ?? \App\Enums\MetodoPago::fromString($m->metodo_pago)->label(),
+                'metodo_pago_display' => $labelMap[$m->metodo_pago] ?? MetodoPago::fromString($m->metodo_pago)->label(),
                 'monto' => (float) $m->monto,
                 'descripcion' => $m->descripcion,
                 'created_at' => $m->created_at->format('H:i'),
@@ -514,9 +540,9 @@ class PosController extends Controller
             ->where('estado', true)
             ->when($comercioId, fn ($q) => $q->where('comercio_id', $comercioId))
             ->where(function ($q) use ($query) {
-                $q->where('nombre', 'ILIKE', '%' . $query . '%')
-                  ->orWhere('apellido', 'ILIKE', '%' . $query . '%')
-                  ->orWhere('documento', 'LIKE', '%' . $query . '%');
+                $q->where('nombre', 'ILIKE', '%'.$query.'%')
+                    ->orWhere('apellido', 'ILIKE', '%'.$query.'%')
+                    ->orWhere('documento', 'LIKE', '%'.$query.'%');
             })
             ->orderBy('nombre')
             ->limit(20)
@@ -530,23 +556,70 @@ class PosController extends Controller
         $user = auth()->user();
         $comercioId = $user->branch?->comercio_id;
 
-        $request->validate([
+        $validated = $request->validate([
             'nombre' => 'required|string|max:255',
             'apellido' => 'nullable|string|max:255',
             'telefono' => 'nullable|string|max:20|regex:/^\d+$/',
+            'cuit' => 'nullable|string|max:11',
+            'razon_social' => 'nullable|string|max:255',
+            'domicilio_fiscal' => 'nullable|string|max:255',
+            'tipo_documento' => 'nullable|string|max:20',
         ]);
+
+        $cuitNormalizado = $validated['cuit'] ?? null;
+        if ($cuitNormalizado !== null && ! Cuit::esValido($cuitNormalizado)) {
+            return response()->json([
+                'message' => 'El CUIT ingresado no tiene un dígito verificador válido.',
+                'errors' => ['cuit' => ['El CUIT ingresado no es válido.']],
+            ], 422);
+        }
 
         $cliente = Consumidor::create([
             'comercio_id' => $comercioId,
-            'nombre' => $request->nombre,
-            'apellido' => $request->apellido ?? '',
-            'telefono' => $request->telefono,
+            'nombre' => $validated['nombre'],
+            'apellido' => $validated['apellido'] ?? '',
+            'telefono' => $validated['telefono'] ?? null,
+            'cuit' => $cuitNormalizado !== null ? Cuit::normalizar($cuitNormalizado) : null,
+            'razon_social' => $validated['razon_social'] ?? null,
+            'domicilio_fiscal' => $validated['domicilio_fiscal'] ?? null,
+            'tipo_documento' => $validated['tipo_documento'] ?? null,
             'estado' => true,
         ]);
 
         $cliente->load('cuentaCorriente');
 
         return response()->json($cliente);
+    }
+
+    /**
+     * Letra del comprobante que tendría la venta para el consumidor dado,
+     * sin emitir (servicio F5 §5). Devuelve la letra, o error cuando el padrón
+     * ARCA no puede validar a un cliente con CUIT.
+     */
+    public function letraEsperada(Request $request)
+    {
+        $user = auth()->user();
+        $comercioId = $user->branch?->comercio_id;
+
+        $consumidor = null;
+        if ($comercioId !== null && $request->integer('consumidor_id')) {
+            $consumidor = Consumidor::where('comercio_id', $comercioId)
+                ->where('id', $request->integer('consumidor_id'))
+                ->first();
+        }
+
+        try {
+            $letra = $this->emisionVenta->letraEsperada($comercioId, $consumidor);
+
+            return response()->json([
+                'letra' => $letra?->value ?? null,
+            ]);
+        } catch (EmisionVentaException $e) {
+            return response()->json([
+                'letra' => null,
+                'error' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     /**
@@ -557,9 +630,9 @@ class PosController extends Controller
     public function precios(Request $request)
     {
         $request->validate([
-            'items'   => 'required|array|min:1',
+            'items' => 'required|array|min:1',
             'items.*' => 'array',
-            'items.*.id'       => 'required|exists:productos,id',
+            'items.*.id' => 'required|exists:productos,id',
             'items.*.cantidad' => 'required|numeric|min:1',
         ]);
 
@@ -568,7 +641,7 @@ class PosController extends Controller
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
 
         $itemData = collect($request->items)->map(fn ($i) => [
-            'id'       => (int) $i['id'],
+            'id' => (int) $i['id'],
             'cantidad' => max(1, (int) ($i['cantidad'] ?? 1)),
         ]);
 
@@ -584,14 +657,14 @@ class PosController extends Controller
 
         $out = [];
         foreach ($results as $r) {
-            $prod       = $r['producto'];
+            $prod = $r['producto'];
             $promoResult = $r['promotion_result'];
-            $quantity   = $qtyByProduct[$prod->id] ?? 1;
-            $basePrice  = (float) $prod->precio_venta;
+            $quantity = $qtyByProduct[$prod->id] ?? 1;
+            $basePrice = (float) $prod->precio_venta;
 
-            $effectiveUnit   = $basePrice;
+            $effectiveUnit = $basePrice;
             $discountApplied = 0.0;
-            $discountType    = null;
+            $discountType = null;
 
             $best = $promoResult->bestPromotion;
 
@@ -599,15 +672,15 @@ class PosController extends Controller
                 $dtype = $best->promotion->discountType;
 
                 if (in_array($dtype, ['percent', 'fixed_amount', 'fixed_price'], true)) {
-                    $effectiveUnit   = $best->finalPrice;
+                    $effectiveUnit = $best->finalPrice;
                     $discountApplied = $best->discountAmount;
-                    $discountType    = $dtype;
+                    $discountType = $dtype;
                 } elseif ($dtype === '2x1' || $dtype === 'x_for_y') {
                     $x = $dtype === '2x1' ? 2 : (int) ($best->promotion->discountConfig['x'] ?? 2);
                     $y = $dtype === '2x1' ? 1 : (int) ($best->promotion->discountConfig['y'] ?? 1);
 
                     if ($quantity >= $x && $x > 0 && $y > 0 && $y < $x) {
-                        $groups  = intdiv($quantity, $x);
+                        $groups = intdiv($quantity, $x);
                         $remainder = $quantity % $x;
                         $effectiveUnit = ($groups * $y + $remainder) * $basePrice / $quantity;
                         $discountApplied = $basePrice - $effectiveUnit;
@@ -618,14 +691,14 @@ class PosController extends Controller
 
             // Fallback: ConflictResolver skips 2x1/x_for_y in bestPromotion,
             // so check the promotions array directly for quantity-based discounts
-            if ($discountType === null && !empty($promoResult->promotions)) {
+            if ($discountType === null && ! empty($promoResult->promotions)) {
                 foreach ($promoResult->promotions as $pd) {
                     if (in_array($pd->discountType, ['2x1', 'x_for_y'], true)) {
                         $x = $pd->discountType === '2x1' ? 2 : (int) ($pd->discountConfig['x'] ?? 2);
                         $y = $pd->discountType === '2x1' ? 1 : (int) ($pd->discountConfig['y'] ?? 1);
 
                         if ($quantity >= $x && $x > 0 && $y > 0 && $y < $x) {
-                            $groups  = intdiv($quantity, $x);
+                            $groups = intdiv($quantity, $x);
                             $remainder = $quantity % $x;
                             $effectiveUnit = ($groups * $y + $remainder) * $basePrice / $quantity;
                             $discountApplied = $basePrice - $effectiveUnit;
@@ -637,12 +710,12 @@ class PosController extends Controller
             }
 
             $out[] = [
-                'id'                   => $prod->id,
-                'precio_unitario'      => round($effectiveUnit, 2),
-                'precio_original'      => $basePrice,
-                'descuento_aplicado'   => round($discountApplied, 2),
-                'tipo_descuento'       => $discountType,
-                'cantidad'             => $quantity,
+                'id' => $prod->id,
+                'precio_unitario' => round($effectiveUnit, 2),
+                'precio_original' => $basePrice,
+                'descuento_aplicado' => round($discountApplied, 2),
+                'tipo_descuento' => $discountType,
+                'cantidad' => $quantity,
             ];
         }
 

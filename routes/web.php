@@ -1,48 +1,52 @@
 <?php
 
-use App\Http\Controllers\{
-    SucursalController,
-    ProfileController,
-    ProductoController,
-    CategoriaController,
-    MarcaController,
-    VentaController,
-    TransferenciaSugeridaController,
-    IngresoMercaderiaController,
-    DashboardController,
-    ConsumidorController,
-    ProveedorController,
-    PosController,
-    CajaController,
-    CajaDiariaController,
-    RoleController,
-    UsuarioController,
-    OrdenCompraController,
-    ReposicionController,
-    GlobalAdminController,
-    ConfiguracionController,
-    TicketController,
-    ImpersonateController,
-    SuscripcionController,
-    PedidoWebController, 
-    GestionPedidosWebController,
-    ReporteController,
-    PromotionController,
-    OnboardingController,
-};
-
-use App\Models\CuentaCorriente;
-use App\Models\Sucursal;
-use App\Models\Producto;
+use App\Http\Controllers\AdminGlobal\PlanController;
+use App\Http\Controllers\AuditoriaController;
+use App\Http\Controllers\Auth\GoogleLoginController;
+use App\Http\Controllers\CajaController;
+use App\Http\Controllers\CajaDiariaController;
+use App\Http\Controllers\CategoriaController;
+use App\Http\Controllers\ConfiguracionController;
+use App\Http\Controllers\ConsumidorAuthController;
+use App\Http\Controllers\ConsumidorController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ElegirSucursalController;
+use App\Http\Controllers\Facturacion\DiagnosticoFiscalController;
+use App\Http\Controllers\Facturacion\WizardConfiguracionFiscalController;
+use App\Http\Controllers\GestionPedidosWebController;
+use App\Http\Controllers\GlobalAdminController;
+use App\Http\Controllers\ImpersonateController;
+use App\Http\Controllers\IngresoMercaderiaController;
+use App\Http\Controllers\LoteController;
+use App\Http\Controllers\MarcaController;
+use App\Http\Controllers\MercadoPagoNotificacionController;
+use App\Http\Controllers\OnboardingController;
+use App\Http\Controllers\OrdenCompraController;
+use App\Http\Controllers\PedidoWebController;
+use App\Http\Controllers\PosController;
+use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PromotionController;
+use App\Http\Controllers\ProveedorController;
+use App\Http\Controllers\RecargoTarjetaController;
+use App\Http\Controllers\ReporteController;
+use App\Http\Controllers\ReposicionController;
+use App\Http\Controllers\RoleController;
+use App\Http\Controllers\StorefrontConfigController;
+use App\Http\Controllers\SucursalController;
+use App\Http\Controllers\SuscripcionController;
+use App\Http\Controllers\TicketController;
+use App\Http\Controllers\TiendaController;
+use App\Http\Controllers\TransferenciaSugeridaController;
+use App\Http\Controllers\UsuarioController;
+use App\Http\Controllers\VentaController;
+use App\Http\Controllers\ViumiWebhookController;
+use App\Http\Middleware\VerificarEstadoCuenta;
+use App\Models\Comercio;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
-use App\Http\Controllers\Auth\GoogleLoginController;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
-
 
 // ==========================================
 // --- ZONA PÚBLICA (CATÁLOGO Y GPS) ---
@@ -58,14 +62,13 @@ Route::get('/pending-approval', function () {
     return Inertia::render('PendingApproval');
 })->name('pending.approval');
 
-Route::get('/api/catalogo/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'catalogo'])
-    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
-Route::get('/api/promociones/{sucursal_id}', [\App\Http\Controllers\TiendaController::class, 'promociones'])
-    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
-Route::post('/configuracion/storefront/reset', [\App\Http\Controllers\StorefrontConfigController::class, 'reset'])
+Route::get('/api/catalogo/{sucursal_id}', [TiendaController::class, 'catalogo'])
+    ->withoutMiddleware([VerificarEstadoCuenta::class]);
+Route::get('/api/promociones/{sucursal_id}', [TiendaController::class, 'promociones'])
+    ->withoutMiddleware([VerificarEstadoCuenta::class]);
+Route::post('/configuracion/storefront/reset', [StorefrontConfigController::class, 'reset'])
     ->name('configuracion.storefront.reset')
     ->middleware(['auth', 'verified']);
-
 
 // --- RUTAS PARA CUALQUIER USUARIO LOGUEADO ---
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -111,6 +114,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
     Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
     Route::post('/pos/crear-cliente', [PosController::class, 'crearCliente'])->name('pos.crear.cliente');
+    Route::get('/pos/letra-esperada', [PosController::class, 'letraEsperada'])->name('pos.letra_esperada');
     Route::post('/pos/toggle-favorito', [PosController::class, 'toggleFavorito'])->name('pos.toggle.favorito');
     Route::get('/pos/favoritos', [PosController::class, 'listarFavoritos'])->name('pos.favoritos');
     Route::get('/pos/ultimos-vendidos', [PosController::class, 'ultimosVendidos'])->name('pos.ultimos.vendidos');
@@ -123,8 +127,9 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index');
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
-    Route::patch('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar');
-    Route::post('/ventas/{venta}/devolver', [VentaController::class, 'devolver'])->name('ventas.devolver');
+    Route::get('/ventas/{venta}/pdf', [VentaController::class, 'pdf'])->name('ventas.pdf');
+    Route::patch('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->name('ventas.cancelar')->middleware('permission:anular ventas');
+    Route::post('/ventas/{venta}/devolver', [VentaController::class, 'devolver'])->name('ventas.devolver')->middleware('permission:anular ventas');
     Route::post('/ventas/{venta}/confirmar-pago', [VentaController::class, 'confirmarPago'])->name('ventas.confirmar-pago');
     Route::get('/ventas/pendientes', [VentaController::class, 'pendientes'])->name('ventas.pendientes');
 
@@ -167,8 +172,8 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
 // ------------------------------------------------------------------
 Route::middleware(['auth'])->group(function () {
     Route::get('/api/consumidores', [ConsumidorController::class, 'apiIndex'])->name('api.consumidores.index');
-    Route::get('/elegir-sucursal', [\App\Http\Controllers\ElegirSucursalController::class, 'create'])->name('elegir.sucursal');
-    Route::post('/elegir-sucursal', [\App\Http\Controllers\ElegirSucursalController::class, 'store'])->name('elegir.sucursal.store');
+    Route::get('/elegir-sucursal', [ElegirSucursalController::class, 'create'])->name('elegir.sucursal');
+    Route::post('/elegir-sucursal', [ElegirSucursalController::class, 'store'])->name('elegir.sucursal.store');
 });
 
 Route::middleware(['auth', 'modulo:fiados'])->group(function () {
@@ -187,7 +192,7 @@ Route::middleware(['auth', 'modulo:fiados'])->group(function () {
 // MÓDULO: GESTIÓN DE STOCK AVANZADA (LOTES)
 // ------------------------------------------------------------------
 Route::middleware(['auth', 'modulo:lotes'])->group(function () {
-    Route::get('/lotes', [App\Http\Controllers\LoteController::class, 'index'])->name('lotes.index');
+    Route::get('/lotes', [LoteController::class, 'index'])->name('lotes.index');
 });
 
 // ------------------------------------------------------------------
@@ -236,7 +241,7 @@ Route::middleware(['auth', 'modulo:transferencias'])->group(function () {
 Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->group(function () {
     Route::get('/productos/{producto}/auditoria', [ProductoController::class, 'auditoria'])->name('productos.auditoria');
     Route::get('/productos/{producto}/historial-precios', [ProductoController::class, 'historialPrecios'])->name('productos.historial-precios');
-    Route::get('/auditoria', [App\Http\Controllers\AuditoriaController::class, 'index'])->name('auditoria.index');
+    Route::get('/auditoria', [AuditoriaController::class, 'index'])->name('auditoria.index');
 });
 
 // ------------------------------------------------------------------
@@ -296,7 +301,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
 // ------------------------------------------------------------------
 // ZONA GESTIÓN DE PEDIDOS WEB
 // ------------------------------------------------------------------
-    Route::middleware(['auth', 'permission:gestionar pedidos web'])->group(function () {
+Route::middleware(['auth', 'permission:gestionar pedidos web'])->group(function () {
     Route::get('/pedidos', [GestionPedidosWebController::class, 'index'])->name('pedidos.index');
     Route::patch('/pedidos/{id}/estado', [GestionPedidosWebController::class, 'updateEstado'])->name('pedidos.estado');
     Route::patch('/pedidos/{id}/pago', [GestionPedidosWebController::class, 'updatePago'])->name('pedidos.pago');
@@ -321,12 +326,26 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::post('/configuracion', [ConfiguracionController::class, 'update'])->name('configuracion.update');
     Route::post('/configuracion/metodo-pago', [ConfiguracionController::class, 'storePaymentMethodConfig'])->name('configuracion.metodo-pago.store');
     Route::delete('/configuracion/metodo-pago/{paymentMethodConfiguration}', [ConfiguracionController::class, 'destroyPaymentMethodConfig'])->name('configuracion.metodo-pago.destroy');
-    Route::post('/configuracion/storefront', [\App\Http\Controllers\StorefrontConfigController::class, 'update'])->name('configuracion.storefront.update');
+    Route::post('/configuracion/storefront', [StorefrontConfigController::class, 'update'])->name('configuracion.storefront.update');
 
     // Recargos por tarjeta
-    Route::get('/configuracion/recargos', [\App\Http\Controllers\RecargoTarjetaController::class, 'index'])->name('recargos.index');
-    Route::post('/configuracion/recargos/grouped', [\App\Http\Controllers\RecargoTarjetaController::class, 'saveGrouped'])->name('recargos.saveGrouped');
-    Route::delete('/configuracion/recargos/grouped', [\App\Http\Controllers\RecargoTarjetaController::class, 'destroyGrouped'])->name('recargos.destroyGrouped');
+    Route::get('/configuracion/recargos', [RecargoTarjetaController::class, 'index'])->name('recargos.index');
+    Route::post('/configuracion/recargos/grouped', [RecargoTarjetaController::class, 'saveGrouped'])->name('recargos.saveGrouped');
+    Route::delete('/configuracion/recargos/grouped', [RecargoTarjetaController::class, 'destroyGrouped'])->name('recargos.destroyGrouped');
+
+    // Facturación electrónica (F7: wizard de configuración fiscal)
+    Route::get('/configuracion/fiscal', [WizardConfiguracionFiscalController::class, 'index'])->name('configuracion.fiscal.wizard');
+    Route::post('/configuracion/fiscal/cuit', [WizardConfiguracionFiscalController::class, 'verificarCuit'])->name('configuracion.fiscal.cuit');
+    Route::post('/configuracion/fiscal/datos', [WizardConfiguracionFiscalController::class, 'confirmarDatos'])->name('configuracion.fiscal.datos');
+    Route::post('/configuracion/fiscal/certificado', [WizardConfiguracionFiscalController::class, 'cargarCertificado'])->name('configuracion.fiscal.certificado');
+    Route::post('/configuracion/fiscal/punto-venta', [WizardConfiguracionFiscalController::class, 'seleccionarPuntoVenta'])->name('configuracion.fiscal.punto-venta');
+    Route::post('/configuracion/fiscal/probar-conexion', [WizardConfiguracionFiscalController::class, 'probarConexion'])->name('configuracion.fiscal.probar-conexion');
+    Route::post('/configuracion/fiscal/activar', [WizardConfiguracionFiscalController::class, 'activar'])->name('configuracion.fiscal.activar');
+
+    // F8: Panel de Diagnóstico Fiscal (checklist, conectividad y pendientes de NC)
+    Route::get('/configuracion/fiscal/diagnostico', [DiagnosticoFiscalController::class, 'index'])->name('configuracion.fiscal.diagnostico');
+    Route::post('/configuracion/fiscal/diagnostico/probar-conexion', [DiagnosticoFiscalController::class, 'probarConexion'])->name('configuracion.fiscal.diagnostico.probar-conexion');
+    Route::post('/configuracion/fiscal/diagnostico/pendientes/{pendiente}/reintentar', [DiagnosticoFiscalController::class, 'reintentarNc'])->name('configuracion.fiscal.diagnostico.reintentar');
 });
 
 // ==================================================================
@@ -337,10 +356,10 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
     Route::post('/comercios', [GlobalAdminController::class, 'store'])->name('admin.comercios.store');
     Route::put('/comercios/{comercio}', [GlobalAdminController::class, 'update'])->name('admin.comercios.update');
 
-    Route::get('/planes', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'index'])->name('admin.planes.index');
-    Route::post('/planes', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'store'])->name('admin.planes.store');
-    Route::put('/planes/{plan}', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'update'])->name('admin.planes.update');
-    Route::delete('/planes/{plan}', [\App\Http\Controllers\AdminGlobal\PlanController::class, 'destroy'])->name('admin.planes.destroy');
+    Route::get('/planes', [PlanController::class, 'index'])->name('admin.planes.index');
+    Route::post('/planes', [PlanController::class, 'store'])->name('admin.planes.store');
+    Route::put('/planes/{plan}', [PlanController::class, 'update'])->name('admin.planes.update');
+    Route::delete('/planes/{plan}', [PlanController::class, 'destroy'])->name('admin.planes.destroy');
 
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
@@ -358,15 +377,15 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 // TIENDA PÚBLICA POR SLUG
 // ------------------------------------------------------------------
 // Auth para consumidores en la tienda (API) - libre de VerificarEstadoCuenta
-Route::post('/api/tienda/login', [App\Http\Controllers\ConsumidorAuthController::class, 'login'])
-    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
-Route::post('/api/tienda/register', [App\Http\Controllers\ConsumidorAuthController::class, 'register'])
-    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
-Route::post('/api/tienda/logout', [App\Http\Controllers\ConsumidorAuthController::class, 'logout'])
+Route::post('/api/tienda/login', [ConsumidorAuthController::class, 'login'])
+    ->withoutMiddleware([VerificarEstadoCuenta::class]);
+Route::post('/api/tienda/register', [ConsumidorAuthController::class, 'register'])
+    ->withoutMiddleware([VerificarEstadoCuenta::class]);
+Route::post('/api/tienda/logout', [ConsumidorAuthController::class, 'logout'])
     ->middleware('auth:consumidor');
-Route::get('/api/tienda/me', [App\Http\Controllers\ConsumidorAuthController::class, 'me'])
-    ->withoutMiddleware([\App\Http\Middleware\VerificarEstadoCuenta::class]);
-Route::post('/api/tienda/perfil', [App\Http\Controllers\ConsumidorAuthController::class, 'updateProfile'])
+Route::get('/api/tienda/me', [ConsumidorAuthController::class, 'me'])
+    ->withoutMiddleware([VerificarEstadoCuenta::class]);
+Route::post('/api/tienda/perfil', [ConsumidorAuthController::class, 'updateProfile'])
     ->middleware('auth:consumidor');
 
 // Logout de consumidor (antes de la ruta {slug} para no colisionar)
@@ -375,56 +394,59 @@ Route::get('/tienda/logout-consumidor', function () {
     auth('consumidor')->logout();
     request()->session()->invalidate();
     request()->session()->regenerateToken();
-    return $slug ? redirect('/tienda/' . $slug) : redirect('/');
+
+    return $slug ? redirect('/tienda/'.$slug) : redirect('/');
 })->name('tienda.logout.consumidor');
 
 // Panel del consumidor (antes de la ruta {slug})
 Route::get('/tienda/{slug}/panel', function ($slug) {
-    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    $comercio = Comercio::where('slug', $slug)->firstOrFail();
     $consumidor = auth('consumidor')->user();
 
-    if (!$consumidor) {
-        return redirect('/tienda/' . $slug);
+    if (! $consumidor) {
+        return redirect('/tienda/'.$slug);
     }
 
-    $pedidos = \App\Models\PedidoWeb::where('comercio_id', $comercio->id)
+    $pedidos = PedidoWeb::where('comercio_id', $comercio->id)
         ->where(function ($q) use ($consumidor) {
             $q->where('consumidor_id', $consumidor->id)
-              ->orWhere('cliente_telefono', $consumidor->telefono)
-              ->orWhere('cliente_nombre', $consumidor->nombre . ' ' . $consumidor->apellido);
+                ->orWhere('cliente_telefono', $consumidor->telefono)
+                ->orWhere('cliente_nombre', $consumidor->nombre.' '.$consumidor->apellido);
         })
         ->orderBy('created_at', 'desc')
         ->with('items')
         ->get();
 
     return Inertia::render('Cliente/Panel', [
-        'comercio'   => $comercio,
+        'comercio' => $comercio,
         'consumidor' => [
-            'id'        => $consumidor->id,
-            'nombre'    => $consumidor->nombre,
-            'apellido'  => $consumidor->apellido,
-            'email'     => $consumidor->email,
-            'telefono'  => $consumidor->telefono,
+            'id' => $consumidor->id,
+            'nombre' => $consumidor->nombre,
+            'apellido' => $consumidor->apellido,
+            'email' => $consumidor->email,
+            'telefono' => $consumidor->telefono,
             'direccion' => $consumidor->direccion,
         ],
-        'pedidos'    => $pedidos,
-        'tienda_slug'=> $slug,
+        'pedidos' => $pedidos,
+        'tienda_slug' => $slug,
     ]);
 })->name('tienda.panel');
 
 // Confirmación de pago MP (antes de la ruta pública {slug})
 Route::get('/tienda/{slug}/pedido/{pedido}/confirmacion', function ($slug, PedidoWeb $pedido) {
-    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
-    if ($pedido->comercio_id !== $comercio->id) abort(404);
+    $comercio = Comercio::where('slug', $slug)->firstOrFail();
+    if ($pedido->comercio_id !== $comercio->id) {
+        abort(404);
+    }
 
     session(['ultima_tienda_slug' => $slug]);
     session(['comercio_id_actual' => $comercio->id]);
 
     return Inertia::render('Cliente/Confirmacion', [
-        'comercio'      => $comercio,
-        'pedido'        => $pedido->load('items.producto'),
-        'status_inicial'=> request('status', 'pending'),
-        'tienda_slug'   => $slug,
+        'comercio' => $comercio,
+        'pedido' => $pedido->load('items.producto'),
+        'status_inicial' => request('status', 'pending'),
+        'tienda_slug' => $slug,
     ]);
 })->name('tienda.pedido.confirmacion');
 
@@ -433,53 +455,53 @@ Route::get('/api/tienda/pedido/{pedido}/estado', function (PedidoWeb $pedido) {
     if ($pedido->comercio_id !== (int) request('comercio_id')) {
         abort(404);
     }
+
     return response()->json([
-        'estado_pago'   => $pedido->estado_pago,
+        'estado_pago' => $pedido->estado_pago,
         'estado_pedido' => $pedido->estado_pedido,
     ]);
 })->name('api.pedido.estado');
 
 // Confirmar pago manual desde frontend (post-pago exitoso)
-Route::post('/api/pedidos/{pedido}/confirmar-pago', [\App\Http\Controllers\PedidoWebController::class, 'confirmarPago'])
+Route::post('/api/pedidos/{pedido}/confirmar-pago', [PedidoWebController::class, 'confirmarPago'])
     ->middleware('throttle:10,1')
     ->name('api.pedidos.confirmar-pago');
 
 // Tienda pública (slug catch-all debe ir último)
-Route::get('/tienda/{slug}', \App\Http\Controllers\TiendaController::class)->name('tienda.publica');
+Route::get('/tienda/{slug}', TiendaController::class)->name('tienda.publica');
 
 // Webhook MercadoPago (sin CSRF ni auth, MP envía desde sus servidores)
-Route::post('/api/mercadopago/notificacion', [\App\Http\Controllers\MercadoPagoNotificacionController::class, 'notificacion'])
+Route::post('/api/mercadopago/notificacion', [MercadoPagoNotificacionController::class, 'notificacion'])
     ->middleware('throttle:30,1')
     ->name('mercadopago.notificacion');
 
 // Webhook viüMi (sin CSRF ni auth, viüMi envía desde sus servidores)
-Route::post('/api/webhook/viumi', \App\Http\Controllers\ViumiWebhookController::class)
+Route::post('/api/webhook/viumi', ViumiWebhookController::class)
     ->middleware('throttle:30,1')
     ->name('viumi.webhook');
 
 // Login y registro como páginas dedicadas
 Route::get('/tienda/{slug}/login', function ($slug) {
-    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    $comercio = Comercio::where('slug', $slug)->firstOrFail();
     session(['comercio_id_actual' => $comercio->id]);
     session(['ultima_tienda_slug' => $slug]);
 
     return Inertia::render('Cliente/Login', [
-        'comercio'    => $comercio,
+        'comercio' => $comercio,
         'tienda_slug' => $slug,
     ]);
 })->name('tienda.login');
 
 Route::get('/tienda/{slug}/register', function ($slug) {
-    $comercio = \App\Models\Comercio::where('slug', $slug)->firstOrFail();
+    $comercio = Comercio::where('slug', $slug)->firstOrFail();
     session(['comercio_id_actual' => $comercio->id]);
     session(['ultima_tienda_slug' => $slug]);
 
     return Inertia::render('Cliente/Register', [
-        'comercio'    => $comercio,
+        'comercio' => $comercio,
         'tienda_slug' => $slug,
     ]);
 })->name('tienda.register');
-
 
 // ==========================================
 // RUTA DE INICIO PARA CLIENTES (evita bucle de redirección)
