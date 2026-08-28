@@ -6,6 +6,7 @@ use App\Facturacion\Domain\Entities\ComprobanteFiscal;
 use App\Facturacion\Domain\Entities\DetalleFiscal;
 use App\Facturacion\Domain\ValueObjects\Alicuota;
 use App\Facturacion\Domain\ValueObjects\CondicionFiscal;
+use App\Facturacion\Domain\ValueObjects\LetraComprobante;
 use DateTimeImmutable;
 use InvalidArgumentException;
 
@@ -39,7 +40,10 @@ final class FECAERequestBuilder
         CondicionFiscal::NO_ALCANZADO->value => 15,
     ];
 
-    public function __construct(private int $tipoDocConsumidorFinal = 96) {}
+    public function __construct(
+        private int $tipoDocConsumidorFinal = 96,
+        private float $montoMaximoB = 10000.0,
+    ) {}
 
     /**
      * @param  array{tipo: int, ptoVta: int, nro: int}|null  $comprobanteAsociado  Comprobante original para NC.
@@ -71,6 +75,8 @@ final class FECAERequestBuilder
 
         $impIva = round(array_sum(array_column($detalles['gravadas'], 'iva')), 2);
         $impTotal = round($impNeto + $impOpEx + $impIva, 2);
+
+        $this->validarFacturaBSobreUmbral($comprobante, $impTotal);
 
         $detalleRequest = [
             'Concepto' => $comprobante->concepto()->codigoAfip(),
@@ -214,6 +220,29 @@ final class FECAERequestBuilder
     private function docTipo(ComprobanteFiscal $comprobante): int
     {
         return $comprobante->receptor()?->cuit() !== null ? 80 : $this->tipoDocConsumidorFinal;
+    }
+
+    /**
+     * Validación 10015 de WSFE (manual ARCA COMPG, bloque DocTipo/DocNro): para
+     * comprobantes clase B individuales con montos superiores al monto RG 4444,
+     * DocTipo debe ser un valor de FEParamGetTiposDoc (excepto 99) y DocNro debe
+     * informarse. Como el builder solo manda DocNro cuando hay CUIT de receptor,
+     * una Factura B sobre el umbral sin identificación se rechaza en firme.
+     */
+    private function validarFacturaBSobreUmbral(ComprobanteFiscal $comprobante, float $impTotal): void
+    {
+        if ($comprobante->letra() !== LetraComprobante::B || $impTotal <= $this->montoMaximoB) {
+            return;
+        }
+
+        if ($comprobante->receptor()?->cuit() !== null) {
+            return;
+        }
+
+        throw new InvalidArgumentException(
+            'La Factura B supera el monto de $'.number_format($this->montoMaximoB, 2)
+            .' (RG 4291/4444) y requiere la identificación del receptor (CUIT).'
+        );
     }
 
     private function docNro(ComprobanteFiscal $comprobante): int

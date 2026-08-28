@@ -53,8 +53,15 @@ final class WizardConfiguracionService
 
         $cuitVo = new Cuit($cuit);
 
-        $actual = $this->configuracion->buscarPorComercio($comercioId)
-            ?? $this->sinDatos($comercioId);
+        $actual = $this->configuracion->buscarPorComercio($comercioId);
+
+        if ($entorno === 'produccion' && ($actual === null || $actual->cuit() === null)) {
+            throw new FacturacionDomainException(
+                'Un comercio nuevo debe configurarse primero en el entorno de homologación. Seleccioná Homologación para verificar el CUIT.'
+            );
+        }
+
+        $actual ??= $this->sinDatos($comercioId);
 
         $consulta = $this->padrones->para($actual->con(['entorno' => $entorno]));
 
@@ -69,6 +76,7 @@ final class WizardConfiguracionService
                 'cuit' => $cuitVo,
                 'condicionFiscal' => CondicionFiscal::tryFrom($persona['condicion_fiscal'] ?? ''),
                 'razonSocial' => $persona['nombre'] ?? null,
+                'domicilioFiscal' => $persona['domicilio_fiscal'] ?? null,
                 'entorno' => $entorno,
                 'estadoModulo' => EstadoModuloFiscal::CUIT_INACTIVO,
             ]);
@@ -85,6 +93,7 @@ final class WizardConfiguracionService
                 'cuit' => $cuitVo,
                 'condicionFiscal' => $condicion,
                 'razonSocial' => $persona['nombre'] ?? null,
+                'domicilioFiscal' => $persona['domicilio_fiscal'] ?? null,
                 'entorno' => $entorno,
                 'estadoModulo' => $terminal
                     ? $this->estados->marcarNoSoportado()
@@ -96,6 +105,7 @@ final class WizardConfiguracionService
             'cuit' => $cuitVo,
             'condicionFiscal' => $condicion,
             'razonSocial' => $persona['nombre'] ?? null,
+            'domicilioFiscal' => $persona['domicilio_fiscal'] ?? null,
             'entorno' => $entorno,
             'estadoModulo' => $this->avanzarA($actual->estadoModulo(), EstadoModuloFiscal::DATOS_CARGADOS),
         ]);
@@ -218,7 +228,7 @@ final class WizardConfiguracionService
             razonSocial: null,
             condicionFiscal: null,
             domicilioFiscal: null,
-            entorno: 'produccion',
+            entorno: 'homologacion',
             puntoVentaActivo: null,
             estadoModulo: EstadoModuloFiscal::SIN_DATOS,
         );

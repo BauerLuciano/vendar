@@ -24,7 +24,7 @@ class WsaaClientTest extends TestCase
     public function test_obtener_token_dos_veces_reutiliza_el_cache(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
+            fn () => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
         );
 
         $client = $this->cliente($transporte);
@@ -34,13 +34,13 @@ class WsaaClientTest extends TestCase
         $segundo = $client->obtenerToken('wsfe', EntornoArca::PRODUCCION, $material);
 
         $this->assertSame($primero, $segundo);
-        $this->assertSame(1, $transporte->cantidadDeLlamadas('login'));
+        $this->assertSame(1, $transporte->cantidadDeLlamadas('loginCms'));
     }
 
     public function test_renueva_cuando_el_token_guardado_vence_pronto(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
+            fn () => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
         );
 
         $cercano = new WsaaToken('TOKEN_VIEJO', 'SIGN_VIEJO', (new DateTimeImmutable)->modify('+30 seconds'));
@@ -53,13 +53,13 @@ class WsaaClientTest extends TestCase
 
         $this->assertNotSame($cercano, $obtenido);
         $this->assertSame('TOKEN_WSAA_TEST', $obtenido->token());
-        $this->assertSame(1, $transporte->cantidadDeLlamadas('login'));
+        $this->assertSame(1, $transporte->cantidadDeLlamadas('loginCms'));
     }
 
     public function test_materiales_distintos_no_comparten_token_de_cache(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
+            fn () => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
         );
 
         $client = $this->cliente($transporte);
@@ -68,12 +68,12 @@ class WsaaClientTest extends TestCase
         $segundo = $client->obtenerToken('wsfe', EntornoArca::PRODUCCION, $this->material());
 
         $this->assertNotSame($primero, $segundo);
-        $this->assertSame(2, $transporte->cantidadDeLlamadas('login'));
+        $this->assertSame(2, $transporte->cantidadDeLlamadas('loginCms'));
     }
 
     public function test_login_sin_ticket_lanza_error_de_integracion(): void
     {
-        $transporte = new FakeArcaSoapTransport((object) ['loginReturn' => null]);
+        $transporte = new FakeArcaSoapTransport((object) ['loginCmsReturn' => null]);
 
         $client = $this->cliente($transporte);
 
@@ -82,10 +82,30 @@ class WsaaClientTest extends TestCase
         $client->obtenerToken('wsfe', EntornoArca::PRODUCCION, $this->material());
     }
 
+    public function test_tra_del_login_usa_generation_time_segun_el_schema_de_wsaa(): void
+    {
+        $client = $this->cliente(new FakeArcaSoapTransport(
+            fn () => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
+        ));
+
+        $metodo = new \ReflectionMethod($client, 'mensajeLoginTicket');
+        $xml = $metodo->invoke(
+            $client,
+            'wsfe',
+            new DateTimeImmutable('2026-08-06 10:00:00'),
+            new DateTimeImmutable('2026-08-06 11:00:00'),
+        );
+
+        $this->assertStringContainsString('<generationTime>2026-08-06T10:00:00', $xml);
+        $this->assertStringNotContainsString('generatedAt', $xml);
+        $this->assertStringContainsString('<service>wsfe</service>', $xml);
+        $this->assertStringContainsString('<expirationTime>2026-08-06T11:00:00', $xml);
+    }
+
     public function test_timeout_de_red_en_login_se_envuelve_como_error_de_integracion(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            (object) ['loginReturn' => null],
+            (object) ['loginCmsReturn' => null],
             new \SoapFault('HTTP', 'Could not connect to host'),
         );
 
@@ -102,7 +122,7 @@ class WsaaClientTest extends TestCase
     public function test_pfx_invalido_lanza_error_de_integracion(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
+            fn () => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))]
         );
 
         $client = $this->cliente($transporte);

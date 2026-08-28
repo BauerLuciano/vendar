@@ -23,6 +23,21 @@ class CuitTest extends TestCase
         $this->assertEquals('20123456786', $cuitPuntos->valor());
     }
 
+    public function test_normaliza_pegado_con_espacios_y_mezcla_de_caracteres(): void
+    {
+        $cuit = new Cuit('20 12345678 6');
+        $this->assertEquals('20123456786', $cuit->valor());
+
+        $cuitMezclado = new Cuit(' 20 - 1234 5678-6 ');
+        $this->assertEquals('20123456786', $cuitMezclado->valor());
+        $this->assertTrue(Cuit::esValido('20 12345678 6'));
+    }
+
+    public function test_rechaza_cuit_con_mas_de_11_digitos(): void
+    {
+        $this->assertFalse(Cuit::esValido('201234567869'));
+    }
+
     public function test_formatea_cuit(): void
     {
         $cuit = new Cuit('20123456786');

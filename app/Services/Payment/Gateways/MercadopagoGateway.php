@@ -5,10 +5,10 @@ namespace App\Services\Payment\Gateways;
 use App\Enums\PaymentChannel;
 use App\Enums\PaymentStatus;
 use App\Models\Comercio;
-use App\Services\Payment\Contracts\PaymentGateway;
 use App\Services\Payment\Contracts\CheckoutPresentation;
 use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\Contracts\CheckoutResponse;
+use App\Services\Payment\Contracts\PaymentGateway;
 use App\Services\Payment\Contracts\PaymentStatusResponse;
 use App\Services\Payment\Contracts\WebhookPayload;
 use App\Services\Payment\Exceptions\PaymentException;
@@ -37,7 +37,7 @@ class MercadopagoGateway implements PaymentGateway
     {
         $params = $comercio ? "?comercio_id={$comercio->id}" : '';
 
-        return config('app.url') . '/api/mercadopago/notificacion' . $params;
+        return config('services.mercadopago.public_url').'/api/mercadopago/notificacion'.$params;
     }
 
     public function supportsCheckout(): bool
@@ -97,10 +97,10 @@ class MercadopagoGateway implements PaymentGateway
         }
 
         $response = Http::withToken($token)
-            ->post(self::API_BASE . '/checkout/preferences', $payload);
+            ->post(self::API_BASE.'/checkout/preferences', $payload);
 
-        if (!$response->successful()) {
-            throw new PaymentException('Error al crear preferencia en Mercado Pago: ' . $response->body());
+        if (! $response->successful()) {
+            throw new PaymentException('Error al crear preferencia en Mercado Pago: '.$response->body());
         }
 
         $data = $response->json();
@@ -122,10 +122,10 @@ class MercadopagoGateway implements PaymentGateway
         $token = $this->getAccessToken();
 
         $response = Http::withToken($token)
-            ->get(self::API_BASE . "/v1/payments/{$gatewayTransactionId}");
+            ->get(self::API_BASE."/v1/payments/{$gatewayTransactionId}");
 
-        if (!$response->successful()) {
-            throw new PaymentException('Error al consultar pago en Mercado Pago: ' . $response->body());
+        if (! $response->successful()) {
+            throw new PaymentException('Error al consultar pago en Mercado Pago: '.$response->body());
         }
 
         $data = $response->json();
@@ -156,19 +156,21 @@ class MercadopagoGateway implements PaymentGateway
     {
         $secret = $this->config['webhook_secret'] ?? null;
 
-        if (!$secret) {
+        if (! $secret) {
             if (app()->environment('production')) {
                 \Log::critical('MercadoPago webhook secret is missing in production');
+
                 return false;
             }
             \Log::warning('MercadoPago webhook secret not configured — skipping verification');
+
             return true;
         }
 
         $paymentId = $request->input('data.id') ?? $request->input('id');
         $signature = $request->header('X-Signature');
 
-        if (!$signature || !$paymentId) {
+        if (! $signature || ! $paymentId) {
             return false;
         }
 
@@ -183,12 +185,13 @@ class MercadopagoGateway implements PaymentGateway
         $ts = $parts['ts'] ?? null;
         $v1 = $parts['v1'] ?? null;
 
-        if (!$ts || !$v1) {
+        if (! $ts || ! $v1) {
             return false;
         }
 
         if (abs(time() - (int) $ts) > 300) {
             \Log::warning('MercadoPago webhook rejected: timestamp too old');
+
             return false;
         }
 
@@ -201,7 +204,7 @@ class MercadopagoGateway implements PaymentGateway
     {
         $paymentId = $request->input('data.id') ?? $request->input('id');
 
-        if (!$paymentId) {
+        if (! $paymentId) {
             throw new PaymentException('No payment ID in webhook payload');
         }
 
@@ -222,7 +225,7 @@ class MercadopagoGateway implements PaymentGateway
         $userId = $options['user_id'] ?? $this->config['user_id'] ?? null;
         $storeId = $options['store_id'] ?? $this->config['store_id'] ?? null;
 
-        if (!$userId || !$storeId) {
+        if (! $userId || ! $storeId) {
             throw new PaymentException(
                 'MP QR requiere user_id y store_id configurados en payment_gateways'
             );
@@ -242,10 +245,10 @@ class MercadopagoGateway implements PaymentGateway
         ];
 
         $response = Http::withToken($token)
-            ->post(self::API_BASE . "/instore/orders/qr/seller/collectors/{$userId}/stores/{$storeId}/orders", $payload);
+            ->post(self::API_BASE."/instore/orders/qr/seller/collectors/{$userId}/stores/{$storeId}/orders", $payload);
 
-        if (!$response->successful()) {
-            throw new PaymentException('Error al crear QR en Mercado Pago: ' . $response->body());
+        if (! $response->successful()) {
+            throw new PaymentException('Error al crear QR en Mercado Pago: '.$response->body());
         }
 
         $data = $response->json();
@@ -270,7 +273,7 @@ class MercadopagoGateway implements PaymentGateway
     {
         $token = $this->config['access_token'] ?? null;
 
-        if (!$token) {
+        if (! $token) {
             throw new PaymentException('Mercado Pago access token no configurado');
         }
 

@@ -14,6 +14,7 @@ use App\Http\Controllers\ElegirSucursalController;
 use App\Http\Controllers\Facturacion\DiagnosticoFiscalController;
 use App\Http\Controllers\Facturacion\WizardConfiguracionFiscalController;
 use App\Http\Controllers\GestionPedidosWebController;
+use App\Http\Controllers\AdminGlobal\ArcaCredencialController;
 use App\Http\Controllers\GlobalAdminController;
 use App\Http\Controllers\ImpersonateController;
 use App\Http\Controllers\IngresoMercaderiaController;
@@ -363,6 +364,10 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
+
+    // Credencial de plataforma del padrón ARCA (solo Administración Global)
+    Route::get('/arca/credencial', [ArcaCredencialController::class, 'index'])->name('admin.arca.credencial');
+    Route::post('/arca/credencial', [ArcaCredencialController::class, 'store'])->name('admin.arca.credencial.store');
     Route::post('/facturacion/{comercio}/pagar', [GlobalAdminController::class, 'marcarPagado'])->name('admin.facturacion.pagar');
     Route::post('/facturacion/{comercio}/link-mp', [GlobalAdminController::class, 'generarLinkMP'])->name('admin.facturacion.link-mp');
     Route::get('/solicitudes', [GlobalAdminController::class, 'solicitudesPendientes'])->name('admin.solicitudes');

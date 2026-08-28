@@ -27,7 +27,6 @@ use App\Facturacion\Infrastructure\Arca\Wsfe\FECAERequestBuilder;
 use App\Facturacion\Infrastructure\Arca\Wsfe\WsfeConfig;
 use App\Facturacion\Infrastructure\Arca\Wsfe\WsfetClient;
 use DateTimeImmutable;
-use SoapHeader;
 use Tests\Support\FacturacionArca\FakeArcaSoapTransport;
 use Tests\Support\FacturacionArca\FakeSoapClientFactory;
 use Tests\Support\FacturacionArca\GeneraPfx;
@@ -45,7 +44,7 @@ class WsfetClientTest extends TestCase
             $capturados[] = ['operacion' => $operacion, 'argumentos' => $argumentos];
 
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FECAESolicitar' => (object) ['FECAESolicitarResult' => $this->respuestaWsfeAprobada('64001234567890', '20260813')],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
@@ -73,11 +72,11 @@ class WsfetClientTest extends TestCase
         $this->assertSame('PES', $detalle['MonId']);
     }
 
-    public function test_autenticacion_wsaa_se_envia_como_soap_header(): void
+    public function test_autenticacion_wsaa_se_envia_en_el_body(): void
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FECAESolicitar' => (object) ['FECAESolicitarResult' => $this->respuestaWsfeAprobada('64001234567890', '20260813')],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
@@ -86,26 +85,25 @@ class WsfetClientTest extends TestCase
         $client = $this->cliente($transporte);
         $client->solicitarCae($this->comprobante());
 
-        $cabecera = null;
+        $auth = null;
         foreach ($transporte->llamadas as $llamada) {
             if ($llamada['operacion'] === 'FECAESolicitar') {
-                $cabecera = $llamada['cabecera'];
+                $auth = $llamada['argumentos']['Auth'];
             }
         }
 
-        $this->assertInstanceOf(SoapHeader::class, $cabecera);
-        $this->assertSame('Auth', $cabecera->name);
-        $this->assertSame('http://ar.gov.afip.digifed.wsfe/', $cabecera->namespace);
-        $this->assertSame(GeneraPfx::CUIT_VALIDO, $cabecera->data['Cuit']);
-        $this->assertSame('TOKEN_WSAA_TEST', $cabecera->data['Token']);
-        $this->assertSame('SIGN_WSAA_TEST', $cabecera->data['Sign']);
+        $this->assertNotNull($auth);
+        $this->assertNull($transporte->llamadas[0]['cabecera'] ?? null);
+        $this->assertSame(GeneraPfx::CUIT_VALIDO, $auth['Cuit']);
+        $this->assertSame('TOKEN_WSAA_TEST', $auth['Token']);
+        $this->assertSame('SIGN_WSAA_TEST', $auth['Sign']);
     }
 
     public function test_solicitar_cae_rechazado_lanza_con_errores(): void
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FECAESolicitar' => (object) ['FECAESolicitarResult' => $this->respuestaWsfeRechazada('El comprobante no se puede facturar')],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
@@ -126,7 +124,7 @@ class WsfetClientTest extends TestCase
             $capturados[] = ['operacion' => $operacion, 'argumentos' => $argumentos];
 
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FECAESolicitar' => (object) ['FECAESolicitarResult' => $this->respuestaWsfeAprobada('64001234567890', '20260813')],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
@@ -153,7 +151,7 @@ class WsfetClientTest extends TestCase
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FEConsultaCAERequerimiento' => (object) ['FEConsultaCAERequerimientoResult' => $this->respuestaWsfeAprobada('64001234567890', '20260813')],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
@@ -170,7 +168,7 @@ class WsfetClientTest extends TestCase
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FEParamGetPtosVenta' => $this->respuestaPuntoVenta(),
                 'FEParamGetTiposIva' => $this->respuestaAlicuotas(),
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
@@ -200,8 +198,8 @@ class WsfetClientTest extends TestCase
             new FakeSoapClientFactory($transporte),
             new WsfeConfig(
                 EntornoArca::PRODUCCION,
-                'https://wsfe.test/wsfe?WSDL',
-                'http://ar.gov.afip.digifed.wsfe/',
+                'https://wsfe.test/wsfev1/service.asmx?WSDL',
+                'http://ar.gov.afip.dif.FEV1/',
                 ['exceptions' => true],
             ),
             $wsaa,

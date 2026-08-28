@@ -55,7 +55,63 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
             );
     }
 
-    public function test_verificar_cuit_ri_avanza_a_datos_cargados(): void
+    public function test_verificar_cuit_ri_avanza_a_datos_cargados_en_homologacion(): void
+    {
+        $this->padron->respuesta = [
+            'condicion_fiscal' => 'responsable_inscripto',
+            'estado' => 'ACTIVO',
+            'nombre' => 'Comercio RI SA',
+            'domicilio_fiscal' => 'ERNESTO CASTELLANO 7, VILLA DOLORES, CORDOBA, 5870',
+        ];
+
+        $this->actingAsAdminGlobal()
+            ->from(route('configuracion.fiscal.wizard'))
+            ->post(route('configuracion.fiscal.cuit'), [
+                'cuit' => GeneraPfx::CUIT_VALIDO,
+                'entorno' => 'homologacion',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('configuracion_fiscal_comercios', [
+            'comercio_id' => 1,
+            'cuit' => GeneraPfx::CUIT_VALIDO,
+            'razon_social' => 'Comercio RI SA',
+            'condicion_fiscal' => 'responsable_inscripto',
+            'domicilio_fiscal' => 'ERNESTO CASTELLANO 7, VILLA DOLORES, CORDOBA, 5870',
+            'entorno' => 'homologacion',
+            'estado_modulo' => 'datos_cargados',
+        ]);
+    }
+
+    public function test_verificar_cuit_sin_domicilio_deja_el_campo_vacio(): void
+    {
+        $this->padron->respuesta = [
+            'condicion_fiscal' => 'responsable_inscripto',
+            'estado' => 'ACTIVO',
+            'nombre' => 'Comercio RI SA',
+            'domicilio_fiscal' => null,
+        ];
+
+        $this->actingAsAdminGlobal()
+            ->from(route('configuracion.fiscal.wizard'))
+            ->post(route('configuracion.fiscal.cuit'), [
+                'cuit' => GeneraPfx::CUIT_VALIDO,
+                'entorno' => 'homologacion',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('configuracion_fiscal_comercios', [
+            'comercio_id' => 1,
+            'cuit' => GeneraPfx::CUIT_VALIDO,
+            'domicilio_fiscal' => null,
+            'entorno' => 'homologacion',
+            'estado_modulo' => 'datos_cargados',
+        ]);
+    }
+
+    public function test_verificar_cuit_produccion_vedado_para_comercio_nuevo(): void
     {
         $this->padron->respuesta = [
             'condicion_fiscal' => 'responsable_inscripto',
@@ -70,13 +126,42 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
                 'entorno' => 'produccion',
             ])
             ->assertRedirect()
+            ->assertSessionHasErrors('cuit');
+
+        $this->assertDatabaseMissing('configuracion_fiscal_comercios', [
+            'comercio_id' => 1,
+            'entorno' => 'produccion',
+        ]);
+    }
+
+    public function test_verificar_cuit_puede_pasar_a_produccion_tras_homologacion(): void
+    {
+        $this->padron->respuesta = [
+            'condicion_fiscal' => 'responsable_inscripto',
+            'estado' => 'ACTIVO',
+            'nombre' => 'Comercio RI SA',
+        ];
+
+        $this->actingAsAdminGlobal()
+            ->from(route('configuracion.fiscal.wizard'))
+            ->post(route('configuracion.fiscal.cuit'), [
+                'cuit' => GeneraPfx::CUIT_VALIDO,
+                'entorno' => 'homologacion',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->actingAsAdminA()
+            ->from(route('configuracion.fiscal.wizard'))
+            ->post(route('configuracion.fiscal.cuit'), [
+                'cuit' => GeneraPfx::CUIT_VALIDO,
+                'entorno' => 'produccion',
+            ])
+            ->assertRedirect()
             ->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('configuracion_fiscal_comercios', [
             'comercio_id' => 1,
-            'cuit' => GeneraPfx::CUIT_VALIDO,
-            'razon_social' => 'Comercio RI SA',
-            'condicion_fiscal' => 'responsable_inscripto',
             'entorno' => 'produccion',
             'estado_modulo' => 'datos_cargados',
         ]);
@@ -90,11 +175,11 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
             'nombre' => 'Monotributista',
         ];
 
-        $this->actingAsAdminA()
+        $this->actingAsAdminGlobal()
             ->from(route('configuracion.fiscal.wizard'))
             ->post(route('configuracion.fiscal.cuit'), [
                 'cuit' => GeneraPfx::CUIT_VALIDO,
-                'entorno' => 'produccion',
+                'entorno' => 'homologacion',
             ])
             ->assertRedirect()
             ->assertSessionHasErrors('cuit');
@@ -113,11 +198,11 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
             'nombre' => 'Dado de baja',
         ];
 
-        $this->actingAsAdminA()
+        $this->actingAsAdminGlobal()
             ->from(route('configuracion.fiscal.wizard'))
             ->post(route('configuracion.fiscal.cuit'), [
                 'cuit' => GeneraPfx::CUIT_VALIDO,
-                'entorno' => 'produccion',
+                'entorno' => 'homologacion',
             ])
             ->assertRedirect()
             ->assertSessionHasErrors('cuit');
@@ -128,7 +213,7 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
         ]);
     }
 
-    public function test_homologacion_vedada_para_superadmin(): void
+    public function test_homologacion_permitida_para_superadmin(): void
     {
         $this->actingAsAdminA()
             ->from(route('configuracion.fiscal.wizard'))
@@ -137,11 +222,12 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
                 'entorno' => 'homologacion',
             ])
             ->assertRedirect()
-            ->assertSessionHasErrors('cuit');
+            ->assertSessionHasNoErrors();
 
-        $this->assertDatabaseMissing('configuracion_fiscal_comercios', [
+        $this->assertDatabaseHas('configuracion_fiscal_comercios', [
             'comercio_id' => 1,
             'entorno' => 'homologacion',
+            'estado_modulo' => 'datos_cargados',
         ]);
     }
 
@@ -170,6 +256,20 @@ class F7_WizardConfiguracionFiscalTest extends TestCaseMultiTenant
             'entorno' => 'homologacion',
             'estado_modulo' => 'datos_cargados',
         ]);
+    }
+
+    private function actingAsAdminGlobal(): self
+    {
+        $adminGlobal = new User([
+            'name' => 'Admin Global QA',
+            'email' => 'admin.global.qa@test.com',
+            'comercio_id' => 1,
+        ]);
+        $adminGlobal->password = 'secret';
+        $adminGlobal->save();
+        $adminGlobal->assignRole('Administrador Global');
+
+        return $this->actingAs($adminGlobal);
     }
 
     public function test_confirmar_datos_avanza_a_datos_validados(): void

@@ -10,6 +10,7 @@ use App\Facturacion\Infrastructure\Arca\SoapClientFactory;
 use DateTimeImmutable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use SoapVar;
 use Throwable;
 
 /**
@@ -67,7 +68,7 @@ final class WsaaClient
             $respuesta = $this->transportes->crearTransporte(
                 $this->endpoints->wsdlWsaa($entorno),
                 $this->endpoints->opcionesSoap()
-            )->llamar('login', ['in0' => $cms]);
+            )->llamar('loginCms', [new SoapVar(['in0' => $cms], SOAP_ENC_OBJECT)]);
         } catch (ArcaIntegrationException $e) {
             throw new ArcaIntegrationException('Fallo la autenticación en WSAA: '.$e->getMessage(), 0, $e);
         } catch (Throwable $e) {
@@ -78,11 +79,11 @@ final class WsaaClient
     }
 
     /**
-     * @param  object  $respuesta  Respuesta SOAP de login con loginReturn (XML).
+     * @param  object  $respuesta  Respuesta SOAP de loginCms con loginCmsReturn (XML).
      */
     private function tokenDesdeRespuesta(object $respuesta): WsaaToken
     {
-        $loginReturn = $respuesta->loginReturn ?? null;
+        $loginReturn = $respuesta->loginCmsReturn ?? null;
 
         if (! is_string($loginReturn)) {
             throw new ArcaIntegrationException('WSAA no devolvió el ticket de acceso.');
@@ -118,7 +119,7 @@ final class WsaaClient
 <loginTicketRequest version="1.0">
   <header>
     <uniqueId>{$generado->getTimestamp()}</uniqueId>
-    <generatedAt>{$generado->format('c')}</generatedAt>
+    <generationTime>{$generado->format('c')}</generationTime>
     <expirationTime>{$expiracion->format('c')}</expirationTime>
   </header>
   <service>{$servicio}</service>

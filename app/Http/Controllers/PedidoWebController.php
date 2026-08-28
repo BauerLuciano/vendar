@@ -2,18 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Enums\PaymentStatus;
+use App\Models\Comercio;
 use App\Models\PedidoWeb;
 use App\Models\PedidoWebItem;
 use App\Models\Producto;
-use App\Models\Comercio;
 use App\Models\Sucursal;
+use App\Services\Payment\Contracts\CheckoutRequest;
+use App\Services\Payment\PaymentConfirmationService;
+use App\Services\Payment\PaymentRecorder;
+use App\Services\Payment\PaymentService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Services\Payment\PaymentService;
-use App\Services\Payment\PaymentRecorder;
-use App\Services\Payment\PaymentConfirmationService;
-use App\Services\Payment\Contracts\CheckoutRequest;
 
 class PedidoWebController extends Controller
 {
@@ -36,7 +37,7 @@ class PedidoWebController extends Controller
             'items.*.cantidad' => 'required|integer|min:1',
             'tipo_entrega' => 'required|in:local,delivery',
             'telefono_contacto' => 'required_if:tipo_entrega,delivery|nullable|string|min:6|max:20|regex:/^\d+$/',
-            'metodo_pago' => 'required|in:' . implode(',', $metodosPagoValidos),
+            'metodo_pago' => 'required|in:'.implode(',', $metodosPagoValidos),
             'direccion_entrega' => 'required_if:tipo_entrega,delivery|nullable|string',
         ]);
 
@@ -44,7 +45,7 @@ class PedidoWebController extends Controller
 
         $nombreCliente = 'Cliente Invitado';
         if ($user) {
-            $nombreCliente = $user->name ?? ($user->nombre . ' ' . $user->apellido);
+            $nombreCliente = $user->name ?? ($user->nombre.' '.$user->apellido);
         } elseif ($request->cliente_nombre) {
             $nombreCliente = $request->cliente_nombre;
         }
@@ -56,7 +57,7 @@ class PedidoWebController extends Controller
             ->where('comercio_id', $comercioId)
             ->exists();
 
-        if (!$sucursalValida) {
+        if (! $sucursalValida) {
             return response()->json([
                 'error' => 'La sucursal seleccionada no pertenece a este comercio.',
             ], 422);
@@ -81,7 +82,7 @@ class PedidoWebController extends Controller
 
                 $producto = $productos->get($productoId);
 
-                if (!$producto) {
+                if (! $producto) {
                     throw new \Exception("El producto con ID {$productoId} no está activo o no existe.");
                 }
 
@@ -91,7 +92,7 @@ class PedidoWebController extends Controller
                     ->lockForUpdate()
                     ->first();
 
-                if (!$productoStock) {
+                if (! $productoStock) {
                     throw new \Exception("El producto \"{$producto->nombre}\" no está disponible en la sucursal seleccionada.");
                 }
 
@@ -118,16 +119,16 @@ class PedidoWebController extends Controller
                     ->first();
 
                 DB::table('movimientos_stock')->insert([
-                    'producto_id'         => $productoId,
-                    'sucursal_id'         => $sucursalId,
-                    'user_id'             => $user?->id,
-                    'tipo_movimiento'     => 'Reserva Pedido Web',
-                    'cantidad_anterior'   => $reservadaAnterior,
+                    'producto_id' => $productoId,
+                    'sucursal_id' => $sucursalId,
+                    'user_id' => $user?->id,
+                    'tipo_movimiento' => 'Reserva Pedido Web',
+                    'cantidad_anterior' => $reservadaAnterior,
                     'cantidad_movimiento' => -$cantidad,
-                    'cantidad_actual'     => (float) $psDespues->cantidad_fisica,
-                    'motivo'              => "Reserva para pedido web (pendiente de confirmar)",
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
+                    'cantidad_actual' => (float) $psDespues->cantidad_fisica,
+                    'motivo' => 'Reserva para pedido web (pendiente de confirmar)',
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
 
                 $precioUnitario = (float) $producto->precio_venta;
@@ -180,7 +181,7 @@ class PedidoWebController extends Controller
 
             $totalFinal = round($subtotalProductos + $costoEnvio, 2);
 
-            $pedido = new PedidoWeb();
+            $pedido = new PedidoWeb;
             $pedido->comercio_id = $comercio->id;
             $pedido->sucursal_id = $sucursalId;
             $consumidor = auth('consumidor')->user();
@@ -189,7 +190,7 @@ class PedidoWebController extends Controller
             $pedido->cliente_nombre = $nombreCliente;
             $pedido->cliente_telefono = $request->telefono_contacto;
             $pedido->cliente_direccion = $request->tipo_entrega === 'delivery'
-                ? trim(($request->direccion_entrega ?? '') . ' ' . ($request->piso_depto ?? ''))
+                ? trim(($request->direccion_entrega ?? '').' '.($request->piso_depto ?? ''))
                 : 'Retiro en local';
             $pedido->subtotal = $subtotalProductos;
             $pedido->costo_envio = $costoEnvio;
@@ -204,32 +205,32 @@ class PedidoWebController extends Controller
 
             foreach ($itemsCalculados as $itemCalc) {
                 PedidoWebItem::create([
-                    'pedido_web_id'   => $pedido->id,
-                    'producto_id'     => $itemCalc['producto']->id,
-                    'cantidad'        => $itemCalc['cantidad'],
+                    'pedido_web_id' => $pedido->id,
+                    'producto_id' => $itemCalc['producto']->id,
+                    'cantidad' => $itemCalc['cantidad'],
                     'precio_unitario' => $itemCalc['precio_unitario'],
-                    'subtotal'        => $itemCalc['subtotal'],
+                    'subtotal' => $itemCalc['subtotal'],
                 ]);
 
                 $itemsParaPasarela[] = [
-                    'title'       => $itemCalc['producto']->nombre,
-                    'quantity'    => $itemCalc['cantidad'],
-                    'unit_price'  => $itemCalc['precio_unitario'],
+                    'title' => $itemCalc['producto']->nombre,
+                    'quantity' => $itemCalc['cantidad'],
+                    'unit_price' => $itemCalc['precio_unitario'],
                     'currency_id' => 'ARS',
                 ];
             }
 
             if ($costoEnvio > 0) {
                 $itemsParaPasarela[] = [
-                    'title'       => 'Costo de Envío (Delivery)',
-                    'quantity'    => 1,
-                    'unit_price'  => $costoEnvio,
+                    'title' => 'Costo de Envío (Delivery)',
+                    'quantity' => 1,
+                    'unit_price' => $costoEnvio,
                     'currency_id' => 'ARS',
                 ];
             }
 
             if ($this->paymentService->isGatewayProvider($request->metodo_pago)) {
-                $backUrlBase = config('app.url') . '/tienda/' . ($comercio->slug ?? 'default');
+                $backUrlBase = config('services.mercadopago.public_url').'/tienda/'.($comercio->slug ?? 'default');
 
                 $gateway = $this->paymentService
                     ->forCommerce($comercio)
@@ -238,12 +239,12 @@ class PedidoWebController extends Controller
                 $checkoutRequest = new CheckoutRequest(
                     referenceId: (string) $pedido->id,
                     amount: $totalFinal,
-                    title: 'Pedido #' . $pedido->id,
-                    description: 'Pedido en ' . ($comercio->nombre ?? 'VendAR'),
+                    title: 'Pedido #'.$pedido->id,
+                    description: 'Pedido en '.($comercio->nombre ?? 'VendAR'),
                     items: $itemsParaPasarela,
-                    successUrl: $backUrlBase . '?pedido_exitoso=1&pedido_id=' . $pedido->id,
-                    failureUrl: $backUrlBase . '?pago_rechazado=1',
-                    pendingUrl: $backUrlBase . '?pago_pendiente=1',
+                    successUrl: $backUrlBase.'?pedido_exitoso=1&pedido_id='.$pedido->id,
+                    failureUrl: $backUrlBase.'?pago_rechazado=1',
+                    pendingUrl: $backUrlBase.'?pago_pendiente=1',
                     notificationUrl: $gateway->getWebhookUrl($comercio),
                 );
 
@@ -263,16 +264,18 @@ class PedidoWebController extends Controller
                     );
 
                     DB::commit();
+
                     return response()->json([
                         'url_pago' => $response->checkoutUrl,
                         'pedido_id' => $pedido->id,
                     ]);
                 } catch (\Throwable $e) {
-                    throw new \Exception('Error al procesar el pago: ' . $e->getMessage());
+                    throw new \Exception('Error al procesar el pago: '.$e->getMessage());
                 }
             }
 
             DB::commit();
+
             return response()->json(['success' => true]);
 
         } catch (\Exception $e) {
@@ -282,6 +285,7 @@ class PedidoWebController extends Controller
                 'comercio_id' => $comercioId ?? null,
                 'sucursal_id' => $sucursalId ?? null,
             ]);
+
             return response()->json([
                 'error' => 'Error al procesar el pedido',
                 'mensaje' => $e->getMessage(),
@@ -324,11 +328,13 @@ class PedidoWebController extends Controller
 
         $paymentId = $request->input('payment_id');
 
-        if (!$paymentId) {
+        if (! $paymentId) {
             if (app()->environment('local')) {
-                $this->confirmationService->approve($pedido, 'dev_' . $pedido->id, 'dev_fallback');
+                $this->confirmationService->approve($pedido, 'dev_'.$pedido->id, 'dev_fallback');
+
                 return response()->json(['success' => true, 'source' => 'dev_fallback']);
             }
+
             return response()->json(['error' => 'payment_id requerido'], 400);
         }
 
@@ -341,8 +347,10 @@ class PedidoWebController extends Controller
         } catch (\Throwable $e) {
             if (app()->environment('local')) {
                 $this->confirmationService->approve($pedido, $paymentId, 'dev_fallback_sin_api');
+
                 return response()->json(['success' => true, 'source' => 'dev_fallback_sin_api']);
             }
+
             return response()->json(['error' => 'Error al verificar pago en Mercado Pago'], 502);
         }
 
@@ -350,7 +358,7 @@ class PedidoWebController extends Controller
             return response()->json(['error' => 'El pago no corresponde a este pedido'], 400);
         }
 
-        if ($status->status !== \App\Enums\PaymentStatus::APPROVED) {
+        if ($status->status !== PaymentStatus::APPROVED) {
             return response()->json(['error' => 'El pago no está aprobado'], 400);
         }
 

@@ -11,7 +11,7 @@ use App\Facturacion\Domain\ValueObjects\Cuit;
 interface PadronConsulta
 {
     /**
-     * @return array{condicion_fiscal: string, estado: string, nombre?: string}
+     * @return array{condicion_fiscal: string, estado: string, nombre?: string, domicilio_fiscal?: ?string}
      */
     public function consultar(Cuit $cuit): array;
 }

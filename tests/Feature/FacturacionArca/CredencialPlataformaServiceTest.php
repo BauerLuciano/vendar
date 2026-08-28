@@ -38,8 +38,9 @@ class CredencialPlataformaServiceTest extends TestCaseMultiTenant
         $this->assertSame([
             'token' => 'TOKEN_PLATAFORMA',
             'sign' => 'SIGN_PLATAFORMA',
-            'cuitRepresentado' => GeneraPfx::CUIT_VALIDO,
-        ], $credencial->authRequest());
+            'cuitRepresentada' => GeneraPfx::CUIT_VALIDO,
+            'idPersona' => GeneraPfx::CUIT_VALIDO,
+        ], $credencial->parametrosConsulta(new Cuit(GeneraPfx::CUIT_VALIDO)));
     }
 
     public function test_la_credencial_se_guarda_encriptada(): void

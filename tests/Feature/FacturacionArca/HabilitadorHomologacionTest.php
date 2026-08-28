@@ -33,6 +33,13 @@ class HabilitadorHomologacionTest extends TestCaseMultiTenant
         (new HabilitadorHomologacion)->verificar('homologacion');
     }
 
+    public function test_homologacion_con_superadmin_se_permite(): void
+    {
+        (new HabilitadorHomologacion)->verificar(EntornoArca::HOMOLOGACION, $this->adminA);
+
+        $this->assertTrue(true);
+    }
+
     public function test_homologacion_con_admin_global_se_permite(): void
     {
         $adminGlobal = User::factory()->create();

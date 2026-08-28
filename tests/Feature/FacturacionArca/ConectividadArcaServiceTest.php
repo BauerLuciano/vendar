@@ -32,9 +32,9 @@ class ConectividadArcaServiceTest extends TestCaseMultiTenant
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FEDummy' => (object) ['FEDummyResult' => (object) ['appserver' => 'OK', 'authserver' => 'OK', 'dbserver' => 'OK']],
-                'getPersona' => (object) ['getPersonaReturn' => $this->personaActivaResponsableInscripto()],
+                'getPersona_v2' => (object) ['personaReturn' => $this->personaActivaResponsableInscripto()],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
         });
@@ -76,9 +76,9 @@ class ConectividadArcaServiceTest extends TestCaseMultiTenant
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FEDummy' => throw new ArcaIntegrationException('Timeout de conexión'),
-                'getPersona' => (object) ['getPersonaReturn' => $this->personaActivaResponsableInscripto()],
+                'getPersona_v2' => (object) ['personaReturn' => $this->personaActivaResponsableInscripto()],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
         });
@@ -99,9 +99,9 @@ class ConectividadArcaServiceTest extends TestCaseMultiTenant
     {
         $transporte = new FakeArcaSoapTransport(function ($operacion) {
             return match ($operacion) {
-                'login' => (object) ['loginReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
+                'loginCms' => (object) ['loginCmsReturn' => $this->loginXml((new DateTimeImmutable)->modify('+600 seconds'))],
                 'FEDummy' => (object) ['FEDummyResult' => (object) ['appserver' => 'OK']],
-                'getPersona' => (object) ['getPersonaReturn' => (object) ['apellido' => 'X', 'nombre' => 'Y', 'estado' => 'BAJA']],
+                'getPersona_v2' => (object) ['personaReturn' => (object) ['apellido' => 'X', 'nombre' => 'Y', 'estado' => 'BAJA']],
                 default => throw new ArcaIntegrationException("Operación inesperada {$operacion}"),
             };
         });

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+                  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                  xmlns:tns="http://a5.soap.ws.server.puc.sr/"
+                  targetNamespace="http://a5.soap.ws.server.puc.sr/">
+    <wsdl:types>
+        <xsd:schema targetNamespace="http://a5.soap.ws.server.puc.sr/">
+            <xsd:element name="getPersona_v2">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="token" type="xsd:string"/>
+                        <xsd:element name="sign" type="xsd:string"/>
+                        <xsd:element name="cuitRepresentada" type="xsd:string"/>
+                        <xsd:element name="idPersona" type="xsd:string"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="getPersona_v2Response">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="getPersona_v2Return" type="tns:personaReturn"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:complexType name="personaReturn">
+                <xsd:sequence>
+                    <xsd:element name="apellido" type="xsd:string"/>
+                    <xsd:element name="nombre" type="xsd:string"/>
+                    <xsd:element name="persona" type="tns:persona"/>
+                </xsd:sequence>
+            </xsd:complexType>
+            <xsd:complexType name="persona">
+                <xsd:sequence>
+                    <xsd:element name="idPersona" type="xsd:long"/>
+                    <xsd:element name="estado" type="xsd:string"/>
+                    <xsd:element name="tipoPersona" type="xsd:string"/>
+                </xsd:sequence>
+            </xsd:complexType>
+        </xsd:schema>
+    </wsdl:types>
+    <wsdl:message name="getPersona_v2Request">
+        <wsdl:part name="parameters" element="tns:getPersona_v2"/>
+    </wsdl:message>
+    <wsdl:message name="getPersona_v2Response">
+        <wsdl:part name="parameters" element="tns:getPersona_v2Response"/>
+    </wsdl:message>
+    <wsdl:portType name="personaServiceA5">
+        <wsdl:operation name="getPersona_v2">
+            <wsdl:input message="tns:getPersona_v2Request"/>
+            <wsdl:output message="tns:getPersona_v2Response"/>
+        </wsdl:operation>
+    </wsdl:portType>
+    <wsdl:binding name="personaServiceA5Binding" type="tns:personaServiceA5">
+        <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+        <wsdl:operation name="getPersona_v2">
+            <soap:operation soapAction=""/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+    </wsdl:binding>
+    <wsdl:service name="personaServiceA5">
+        <wsdl:port name="personaServiceA5Port" binding="tns:personaServiceA5Binding">
+            <soap:address location="http://127.0.0.1:9/sr-padron"/>
+        </wsdl:port>
+    </wsdl:service>
+</wsdl:definitions>

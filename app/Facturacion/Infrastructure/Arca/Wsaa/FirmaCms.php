@@ -8,7 +8,7 @@ use Throwable;
 
 /**
  * Firma el mensaje de login de WSAA con el certificado pfx del comercio,
- * produciendo el CMS (PKCS#7 detachado) que exige la operación login.
+ * produciendo el CMS (PKCS#7 con contenido embebido) que exige la operación login.
  */
 final class FirmaCms
 {
@@ -35,7 +35,7 @@ final class FirmaCms
                 $parseado['cert'],
                 $parseado['pkey'],
                 $headers,
-                PKCS7_DETACHED
+                0
             );
 
             fclose($entrada);
@@ -78,11 +78,21 @@ final class FirmaCms
 
     /**
      * Extrae el cuerpo base64 del CMS (sin encabezados MIME ni delimitadores).
-     * PHP 8.5 emite la firma como S/MIME multipart (smime.p7s); versiones previas
-     * emitían un bloque PEM '-----BEGIN PKCS7-----'.
+     * Con flags 0 (contenido embebido) la salida es una parte única
+     * 'application/x-pkcs7-mime'; se conserva la compatibilidad con el bloque
+     * PEM '-----BEGIN PKCS7-----' y con el S/MIME multipart de PHP 8.5.
      */
     private function base64DelCms(string $contenido): string
     {
+        if (preg_match('/^Content-Type:\s*application\/x-pkcs7-mime;.*$/im', $contenido)) {
+            $cuerpo = preg_split('/\r?\n\r?\n/', $contenido, 2)[1] ?? '';
+            $base64 = trim(preg_replace('/\s+/', '', $cuerpo) ?? '');
+
+            if ($base64 !== '') {
+                return $base64;
+            }
+        }
+
         if (preg_match('/-----BEGIN PKCS7-----([^-]*)-----END PKCS7-----/s', $contenido, $bloque)) {
             $base64 = trim(preg_replace('/\s+/', '', $bloque[1]) ?? '');
 

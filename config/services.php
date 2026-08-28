@@ -65,14 +65,14 @@ return [
             'ttl_segundos' => env('ARCA_WSAA_TTL_SEGUNDOS', 600),
         ],
         'wsfe' => [
-            'wsdl_produccion' => env('ARCA_WSFE_WSDL_PRODUCCION', 'https://servicios1.afip.gov.ar/wsfe/wsfe?WSDL'),
-            'wsdl_homologacion' => env('ARCA_WSFE_WSDL_HOMOLOGACION', 'https://wswhomo.afip.gov.ar/wsfe/wsfe?WSDL'),
-            'namespace_auth' => env('ARCA_WSFE_NAMESPACE_AUTH', 'http://ar.gov.afip.digifed.wsfe/'),
+            'wsdl_produccion' => env('ARCA_WSFE_WSDL_PRODUCCION', 'https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL'),
+            'wsdl_homologacion' => env('ARCA_WSFE_WSDL_HOMOLOGACION', 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL'),
+            'namespace_auth' => env('ARCA_WSFE_NAMESPACE_AUTH', 'http://ar.gov.afip.dif.FEV1/'),
         ],
         'padron' => [
-            'wsdl_produccion' => env('ARCA_PADRON_WSDL_PRODUCCION', 'https://aws.afip.gov.ar/sr-ws-wscdc/ws_sr_constancia_inscripcion?wsdl'),
-            'wsdl_homologacion' => env('ARCA_PADRON_WSDL_HOMOLOGACION', 'https://awshomo.afip.gov.ar/sr-ws-wscdc/ws_sr_constancia_inscripcion?wsdl'),
-            'namespace_auth' => env('ARCA_PADRON_NAMESPACE_AUTH', 'http://impl.batch.wsaa.afip.gov.ar/'),
+            'wsdl_produccion' => env('ARCA_PADRON_WSDL_PRODUCCION', 'https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL'),
+            'wsdl_homologacion' => env('ARCA_PADRON_WSDL_HOMOLOGACION', 'https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL'),
+            'namespace_auth' => env('ARCA_PADRON_NAMESPACE_AUTH', 'http://a5.soap.ws.server.puc.sr/'),
         ],
         'soap' => [
             'connection_timeout' => env('ARCA_SOAP_TIMEOUT', 30),

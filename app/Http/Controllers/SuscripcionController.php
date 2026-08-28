@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Inertia\Inertia;
+use App\Enums\PaymentStatus;
 use App\Models\Comercio;
 use App\Models\Plan;
-use Illuminate\Support\Facades\DB;
-use App\Services\Payment\PaymentService;
-use App\Enums\PaymentStatus;
 use App\Services\Payment\Contracts\CheckoutRequest;
+use App\Services\Payment\Exceptions\PaymentException;
+use App\Services\Payment\PaymentService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
 
 class SuscripcionController extends Controller
 {
@@ -41,13 +42,13 @@ class SuscripcionController extends Controller
             $user = auth()->user();
             $comercio = Comercio::find($user->comercio_id);
 
-            if (!$comercio) {
+            if (! $comercio) {
                 return response()->json(['error' => 'Comercio no encontrado'], 404);
             }
 
             $plan = Plan::findOrFail($request->plan_id);
 
-            if (!$plan->activo) {
+            if (! $plan->activo) {
                 return response()->json(['error' => 'Plan no disponible'], 400);
             }
 
@@ -56,19 +57,19 @@ class SuscripcionController extends Controller
             $checkoutRequest = new CheckoutRequest(
                 referenceId: (string) $comercio->id,
                 amount: (float) $plan->precio_mensual,
-                title: 'VendAR: ' . $plan->nombre,
-                description: 'Plan ' . $plan->nombre . ' - VendAR',
+                title: 'VendAR: '.$plan->nombre,
+                description: 'Plan '.$plan->nombre.' - VendAR',
                 items: [[
-                    'id' => 'plan-' . $plan->id,
-                    'title' => 'VendAR: ' . $plan->nombre,
+                    'id' => 'plan-'.$plan->id,
+                    'title' => 'VendAR: '.$plan->nombre,
                     'quantity' => 1,
                     'unit_price' => (float) $plan->precio_mensual,
                     'currency_id' => 'ARS',
                 ]],
-                successUrl: route('suscripcion.mi-plan', ['pago' => 'exito', 'plan_id' => $plan->id]),
-                failureUrl: route('suscripcion.mi-plan', ['pago' => 'error']),
-                pendingUrl: route('suscripcion.mi-plan', ['pago' => 'pendiente']),
-                notificationUrl: url('/api/mercadopago/notificacion?tipo=plan'),
+                successUrl: config('services.mercadopago.public_url').'/mi-plan?pago=exito&plan_id='.$plan->id,
+                failureUrl: config('services.mercadopago.public_url').'/mi-plan?pago=error',
+                pendingUrl: config('services.mercadopago.public_url').'/mi-plan?pago=pendiente',
+                notificationUrl: config('services.mercadopago.public_url').'/api/mercadopago/notificacion?tipo=plan',
             );
 
             $response = $this->paymentService
@@ -79,7 +80,7 @@ class SuscripcionController extends Controller
                 'init_point' => $response->checkoutUrl,
             ]);
 
-        } catch (\App\Services\Payment\Exceptions\PaymentException $e) {
+        } catch (PaymentException $e) {
             return response()->json([
                 'error' => 'Error de pasarela de pago',
                 'detalle' => $e->getMessage(),
@@ -113,8 +114,9 @@ class SuscripcionController extends Controller
                 'requested_plan_id' => $request->plan_id,
                 'pending_plan_id' => $comercio->pending_plan_id,
             ]);
+
             return response()->json([
-                'error' => 'El plan solicitado no coincide con la intención de pago. Generá una nueva preferencia.'
+                'error' => 'El plan solicitado no coincide con la intención de pago. Generá una nueva preferencia.',
             ], 400);
         }
 
@@ -164,7 +166,7 @@ class SuscripcionController extends Controller
         $user = auth()->user();
         $comercio = Comercio::find($user->comercio_id);
 
-        if (!$comercio) {
+        if (! $comercio) {
             return response()->json(['plan_id' => null]);
         }
 

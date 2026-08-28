@@ -29,8 +29,15 @@ class ConfiguracionFiscalComercioTest extends TestCaseMultiTenant
         $config = ConfiguracionFiscalComercio::where('comercio_id', 1)->firstOrFail();
 
         $this->assertSame('sin_datos', $config->estado_modulo);
-        $this->assertSame('produccion', $config->entorno);
+        $this->assertSame('homologacion', $config->entorno);
         $this->assertCount(2, ConfiguracionFiscalComercio::all());
+    }
+
+    public function test_default_de_entorno_en_migracion_es_homologacion_para_no_facturar_en_produccion_por_error(): void
+    {
+        $migracion = (string) file_get_contents(base_path('database/migrations/2026_08_02_000005_create_configuracion_fiscal_comercios_table.php'));
+
+        $this->assertStringContainsString("->default('homologacion')", $migracion);
     }
 
     public function test_comercio_id_es_unico(): void

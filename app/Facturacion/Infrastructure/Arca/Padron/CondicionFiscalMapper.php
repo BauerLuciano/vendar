@@ -27,34 +27,72 @@ final class CondicionFiscalMapper
 
     public function estado(object $persona): string
     {
-        return strtoupper(trim((string) ($persona->estado ?? '')));
+        $generales = $persona->datosGenerales ?? $persona;
+
+        return strtoupper(trim((string) ($generales->estadoClave ?? $generales->estado ?? '')));
     }
 
     public function nombre(object $persona): string
     {
-        $apellido = trim((string) ($persona->apellido ?? ''));
-        $nombre = trim((string) ($persona->nombre ?? ''));
+        $generales = $persona->datosGenerales ?? $persona;
+
+        $apellido = trim((string) ($generales->apellido ?? ''));
+        $nombre = trim((string) ($generales->nombre ?? ''));
 
         return trim($apellido.' '.$nombre) !== '' ? trim($apellido.' '.$nombre) : '';
     }
 
-    private function descripcionesImpuestos(object $persona): string
+    public function domicilioFiscal(object $persona): ?string
     {
-        $impuestos = $persona->impuesto ?? null;
+        $generales = $persona->datosGenerales ?? $persona;
 
-        if (is_object($impuestos)) {
-            $impuestos = [$impuestos];
+        $domicilio = $generales->domicilioFiscal ?? null;
+
+        if (! is_object($domicilio)) {
+            return null;
         }
 
-        if (! is_array($impuestos)) {
-            return '';
+        $partes = array_filter([
+            trim((string) ($domicilio->direccion ?? '')),
+            trim((string) ($domicilio->localidad ?? '')),
+            trim((string) ($domicilio->descripcionProvincia ?? '')),
+            trim((string) ($domicilio->codPostal ?? '')),
+        ], fn (string $parte) => $parte !== '');
+
+        return $partes === [] ? null : implode(', ', $partes);
+    }
+
+    private function descripcionesImpuestos(object $persona): string
+    {
+        $fuentes = [];
+
+        foreach (['datosRegimenGeneral', 'datosMonotributo'] as $contenedor) {
+            if (is_object($persona->{$contenedor} ?? null)) {
+                $fuentes[] = $persona->{$contenedor};
+            }
+        }
+
+        if ($fuentes === []) {
+            $fuentes[] = $persona;
         }
 
         $descripciones = [];
 
-        foreach ($impuestos as $impuesto) {
-            if (is_object($impuesto)) {
-                $descripciones[] = trim((string) ($impuesto->descripcionImpuesto ?? ''));
+        foreach ($fuentes as $fuente) {
+            $impuestos = $fuente->impuesto ?? null;
+
+            if (is_object($impuestos)) {
+                $impuestos = [$impuestos];
+            }
+
+            if (! is_array($impuestos)) {
+                continue;
+            }
+
+            foreach ($impuestos as $impuesto) {
+                if (is_object($impuesto)) {
+                    $descripciones[] = trim((string) ($impuesto->descripcionImpuesto ?? ''));
+                }
             }
         }
 

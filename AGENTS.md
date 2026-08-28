@@ -123,6 +123,77 @@ Toda tarea debe seguir este flujo:
 
 ---
 
+## 📚 DOCUMENTACIÓN OFICIAL ARCA
+
+`docs/arca/` es documentación oficial del proyecto.
+
+Antes de implementar cualquier funcionalidad relacionada con:
+- WSAA
+- WSFEv1
+- autenticación
+- XML
+- CAE
+- códigos AFIP/ARCA
+- validaciones
+- mensajes de error
+- reglas de negocio propias de ARCA
+
+consultá primero los manuales de `docs/arca/`.
+
+Si se encuentran diferencias entre la implementación actual y la documentación oficial:
+- NO modificar el código automáticamente
+- Reportar primero la diferencia
+- Explicar el impacto
+- Proponer la solución
+
+Prioridad documental:
+1. `docs/arquitectura-facturacion.md`
+2. `docs/build-plan-facturacion.md`
+3. `docs/arca/`
+
+---
+
+## 📝 INFORMES TÉCNICOS
+
+Toda fase terminada genera automáticamente un informe técnico en `docs/informes/` (F4.md, F5.md, F6.md, etc.).
+
+Cada informe debe contener como mínimo:
+- objetivo
+- archivos creados
+- archivos modificados
+- decisiones técnicas
+- bugs corregidos
+- pruebas ejecutadas
+- resultados
+- criterios de aceptación
+- pendientes de la siguiente fase
+
+Cuando una implementación se base en un manual de `docs/arca/`, citar el manual utilizado y, cuando sea posible, la sección correspondiente, sin copiar textualmente su contenido.
+
+---
+
+## ⚙️ PARAMETRIZACIÓN
+
+Toda regla que NO sea una obligación legal de ARCA debe ser parametrizable. Ejemplos:
+- alícuotas configurables
+- comportamiento del POS
+- mensajes
+- formatos
+- opciones de impresión
+- políticas comerciales
+
+Las reglas impuestas por ARCA/AFIP (CAE, WSAA, WSFEv1, validaciones fiscales, códigos oficiales, etc.) NO deben parametrizarse: deben respetar exactamente la normativa vigente.
+
+---
+
+## 🔁 CONTINUIDAD
+
+- Continuar siempre con la siguiente fase del Build Plan
+- No modificar la arquitectura aprobada sin autorización
+- No intervenir en fallos preexistentes ajenos al módulo de facturación
+
+---
+
 ## 🗣️ TONO DEL AGENTE
 
 - Español neutro con voseo argentino

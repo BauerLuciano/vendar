@@ -17,6 +17,7 @@ use Tests\Support\FacturacionArca\FakeSoapClientFactory;
 use Tests\Support\FacturacionArca\GeneraPfx;
 use Tests\Support\FacturacionArca\RespuestasArca;
 use Tests\TestCaseMultiTenant;
+use SoapVar;
 
 class PadronClientTest extends TestCaseMultiTenant
 {
@@ -25,7 +26,7 @@ class PadronClientTest extends TestCaseMultiTenant
     public function test_consultar_persona_activa_ri(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['getPersonaReturn' => $this->personaActivaResponsableInscripto()]
+            fn () => (object) ['personaReturn' => $this->personaActivaResponsableInscripto()]
         );
 
         $resultado = $this->cliente($transporte)->consultar(new Cuit(GeneraPfx::CUIT_VALIDO));
@@ -33,23 +34,80 @@ class PadronClientTest extends TestCaseMultiTenant
         $this->assertSame('responsable_inscripto', $resultado['condicion_fiscal']);
         $this->assertSame('ACTIVO', $resultado['estado']);
         $this->assertSame('PEREZ JUAN', $resultado['nombre']);
+        $this->assertSame('ERNESTO CASTELLANO 7, VILLA DOLORES, CORDOBA, 5870', $resultado['domicilio_fiscal']);
 
-        $this->assertInstanceOf(\SoapHeader::class, $transporte->llamadas[0]['cabecera']);
-        $this->assertSame('authRequest', $transporte->llamadas[0]['cabecera']->name);
+        $llamada = $transporte->llamadas[0];
+        $this->assertSame('getPersona_v2', $llamada['operacion']);
+        $this->assertNull($llamada['cabecera']);
+
+        // getPersona_v2 debe enviarse como UN único argumento estructurado
+        // (SoapVar SOAP_ENC_OBJECT), nunca como argumentos posicionales
+        // param1/param2 (bug de serialización corregido en PadronClient).
+        $this->assertCount(1, $llamada['argumentos']);
+        $argumento = $llamada['argumentos'][0];
+        $this->assertInstanceOf(SoapVar::class, $argumento);
+        $this->assertSame(SOAP_ENC_OBJECT, $argumento->enc_type);
+        $this->assertSame([
+            'token' => 'TOKEN_PLATAFORMA',
+            'sign' => 'SIGN_PLATAFORMA',
+            'cuitRepresentada' => GeneraPfx::CUIT_VALIDO,
+            'idPersona' => GeneraPfx::CUIT_VALIDO,
+        ], $argumento->enc_value);
     }
 
     public function test_consultar_persona_monotributo(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['getPersonaReturn' => $this->personaActivaMonotributo()]
+            fn () => (object) ['personaReturn' => $this->personaActivaMonotributo()]
         );
 
         $resultado = $this->cliente($transporte)->consultar(new Cuit(GeneraPfx::CUIT_VALIDO));
 
         $this->assertSame('monotributo', $resultado['condicion_fiscal']);
+        $this->assertNull($resultado['domicilio_fiscal']);
     }
 
-    public function test_respuesta_con_persona_return_alternativo(): void
+    public function test_consultar_domicilio_fiscal_con_campos_vacios(): void
+    {
+        $transporte = new FakeArcaSoapTransport(
+            fn () => (object) ['personaReturn' => (object) [
+                'datosGenerales' => (object) [
+                    'apellido' => 'PEREZ',
+                    'nombre' => 'JUAN',
+                    'estadoClave' => 'ACTIVO',
+                    'domicilioFiscal' => (object) [
+                        'direccion' => 'AV SIEMPRE VIVA 742',
+                        'localidad' => '',
+                        'descripcionProvincia' => null,
+                        'codPostal' => '',
+                    ],
+                ],
+            ]]
+        );
+
+        $resultado = $this->cliente($transporte)->consultar(new Cuit(GeneraPfx::CUIT_VALIDO));
+
+        $this->assertSame('AV SIEMPRE VIVA 742', $resultado['domicilio_fiscal']);
+    }
+
+    public function test_consultar_domicilio_fiscal_ausente_deja_vacio(): void
+    {
+        $transporte = new FakeArcaSoapTransport(
+            fn () => (object) ['personaReturn' => (object) [
+                'datosGenerales' => (object) [
+                    'apellido' => 'PEREZ',
+                    'nombre' => 'JUAN',
+                    'estadoClave' => 'ACTIVO',
+                ],
+            ]]
+        );
+
+        $resultado = $this->cliente($transporte)->consultar(new Cuit(GeneraPfx::CUIT_VALIDO));
+
+        $this->assertNull($resultado['domicilio_fiscal']);
+    }
+
+    public function test_respuesta_con_contenedor_persona_return(): void
     {
         $transporte = new FakeArcaSoapTransport(
             fn () => (object) ['personaReturn' => $this->personaActivaResponsableInscripto()]
@@ -72,7 +130,7 @@ class PadronClientTest extends TestCaseMultiTenant
     public function test_consultar_sin_credencial_lanza(): void
     {
         $transporte = new FakeArcaSoapTransport(
-            fn () => (object) ['getPersonaReturn' => $this->personaActivaResponsableInscripto()]
+            fn () => (object) ['personaReturn' => $this->personaActivaResponsableInscripto()]
         );
 
         $cliente = new PadronClient(

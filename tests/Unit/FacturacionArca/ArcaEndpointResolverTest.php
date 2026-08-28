@@ -18,14 +18,14 @@ class ArcaEndpointResolverTest extends TestCase
                 'ttl_segundos' => 600,
             ],
             'wsfe' => [
-                'wsdl_produccion' => 'https://wsfe.test/wsfe?WSDL',
-                'wsdl_homologacion' => 'https://wfehomo.test/wsfe?WSDL',
-                'namespace_auth' => 'http://ar.gov.afip.digifed.wsfe/',
+                'wsdl_produccion' => 'https://wsfe.test/wsfev1/service.asmx?WSDL',
+                'wsdl_homologacion' => 'https://wfehomo.test/wsfev1/service.asmx?WSDL',
+                'namespace_auth' => 'http://ar.gov.afip.dif.FEV1/',
             ],
             'padron' => [
                 'wsdl_produccion' => 'https://padron.test?wsdl',
                 'wsdl_homologacion' => 'https://padronhomo.test?wsdl',
-                'namespace_auth' => 'http://impl.batch.wsaa.afip.gov.ar/',
+                'namespace_auth' => 'http://a5.soap.ws.server.puc.sr/',
             ],
             'soap' => ['exceptions' => true, 'connection_timeout' => 30],
         ];
@@ -37,7 +37,7 @@ class ArcaEndpointResolverTest extends TestCase
 
         $this->assertSame('https://wsaa.test/LoginCms?WSDL', $resolver->wsdlWsaa(EntornoArca::PRODUCCION));
         $this->assertSame('https://wsaahomo.test/LoginCms?WSDL', $resolver->wsdlWsaa(EntornoArca::HOMOLOGACION));
-        $this->assertSame('https://wsfe.test/wsfe?WSDL', $resolver->wsdlWsfe(EntornoArca::PRODUCCION));
+        $this->assertSame('https://wsfe.test/wsfev1/service.asmx?WSDL', $resolver->wsdlWsfe(EntornoArca::PRODUCCION));
         $this->assertSame('https://padron.test?wsdl', $resolver->wsdlPadron(EntornoArca::PRODUCCION));
     }
 
@@ -65,8 +65,8 @@ class ArcaEndpointResolverTest extends TestCase
     {
         $resolver = new ArcaEndpointResolver($this->config());
 
-        $this->assertSame('http://ar.gov.afip.digifed.wsfe/', $resolver->namespaceAuthWsfe());
-        $this->assertSame('http://impl.batch.wsaa.afip.gov.ar/', $resolver->namespaceAuthPadron());
+        $this->assertSame('http://ar.gov.afip.dif.FEV1/', $resolver->namespaceAuthWsfe());
+        $this->assertSame('http://a5.soap.ws.server.puc.sr/', $resolver->namespaceAuthPadron());
     }
 
     public function test_entorno_desde_es_valido_o_lanza(): void

@@ -12,6 +12,7 @@ final class FakePadronConsulta implements PadronConsulta
         'condicion_fiscal' => 'responsable_inscripto',
         'estado' => 'ACTIVO',
         'nombre' => 'Cliente RI',
+        'domicilio_fiscal' => null,
     ];
 
     public ?Throwable $excepcion = null;

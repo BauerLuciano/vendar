@@ -12,11 +12,11 @@ use App\Facturacion\Infrastructure\Arca\Certificado\CertificadoMaterial;
 use App\Facturacion\Infrastructure\Arca\Exceptions\ArcaIntegrationException;
 use App\Facturacion\Infrastructure\Arca\SoapClientFactory;
 use App\Facturacion\Infrastructure\Arca\Wsaa\WsaaClient;
-use SoapHeader;
 
 /**
- * Cliente WSFE v4 (RG 5616/2024) detrás de la interfaz Wsfet/ComprobanteFiscalAdapter
- * (arquitectura §14.2). Un cambio de versión de ARCA toca únicamente esta capa.
+ * Cliente WSFEv1 (manual ARCA COMPG, namespace FEV1) detrás de la interfaz
+ * Wsfet/ComprobanteFiscalAdapter (arquitectura §14.2). Un cambio de versión de
+ * ARCA toca únicamente esta capa.
  *
  * Una instancia se construye por comercio y entorno (WsfetClientFactory); F3 decide
  * el certificado y el entorno según la configuración fiscal del comercio.
@@ -185,18 +185,18 @@ final class WsfetClient implements Wsfet
     {
         $token = $this->wsaa->obtenerToken(self::SERVICIO_WSAA, $this->config->entorno(), $this->material);
 
-        $cabecera = new SoapHeader(
-            $this->config->namespaceAuth(),
-            'Auth',
-            [
+        // WSFEv1 recibe la autenticación (FEAuthRequest) dentro del Body de cada
+        // operación, no como header SOAP (manual ARCA COMPG §2).
+        $argumentos = array_merge([
+            'Auth' => [
                 'Token' => $token->token(),
                 'Sign' => $token->sign(),
                 'Cuit' => $this->cuitEmisor->valor(),
-            ]
-        );
+            ],
+        ], $argumentos);
 
         return $this->transportes->crearTransporte($this->config->wsdl(), $this->config->opciones())
-            ->llamar($operacion, $argumentos, $cabecera);
+            ->llamar($operacion, $argumentos);
     }
 
     private function asociadoSiNotaCredito(ComprobanteFiscal $comprobante): ?array

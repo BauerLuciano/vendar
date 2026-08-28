@@ -58,6 +58,18 @@ class CondicionFiscalMapperTest extends TestCase
         );
     }
 
+    public function test_esquema_get_persona_v2_anidado(): void
+    {
+        $persona = $this->personaActivaResponsableInscripto();
+
+        $this->assertSame('ACTIVO', $this->mapper->estado($persona));
+        $this->assertSame('PEREZ JUAN', $this->mapper->nombre($persona));
+        $this->assertSame(
+            CondicionFiscal::RESPONSABLE_INSCRIPTO->value,
+            $this->mapper->condicionFiscal($persona)
+        );
+    }
+
     public function test_estado_y_nombre(): void
     {
         $persona = (object) ['apellido' => 'PEREZ', 'nombre' => 'JUAN', 'estado' => 'inactivo'];

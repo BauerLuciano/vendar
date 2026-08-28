@@ -19,7 +19,7 @@ trait RespuestasArca
   <header>
     <source>CN=wsaa,OU=wsaa,O=AFIP,C=AR</source>
     <uniqueId>1</uniqueId>
-    <generatedAt>{$generado->format('c')}</generatedAt>
+    <generationTime>{$generado->format('c')}</generationTime>
     <expirationTime>{$expiracion->format('c')}</expirationTime>
   </header>
   <credentials>
@@ -98,24 +98,44 @@ XML;
     protected function personaActivaResponsableInscripto(): object
     {
         return (object) [
-            'apellido' => 'PEREZ',
-            'nombre' => 'JUAN',
-            'estado' => 'ACTIVO',
-            'impuesto' => [
-                (object) ['descripcionImpuesto' => 'IVA'],
-                (object) ['descripcionImpuesto' => 'GANANCIAS'],
+            'metadata' => (object) ['fechaHora' => '2026-08-08T10:00:00-03:00', 'servidor' => 'qa-sr-padron-ws.cloudhomo.afip.gob.ar'],
+            'datosGenerales' => (object) [
+                'apellido' => 'PEREZ',
+                'nombre' => 'JUAN',
+                'estadoClave' => 'ACTIVO',
+                'domicilioFiscal' => (object) [
+                    'codPostal' => '5870',
+                    'descripcionProvincia' => 'CORDOBA',
+                    'direccion' => 'ERNESTO CASTELLANO 7',
+                    'idProvincia' => 3,
+                    'localidad' => 'VILLA DOLORES',
+                    'tipoDomicilio' => 'FISCAL',
+                ],
             ],
+            'datosRegimenGeneral' => (object) [
+                'impuesto' => [
+                    (object) ['descripcionImpuesto' => 'IVA'],
+                    (object) ['descripcionImpuesto' => 'GANANCIAS'],
+                ],
+            ],
+            'datosMonotributo' => null,
         ];
     }
 
     protected function personaActivaMonotributo(): object
     {
         return (object) [
-            'apellido' => 'GOMEZ',
-            'nombre' => 'ANA',
-            'estado' => 'ACTIVO',
-            'impuesto' => [
-                (object) ['descripcionImpuesto' => 'MONOTRIBUTO'],
+            'metadata' => (object) ['fechaHora' => '2026-08-08T10:00:00-03:00', 'servidor' => 'qa-sr-padron-ws.cloudhomo.afip.gob.ar'],
+            'datosGenerales' => (object) [
+                'apellido' => 'GOMEZ',
+                'nombre' => 'ANA',
+                'estadoClave' => 'ACTIVO',
+            ],
+            'datosRegimenGeneral' => null,
+            'datosMonotributo' => (object) [
+                'impuesto' => [
+                    (object) ['descripcionImpuesto' => 'MONOTRIBUTO'],
+                ],
             ],
         ];
     }

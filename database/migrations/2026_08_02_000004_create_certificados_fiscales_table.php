@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('certificados_fiscales', function (Blueprint $table) {
             $table->id();
             $table->foreignId('comercio_id')->constrained('comercios')->cascadeOnDelete();
-            $table->enum('entorno', ['produccion', 'homologacion'])->default('produccion');
+            $table->enum('entorno', ['produccion', 'homologacion'])->default('homologacion');
             $table->text('archivo_pfx');
             $table->text('password_pfx');
             $table->string('distinguished_name')->nullable();

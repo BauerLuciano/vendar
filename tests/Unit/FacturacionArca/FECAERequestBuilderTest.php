@@ -116,6 +116,62 @@ class FECAERequestBuilderTest extends TestCase
         $this->assertSame(1, $detalle['CondicionIVAReceptorId']);
     }
 
+    public function test_factura_b_sobre_el_umbral_rg4444_sin_receptor_lanza(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('RG 4291/4444');
+
+        $this->builder->construir(
+            $this->comprobante([$this->detalle21(15000.0)]),
+            new DateTimeImmutable('2026-08-03 10:00:00')
+        );
+    }
+
+    public function test_factura_b_sobre_el_umbral_rg4444_con_receptor_es_valida(): void
+    {
+        $receptor = new Receptor(
+            new Cuit(GeneraPfx::CUIT_VALIDO),
+            'Consumidor',
+            'Domicilio 123',
+            CondicionFiscal::CONSUMIDOR_FINAL
+        );
+
+        $request = $this->builder->construir(
+            $this->comprobante([$this->detalle21(15000.0)], TipoComprobante::FACTURA, LetraComprobante::B, $receptor),
+            new DateTimeImmutable('2026-08-03 10:00:00')
+        );
+
+        $detalle = $request['FeDetReq']['FECAEDetRequest'];
+
+        $this->assertSame(80, $detalle['DocTipo']);
+        $this->assertSame((int) GeneraPfx::CUIT_VALIDO, $detalle['DocNro']);
+    }
+
+    public function test_factura_b_sobre_el_umbral_con_umbral_configurable(): void
+    {
+        $builder = new FECAERequestBuilder(tipoDocConsumidorFinal: 96, montoMaximoB: 500.0);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $builder->construir(
+            $this->comprobante([$this->detalle21(1000.0)]),
+            new DateTimeImmutable('2026-08-03 10:00:00')
+        );
+    }
+
+    public function test_factura_a_sobre_el_umbral_no_aplica_la_regla_de_clase_b(): void
+    {
+        $request = $this->builder->construir(
+            $this->comprobante([$this->detalle21(15000.0)], TipoComprobante::FACTURA, LetraComprobante::A, null),
+            new DateTimeImmutable('2026-08-03 10:00:00')
+        );
+
+        $detalle = $request['FeDetReq']['FECAEDetRequest'];
+
+        $this->assertSame(96, $detalle['DocTipo']);
+        $this->assertSame(0, $detalle['DocNro']);
+    }
+
     public function test_condicion_iva_receptor_segun_condicion_fiscal(): void
     {
         $porCondicion = [

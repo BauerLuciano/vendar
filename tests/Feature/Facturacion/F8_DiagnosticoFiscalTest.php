@@ -114,7 +114,7 @@ class F8_DiagnosticoFiscalTest extends TestCaseMultiTenant
             ->assertSessionHasNoErrors();
 
         $this->assertSame(1, $this->conectividad->llamadas);
-        $this->assertNotNull(session('facturacion.resultado_conexion'));
+        $this->assertNotNull(session('facturacion.resultado_conexion.1'));
     }
 
     public function test_cancelar_con_nc_fallida_registra_pendiente(): void

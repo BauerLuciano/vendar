@@ -23,7 +23,7 @@ class DiagnosticoFiscalController extends Controller
     public function index(Request $request)
     {
         $comercioId = $this->comercioId($request);
-        $resultadoConexion = session('facturacion.resultado_conexion');
+        $resultadoConexion = session('facturacion.resultado_conexion.'.$comercioId);
 
         return Inertia::render('Facturacion/Diagnostico', [
             'diagnostico' => $this->servicio->diagnostico($comercioId, $resultadoConexion),
@@ -35,9 +35,10 @@ class DiagnosticoFiscalController extends Controller
     public function probarConexion(Request $request)
     {
         try {
-            $resultado = $this->servicio->probarConexion($this->comercioId($request));
+            $comercioId = $this->comercioId($request);
+            $resultado = $this->servicio->probarConexion($comercioId);
 
-            session()->flash('facturacion.resultado_conexion', $resultado);
+            session()->flash('facturacion.resultado_conexion.'.$comercioId, $resultado);
 
             $ok = collect($resultado)->every(fn ($r) => $r['ok']);
 

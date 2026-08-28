@@ -34,14 +34,18 @@ class WizardConfiguracionFiscalController extends Controller
             'configuracion' => $this->configuracionParaVista($configuracion),
             'certificado' => $this->certificadoParaVista($certificado),
             'puntosVenta' => $this->puntosVentaDisponibles($configuracion),
-            'resultadoConexion' => session('facturacion.resultado_conexion'),
+            'resultadoConexion' => session('facturacion.resultado_conexion.'.$comercioId),
         ]);
     }
 
     public function verificarCuit(Request $request)
     {
         $validated = $request->validate([
-            'cuit' => ['required', 'string'],
+            'cuit' => ['required', 'string', function (string $attribute, $value, $fail) {
+                if (! \App\Facturacion\Domain\ValueObjects\Cuit::esValido($value)) {
+                    $fail('El CUIT no tiene un dígito verificador válido.');
+                }
+            }],
             'entorno' => ['required', 'in:produccion,homologacion'],
         ]);
 
@@ -94,8 +98,16 @@ class WizardConfiguracionFiscalController extends Controller
     public function cargarCertificado(Request $request)
     {
         $validated = $request->validate([
-            'archivo_pfx' => ['required', 'file'],
-            'password_pfx' => ['required', 'string'],
+            'archivo_pfx' => [
+                'required', 'file', 'max:4096',
+                'mimetypes:application/x-pkcs12,application/pkcs12,application/x-pkcs12,application/octet-stream',
+            ],
+            'password_pfx' => ['required', 'string', 'min:1', 'max:255'],
+        ], [
+            'archivo_pfx.required' => 'Seleccioná el archivo .pfx del certificado.',
+            'archivo_pfx.file' => 'El archivo del certificado no es válido.',
+            'archivo_pfx.max' => 'El archivo .pfx no puede superar 4 MB.',
+            'password_pfx.required' => 'Ingresá la contraseña del certificado.',
         ]);
 
         $pfx = file_get_contents($validated['archivo_pfx']->getRealPath());
@@ -147,9 +159,10 @@ class WizardConfiguracionFiscalController extends Controller
     public function probarConexion(Request $request)
     {
         try {
-            $resultado = $this->servicio->probarConexion($this->comercioId($request));
+            $comercioId = $this->comercioId($request);
+            $resultado = $this->servicio->probarConexion($comercioId);
 
-            session()->flash('facturacion.resultado_conexion', $resultado);
+            session()->flash('facturacion.resultado_conexion.'.$comercioId, $resultado);
 
             $ok = collect($resultado)->every(fn ($r) => $r['ok']);
 
@@ -190,7 +203,7 @@ class WizardConfiguracionFiscalController extends Controller
         $comercioId = $this->comercioId($request);
         $configuracion = $this->servicio->buscarPorComercio($comercioId);
 
-        return $configuracion?->entorno() ?? 'produccion';
+        return $configuracion?->entorno() ?? 'homologacion';
     }
 
     private function configuracionParaVista(mixed $configuracion): ?array

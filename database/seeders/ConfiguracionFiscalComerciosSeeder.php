@@ -22,7 +22,7 @@ class ConfiguracionFiscalComerciosSeeder extends Seeder
             ConfiguracionFiscalComercio::firstOrCreate(
                 ['comercio_id' => $comercio->id],
                 [
-                    'entorno' => 'produccion',
+                    'entorno' => 'homologacion',
                     'estado_modulo' => 'sin_datos',
                 ]
             );

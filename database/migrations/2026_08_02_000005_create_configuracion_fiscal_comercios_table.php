@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('razon_social')->nullable();
             $table->string('condicion_fiscal')->nullable();
             $table->string('domicilio_fiscal')->nullable();
-            $table->enum('entorno', ['produccion', 'homologacion'])->default('produccion');
+            $table->enum('entorno', ['produccion', 'homologacion'])->default('homologacion');
             $table->unsignedInteger('punto_venta_activo')->nullable();
             $table->string('estado_modulo')->default('sin_datos');
             $table->foreignId('certificado_id')->nullable()->constrained('certificados_fiscales')->nullOnDelete();

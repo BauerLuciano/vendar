@@ -17,16 +17,19 @@ final class PlataformaCredential
     ) {}
 
     /**
-     * Estructura del header SOAP authRequest de ws_sr_constancia_inscripcion.
+     * Parámetros de consulta getPersona_v2 de ws_sr_constancia_inscripcion
+     * (manual ARCA v4.1 §3.2): token/sign/cuitRepresentada/idPersona van en el
+     * Body de la operación, no como header SOAP.
      *
-     * @return array{token: string, sign: string, cuitRepresentado: string}
+     * @return array{token: string, sign: string, cuitRepresentada: string, idPersona: string}
      */
-    public function authRequest(): array
+    public function parametrosConsulta(Cuit $destino): array
     {
         return [
             'token' => $this->token,
             'sign' => $this->sign,
-            'cuitRepresentado' => $this->cuit->valor(),
+            'cuitRepresentada' => $this->cuit->valor(),
+            'idPersona' => $destino->valor(),
         ];
     }
 }

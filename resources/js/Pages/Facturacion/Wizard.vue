@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, useForm, usePage, router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
@@ -40,7 +40,56 @@ const pasoDisponible = (indice) => indice <= indiceEstado.value;
 
 const cuitForm = useForm({
     cuit: props.configuracion?.cuit ? props.configuracion.cuit.replaceAll('-', '') : '',
-    entorno: 'produccion',
+    entorno: props.configuracion?.entorno || 'homologacion',
+});
+
+const soloDigitos = (valor) => (valor || '').replace(/\D/g, '').slice(0, 11);
+
+const formatearCuit = (valor) => {
+    const d = soloDigitos(valor);
+    if (d.length <= 2) return d;
+    if (d.length <= 10) return `${d.slice(0, 2)}-${d.slice(2)}`;
+    return `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}`;
+};
+
+const cuitInput = ref(formatearCuit(props.configuracion?.cuit || ''));
+
+const onCuitInput = (evento) => {
+    const el = evento.target;
+    const viejo = el.value;
+    const posVieja = el.selectionStart ?? viejo.length;
+    const nuevo = formatearCuit(viejo);
+
+    el.value = nuevo;
+    cuitInput.value = nuevo;
+    cuitForm.cuit = soloDigitos(nuevo);
+
+    let pos;
+    if (nuevo.length > viejo.length) {
+        pos = nuevo.length;
+    } else {
+        const digitosAntes = (viejo.slice(0, posVieja).match(/\d/g) || []).length;
+        pos = 0;
+        let d = 0;
+        while (pos < nuevo.length && d < digitosAntes) {
+            if (/\d/.test(nuevo[pos])) d++;
+            pos++;
+        }
+    }
+    el.setSelectionRange(pos, pos);
+};
+
+watch(() => props.configuracion?.cuit, (nuevo) => {
+    if (nuevo) {
+        cuitForm.cuit = soloDigitos(nuevo);
+        cuitInput.value = formatearCuit(nuevo);
+    }
+});
+
+watch(() => props.configuracion?.domicilio_fiscal, (nuevo) => {
+    if (nuevo) {
+        datosForm.domicilio_fiscal = nuevo;
+    }
 });
 
 const datosForm = useForm({
@@ -56,15 +105,59 @@ const puntoVentaForm = useForm({
     punto_venta: props.configuracion?.punto_venta_activo || null,
 });
 
+const cuitError = ref('');
+
+const esCuitValido = (cuit) => {
+    if (!/^\d{11}$/.test(cuit)) return false;
+    const pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+    const digitos = cuit.split('').map(Number);
+    const suma = digitos.slice(0, 10).reduce((acc, d, i) => acc + d * pesos[i], 0);
+    const resto = suma % 11;
+    let verificador = 11 - resto;
+    if (verificador === 11) verificador = 0;
+    if (verificador === 10) verificador = 9;
+    return verificador === digitos[10];
+};
+
 const verificarCuit = () => {
-    cuitForm.post(route('configuracion.fiscal.cuit'), {
-        preserveScroll: true,
-        onSuccess: () => {
-            cuitForm.reset('cuit');
-            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'CUIT verificado', showConfirmButton: false, timer: 2000 });
-            router.reload({ only: ['configuracion', 'certificado', 'puntosVenta'] });
-        },
-    });
+    cuitForm.cuit = cuitForm.cuit.replace(/\D/g, '').slice(0, 11);
+    if (cuitForm.cuit.length !== 11) {
+        cuitError.value = 'El CUIT debe tener 11 dígitos.';
+        return;
+    }
+    if (!esCuitValido(cuitForm.cuit)) {
+        cuitError.value = 'El CUIT no tiene un dígito verificador válido.';
+        return;
+    }
+    cuitError.value = '';
+
+    const confirmacionProduccion = () => {
+        cuitForm.post(route('configuracion.fiscal.cuit'), {
+            preserveScroll: true,
+            onSuccess: () => {
+                cuitForm.reset('cuit');
+                Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'CUIT verificado', showConfirmButton: false, timer: 2000 });
+                router.reload({ only: ['configuracion', 'certificado', 'puntosVenta'] });
+            },
+        });
+    };
+
+    if (cuitForm.entorno === 'produccion') {
+        Swal.fire({
+            title: '¿Verificar en producción?',
+            text: 'Estás por verificar el CUIT contra ARCA en el entorno de PRODUCCIÓN. Confirmá que sea intencional.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, verificar en producción',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#dc2626',
+        }).then((result) => {
+            if (result.isConfirmed) confirmacionProduccion();
+        });
+        return;
+    }
+
+    confirmacionProduccion();
 };
 
 const confirmarDatos = () => {
@@ -82,6 +175,19 @@ const archivoSeleccionado = (e) => {
 };
 
 const cargarCertificado = () => {
+    if (!certificadoForm.archivo_pfx) {
+        Swal.fire('Falta el archivo', 'Seleccioná el archivo .pfx del certificado.', 'warning');
+        return;
+    }
+    const nombre = certificadoForm.archivo_pfx.name || '';
+    if (!nombre.toLowerCase().endsWith('.pfx')) {
+        Swal.fire('Archivo inválido', 'El archivo debe tener extensión .pfx.', 'warning');
+        return;
+    }
+    if (!certificadoForm.password_pfx) {
+        Swal.fire('Falta la contraseña', 'Ingresá la contraseña del certificado.', 'warning');
+        return;
+    }
     certificadoForm.post(route('configuracion.fiscal.certificado'), {
         preserveScroll: true,
         onSuccess: () => {
@@ -93,7 +199,10 @@ const cargarCertificado = () => {
 };
 
 const seleccionarPuntoVenta = () => {
-    if (!puntoVentaForm.punto_venta) return;
+    if (!puntoVentaForm.punto_venta) {
+        Swal.fire('Elegí un punto de venta', 'Seleccioná uno de los puntos de venta disponibles.', 'warning');
+        return;
+    }
     puntoVentaForm.post(route('configuracion.fiscal.punto-venta'), {
         preserveScroll: true,
         onSuccess: () => {
@@ -170,6 +279,11 @@ const aviso = computed(() => flash.value?.success || flash.value?.error || '');
                 <h1 class="text-3xl font-black text-slate-800 tracking-tight">Facturación Electrónica</h1>
                 <p class="text-slate-500 font-medium text-sm mt-1">Configurá el comercio para emitir comprobantes con ARCA</p>
 
+                <a :href="route('configuracion.fiscal.diagnostico')"
+                   class="inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-black transition-colors">
+                    Ver diagnóstico fiscal
+                </a>
+
                 <div v-if="listaParaFacturar" class="mt-4 inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm font-black">
                     <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Listo para facturar
@@ -223,16 +337,21 @@ const aviso = computed(() => flash.value?.success || flash.value?.error || '');
                             <div v-if="pasos[pasoActual].id === 1" class="space-y-4">
                                 <div>
                                     <label class="block text-sm font-bold text-slate-700 mb-1">CUIT del comercio</label>
-                                    <input v-model="cuitForm.cuit" type="text" inputmode="numeric" maxlength="11"
-                                        placeholder="20123456786"
+                                    <input :value="cuitInput" @input="onCuitInput" type="text" inputmode="numeric" maxlength="14"
+                                        placeholder="20-12345678-6"
                                         class="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                    <p class="text-[11px] text-slate-400 font-medium mt-1 flex justify-between">
+                                        <span>Formato XX-XXXXXXXX-X · se envían los 11 dígitos</span>
+                                        <span class="font-bold" :class="cuitForm.cuit.length === 11 ? 'text-emerald-600' : ''">{{ cuitForm.cuit.length }}/11</span>
+                                    </p>
+                                    <p v-if="cuitError" class="text-xs text-red-600 font-semibold mt-1">{{ cuitError }}</p>
                                     <p v-if="errors.cuit" class="text-xs text-red-600 font-semibold mt-1">{{ errors.cuit }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-bold text-slate-700 mb-1">Entorno</label>
                                     <select v-model="cuitForm.entorno" class="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 text-sm">
                                         <option value="produccion">Producción</option>
-                                        <option value="homologacion">Homologación (solo Administración Global / Dev)</option>
+                                        <option value="homologacion">Homologación</option>
                                     </select>
                                 </div>
                                 <div v-if="configuracion?.razon_social" class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm">
@@ -335,7 +454,7 @@ const aviso = computed(() => flash.value?.success || flash.value?.error || '');
                                     <div class="flex justify-between"><span class="text-slate-500 font-medium">Razón social</span><span class="font-black text-slate-800">{{ configuracion?.razon_social || '—' }}</span></div>
                                     <div class="flex justify-between"><span class="text-slate-500 font-medium">Condición fiscal</span><span class="font-black text-slate-800">{{ configuracion?.condicion_fiscal_label || '—' }}</span></div>
                                     <div class="flex justify-between"><span class="text-slate-500 font-medium">Domicilio</span><span class="font-black text-slate-800">{{ configuracion?.domicilio_fiscal || '—' }}</span></div>
-                                    <div class="flex justify-between"><span class="text-slate-500 font-medium">Entorno</span><span class="font-black text-slate-800 capitalize">{{ configuracion?.entorno || 'produccion' }}</span></div>
+                                    <div class="flex justify-between"><span class="text-slate-500 font-medium">Entorno</span><span class="font-black text-slate-800 capitalize">{{ configuracion?.entorno || 'homologacion' }}</span></div>
                                     <div class="flex justify-between"><span class="text-slate-500 font-medium">Punto de venta</span><span class="font-black text-slate-800">{{ configuracion?.punto_venta_activo || '—' }}</span></div>
                                     <div class="flex justify-between"><span class="text-slate-500 font-medium">Certificado</span><span class="font-black text-slate-800">{{ certificado ? 'Cargado y encriptado' : '—' }}</span></div>
                                 </div>
@@ -351,9 +470,14 @@ const aviso = computed(() => flash.value?.success || flash.value?.error || '');
                             </button>
 
                             <button v-if="pasoActual < pasos.length - 1" @click="enviarPaso"
-                                :disabled="probando || activando"
+                                :disabled="probando || activando || cuitForm.processing || datosForm.processing || certificadoForm.processing || puntoVentaForm.processing"
                                 class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-600/30 transition-all uppercase tracking-widest text-sm disabled:opacity-50">
-                                {{ pasos[pasoActual].id === 5 ? (probando ? 'Probando…' : 'Probar conexión') : (pasos[pasoActual].id === 4 ? 'Seleccionar PV' : 'Continuar') }}
+                                {{ pasoActual < pasos.length - 1 && cuitForm.processing ? 'Verificando…' :
+                                   (pasoActual < pasos.length - 1 && datosForm.processing ? 'Guardando…' :
+                                   (pasoActual < pasos.length - 1 && certificadoForm.processing ? 'Subiendo…' :
+                                   (pasoActual < pasos.length - 1 && puntoVentaForm.processing ? 'Guardando…' :
+                                   (pasos[pasoActual].id === 5 ? (probando ? 'Probando…' : 'Probar conexión') :
+                                   (pasos[pasoActual].id === 4 ? 'Seleccionar PV' : 'Continuar'))))) }}
                             </button>
 
                             <button v-else @click="activar" :disabled="activando || listaParaFacturar"
