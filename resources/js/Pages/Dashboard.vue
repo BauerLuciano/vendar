@@ -20,6 +20,7 @@ const props = defineProps({
     esJefe: { type: Boolean, default: false },
     sucursalUsuario: { type: String, default: 'Sin Asignar' },
     estadoOnboarding: { type: Object, default: () => ({ completo: false, porcentaje: 0, pasos: [] }) },
+    suscripcionAlerta: { type: Object, default: null },
     ordenesPendientes: { type: Array, default: () => [] },
 });
 
@@ -61,6 +62,75 @@ const limpiarFiltros = () => {
     filtroHasta.value = '';
     router.get(route('dashboard'), {}, { preserveState: true, replace: true });
 };
+
+const nivelSuscripcion = computed(() => props.suscripcionAlerta?.nivel || 'aviso');
+
+const clasesBannerSuscripcion = computed(() => {
+    const map = {
+        aviso: 'bg-amber-50 border-amber-200',
+        advertencia: 'bg-orange-50 border-orange-200',
+        urgente: 'bg-rose-50 border-rose-200',
+        vencido: 'bg-red-50 border-red-200',
+    };
+    return ['border', map[nivelSuscripcion.value] || map.aviso];
+});
+
+const clasesIconoSuscripcion = computed(() => {
+    const map = {
+        aviso: 'bg-amber-100 text-amber-600',
+        advertencia: 'bg-orange-100 text-orange-600',
+        urgente: 'bg-rose-100 text-rose-600',
+        vencido: 'bg-red-100 text-red-600',
+    };
+    return map[nivelSuscripcion.value] || map.aviso;
+});
+
+const clasesTextoSuscripcion = computed(() => {
+    const map = {
+        aviso: 'text-amber-900',
+        advertencia: 'text-orange-900',
+        urgente: 'text-rose-900',
+        vencido: 'text-red-900',
+    };
+    return map[nivelSuscripcion.value] || map.aviso;
+});
+
+const clasesSubTextoSuscripcion = computed(() => {
+    const map = {
+        aviso: 'text-amber-700',
+        advertencia: 'text-orange-700',
+        urgente: 'text-rose-700',
+        vencido: 'text-red-700',
+    };
+    return map[nivelSuscripcion.value] || map.aviso;
+});
+
+const clasesBotonSuscripcion = computed(() => {
+    const map = {
+        aviso: 'bg-amber-600 hover:bg-amber-700',
+        advertencia: 'bg-orange-600 hover:bg-orange-700',
+        urgente: 'bg-rose-600 hover:bg-rose-700',
+        vencido: 'bg-red-600 hover:bg-red-700',
+    };
+    return map[nivelSuscripcion.value] || map.aviso;
+});
+
+const textoPlazoSuscripcion = computed(() => {
+    const d = props.suscripcionAlerta?.dias_restantes;
+    if (typeof d !== 'number') {
+        return '';
+    }
+    if (d < 0) {
+        return 'Suscripción vencida';
+    }
+    if (d === 0) {
+        return 'vence hoy';
+    }
+    if (d === 1) {
+        return 'vence mañana';
+    }
+    return 'vence en ' + d + ' días';
+});
 
 const descargarPDF = () => {
     const params = new URLSearchParams({ desde: filtroDesde.value, hasta: filtroHasta.value });
@@ -117,6 +187,23 @@ const generarOCS = () => {
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                         <span class="text-[10px] font-black uppercase tracking-widest leading-none">SUCURSAL: <span class="text-sky-600">{{ sucursalUsuario }}</span></span>
                     </div>
+                </div>
+            </div>
+
+            <div v-if="suscripcionAlerta" :class="clasesBannerSuscripcion" class="rounded-3xl p-5 mb-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div :class="clasesIconoSuscripcion" class="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p :class="clasesTextoSuscripcion" class="text-sm font-black uppercase tracking-widest">{{ suscripcionAlerta.mensaje }}</p>
+                        <p v-if="suscripcionAlerta.plan_nombre" :class="clasesSubTextoSuscripcion" class="text-xs mt-1 font-medium">
+                            Plan {{ suscripcionAlerta.plan_nombre }} · {{ textoPlazoSuscripcion }}
+                        </p>
+                    </div>
+                    <Link :href="route('suscripcion.mi-plan')" :class="clasesBotonSuscripcion" class="shrink-0 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl transition-colors flex items-center gap-2">
+                        Renovar plan
+                    </Link>
                 </div>
             </div>
 

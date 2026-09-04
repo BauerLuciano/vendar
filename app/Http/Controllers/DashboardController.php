@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Comercio;
 use App\Models\Configuracion;
 use App\Models\CuentaCorriente;
 use App\Models\DetalleVenta;
@@ -178,6 +179,8 @@ class DashboardController extends Controller
 
         $estadoOnboarding = app(OnboardingService::class)->estado();
 
+        $suscripcionAlerta = $this->suscripcionAlerta($comercioId);
+
         $ordenesPendientes = OrdenCompra::whereIn('estado', ['Sugerida', 'Enviada'])
             ->when($comercioId, fn ($q) => $q->whereHas('sucursal', fn ($sq) => $sq->where('comercio_id', $comercioId)))
             ->where('created_at', '<', now()->subDays(2))
@@ -210,6 +213,7 @@ class DashboardController extends Controller
             'esJefe'              => $esJefe,
             'sucursalUsuario'     => Sucursal::find($sucursalActivaId)?->nombre ?? ($user->branch?->nombre ?? 'Sede Central'),
             'estadoOnboarding'    => $estadoOnboarding,
+            'suscripcionAlerta'   => $suscripcionAlerta,
             'ordenesPendientes'   => $ordenesPendientes,
         ]);
     }
@@ -339,6 +343,82 @@ class DashboardController extends Controller
 
         $pdf->setPaper('A4', 'portrait');
         return $pdf->download('Dashboard_' . now()->format('Y-m-d') . '.pdf');
+    }
+
+    private function suscripcionAlerta(?int $comercioId): ?array
+    {
+        if (! $comercioId) {
+            return null;
+        }
+
+        $comercio = Comercio::find($comercioId);
+
+        if (! $comercio || ! $comercio->vencimiento_pago) {
+            return null;
+        }
+
+        $vencimiento = Carbon::parse($comercio->vencimiento_pago)->startOfDay();
+        $diasRestantes = (int) now()->startOfDay()->diffInDays($vencimiento, false);
+
+        if ($diasRestantes > 10) {
+            return null;
+        }
+
+        $planNombre = $comercio->plan()->value('nombre');
+
+        if ($diasRestantes < 0) {
+            return $this->alertaSuscripcion(
+                nivel: 'vencido',
+                diasRestantes: $diasRestantes,
+                planNombre: $planNombre,
+                mensaje: '🔴 Tu suscripción está vencida. Renová tu plan para continuar utilizando VendAR.',
+            );
+        }
+
+        if ($diasRestantes === 0) {
+            return $this->alertaSuscripcion(
+                nivel: 'urgente',
+                diasRestantes: 0,
+                planNombre: $planNombre,
+                mensaje: '⚠️ Tu plan vence hoy. Renovalo para mantener activo tu servicio.',
+            );
+        }
+
+        if ($diasRestantes === 1) {
+            return $this->alertaSuscripcion(
+                nivel: 'urgente',
+                diasRestantes: 1,
+                planNombre: $planNombre,
+                mensaje: '⚠️ Tu plan vence mañana. Renovalo para evitar la suspensión del servicio.',
+            );
+        }
+
+        if ($diasRestantes <= 3) {
+            return $this->alertaSuscripcion(
+                nivel: 'advertencia',
+                diasRestantes: $diasRestantes,
+                planNombre: $planNombre,
+                mensaje: "⚠️ Tu plan vence en {$diasRestantes} días. Renovalo para evitar la suspensión del servicio.",
+            );
+        }
+
+        return $this->alertaSuscripcion(
+            nivel: 'aviso',
+            diasRestantes: $diasRestantes,
+            planNombre: $planNombre,
+            mensaje: "Tu plan vence en {$diasRestantes} días. Recordá realizar el pago para mantener tu servicio activo.",
+        );
+    }
+
+    private function alertaSuscripcion(string $nivel, int $diasRestantes, ?string $planNombre, string $mensaje): array
+    {
+        return [
+            'mostrar'        => true,
+            'nivel'          => $nivel,
+            'dias_restantes' => $diasRestantes,
+            'plan_nombre'    => $planNombre,
+            'mensaje'        => $mensaje,
+        ];
     }
 
     private function scopeSucursal($query, $esJefe, $user, $sucursalIds, $columna = 'sucursal_id')

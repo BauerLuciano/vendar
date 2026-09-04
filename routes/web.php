@@ -55,7 +55,54 @@ use Inertia\Inertia;
 
 // PANTALLA DE BLOQUEO PARA COMERCIOS MOROSOS O SUSPENDIDOS
 Route::get('/cuenta-suspendida', function () {
-    return Inertia::render('Suspendido');
+    $user = auth()->user();
+
+    $data = [
+        'titular' => null,
+        'comercio' => null,
+        'sucursal' => null,
+        'cuit' => null,
+        'dias_vencidos' => null,
+        'suspendida_por_vencimiento' => false,
+    ];
+
+    if ($user) {
+        $sucursalId = session('sucursal_activa_id', $user->branch_id);
+
+        $sucursal = $sucursalId
+            ? \App\Models\Sucursal::with('comercio.plan')->find($sucursalId)
+            : null;
+
+        $comercio = $sucursal?->comercio;
+
+        if ($comercio) {
+            $vencimiento = $comercio->vencimiento_pago
+                ? \Carbon\Carbon::parse($comercio->vencimiento_pago)
+                : null;
+
+            $suspendidaPorVencimiento = $vencimiento !== null && $vencimiento->isPast();
+
+            $data['comercio'] = [
+                'nombre' => $comercio->nombre,
+                'vencimiento_pago' => $vencimiento?->format('d/m/Y'),
+                'plan' => $comercio->plan?->nombre ?? strtoupper($comercio->plan ?? 'Sin plan'),
+            ];
+            $data['sucursal'] = [
+                'nombre' => $sucursal->nombre,
+            ];
+            $data['titular'] = [
+                'nombre' => $user->name,
+                'email' => $user->email,
+            ];
+            $data['cuit'] = $comercio->configuracionFiscal?->cuit;
+            $data['suspendida_por_vencimiento'] = $suspendidaPorVencimiento;
+            $data['dias_vencidos'] = $suspendidaPorVencimiento
+                ? (int) abs($vencimiento->diffInDays(now()))
+                : null;
+        }
+    }
+
+    return Inertia::render('Suspendido', $data);
 })->name('cuenta.suspendida');
 
 // PANTALLA DE ESPERA PARA NUEVOS REGISTROS (ONBOARDING)
@@ -121,10 +168,6 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/pos/ultimos-vendidos', [PosController::class, 'ultimosVendidos'])->name('pos.ultimos.vendidos');
     Route::post('/pos/precios', [PosController::class, 'precios'])->name('pos.precios');
     Route::get('/pos/movimientos-turno', [PosController::class, 'movimientosTurno'])->name('pos.movimientos.turno');
-    Route::post('/pos/guardar-carrito', [PosController::class, 'guardarCarrito'])->name('pos.guardar.carrito');
-    Route::get('/pos/listar-pendientes', [PosController::class, 'listarPendientes'])->name('pos.listar.pendientes');
-    Route::post('/pos/recuperar-carrito/{ventaPendiente}', [PosController::class, 'recuperarCarrito'])->name('pos.recuperar.carrito');
-    Route::delete('/pos/eliminar-pendiente/{ventaPendiente}', [PosController::class, 'eliminarPendiente'])->name('pos.eliminar.pendiente');
     Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index');
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
@@ -479,6 +522,12 @@ Route::get('/tienda/{slug}', TiendaController::class)->name('tienda.publica');
 Route::post('/api/mercadopago/notificacion', [MercadoPagoNotificacionController::class, 'notificacion'])
     ->middleware('throttle:30,1')
     ->name('mercadopago.notificacion');
+
+// Retorno de Checkout Pro tras el pago (sin auth ni CSRF): MP redirige a la
+// URL pública (back_urls https DNS) y acá redirigimos de vuelta a la app,
+// ya que MP descarta back_urls de dominios locales como localhost.
+Route::get('/retorno', [SuscripcionController::class, 'retorno'])
+    ->name('mercadopago.retorno');
 
 // Webhook viüMi (sin CSRF ni auth, viüMi envía desde sus servidores)
 Route::post('/api/webhook/viumi', ViumiWebhookController::class)

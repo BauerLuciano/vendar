@@ -92,7 +92,7 @@ class MercadopagoGateway implements PaymentGateway
             'binary_mode' => true,
         ];
 
-        if ($request->successUrl) {
+        if ($request->successUrl && str_starts_with($request->successUrl, 'https://')) {
             $payload['auto_return'] = 'approved';
         }
 

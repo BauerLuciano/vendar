@@ -288,6 +288,7 @@ class GlobalAdminController extends Controller
 
         $comercio->update([
             'vencimiento_pago' => $request->fecha ?? now()->addMonth(),
+            'status' => 'activo',
         ]);
 
         return redirect()->back()->with('exito', "{$comercio->nombre} marcado como al día.");

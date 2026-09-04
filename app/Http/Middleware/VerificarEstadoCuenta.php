@@ -12,7 +12,7 @@ class VerificarEstadoCuenta
     public function handle(Request $request, Closure $next): Response
     {
         // 1. Dejamos pasar las rutas de autenticación, logout, landing y la vista de suspensión
-        if ($request->path() === '/' || $request->routeIs('login', 'register', 'logout', 'cuenta.suspendida', 'pending.approval', 'elegir.sucursal', 'elegir.sucursal.store', 'admin.comercios.*', 'impersonate.*', 'mercadopago.notificacion', 'viumi.webhook', 'tienda.*', 'api.tienda.*', 'cliente.*')) {
+        if ($request->path() === '/' || $request->routeIs('login', 'register', 'logout', 'cuenta.suspendida', 'pending.approval', 'elegir.sucursal', 'elegir.sucursal.store', 'admin.comercios.*', 'impersonate.*', 'mercadopago.notificacion', 'mercadopago.retorno', 'viumi.webhook', 'tienda.*', 'api.tienda.*', 'cliente.*', 'suscripcion.mi-plan', 'suscripcion.pagar', 'suscripcion.confirmar-upgrade', 'suscripcion.plan-actual')) {
             return $next($request);
         }
 

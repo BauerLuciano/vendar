@@ -17,7 +17,7 @@ use App\Models\PaymentMethodConfiguration;
 use App\Models\Producto;
 use App\Models\RecargoTarjeta;
 use App\Models\TurnoCaja;
-use App\Models\VentaPendiente;
+
 use App\Services\Promotion\PromotionConflictResolver;
 use App\Services\Promotion\PromotionEngineService;
 use Carbon\Carbon;
@@ -333,95 +333,6 @@ class PosController extends Controller
 
             return $p;
         });
-    }
-
-    public function guardarCarrito(Request $request)
-    {
-        $request->validate([
-            'items' => 'required|array|min:1',
-            'items.*.id' => 'required|integer|exists:productos,id',
-            'items.*.nombre' => 'required|string',
-            'items.*.cantidad' => 'required|numeric|min:0.01',
-            'items.*.precio_venta' => 'required|numeric|min:0',
-            'consumidor_id' => 'nullable|exists:consumidores,id',
-        ]);
-
-        $user = auth()->user();
-        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (! $turno) {
-            return response()->json(['error' => 'No hay turno abierto'], 400);
-        }
-
-        $total = collect($request->items)->sum(fn ($i) => $i['cantidad'] * $i['precio_venta']);
-
-        $pendiente = VentaPendiente::create([
-            'user_id' => $user->id,
-            'turno_caja_id' => $turno->id,
-            'consumidor_id' => $request->consumidor_id,
-            'items' => $request->items,
-            'total' => $total,
-            'estado' => 'activa',
-        ]);
-
-        return response()->json(['id' => $pendiente->id, 'total' => $total]);
-    }
-
-    public function listarPendientes()
-    {
-        $user = auth()->user();
-        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (! $turno) {
-            return response()->json([]);
-        }
-
-        $pendientes = VentaPendiente::where('turno_caja_id', $turno->id)
-            ->where('estado', 'activa')
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->map(fn ($p) => [
-                'id' => $p->id,
-                'total' => (float) $p->total,
-                'items_count' => count($p->items ?? []),
-                'items' => $p->items,
-                'consumidor_id' => $p->consumidor_id,
-                'created_at' => $p->created_at->format('H:i'),
-            ]);
-
-        return response()->json($pendientes);
-    }
-
-    public function recuperarCarrito(VentaPendiente $ventaPendiente)
-    {
-        $user = auth()->user();
-        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (! $turno || $ventaPendiente->turno_caja_id !== $turno->id) {
-            return response()->json(['error' => 'No autorizado'], 403);
-        }
-
-        if ($ventaPendiente->estado !== 'activa') {
-            return response()->json(['error' => 'La venta pendiente ya fue recuperada'], 400);
-        }
-
-        $ventaPendiente->update(['estado' => 'recuperada']);
-
-        return response()->json([
-            'items' => $ventaPendiente->items,
-            'consumidor_id' => $ventaPendiente->consumidor_id,
-            'total' => (float) $ventaPendiente->total,
-        ]);
-    }
-
-    public function eliminarPendiente(VentaPendiente $ventaPendiente)
-    {
-        $user = auth()->user();
-        $turno = TurnoCaja::where('user_id', $user->id)->where('estado', 'Abierto')->first();
-        if (! $turno || $ventaPendiente->turno_caja_id !== $turno->id) {
-            return response()->json(['error' => 'No autorizado'], 403);
-        }
-
-        $ventaPendiente->update(['estado' => 'cancelada']);
-
-        return response()->json(['success' => true]);
     }
 
     public function buscarProductos(Request $request)

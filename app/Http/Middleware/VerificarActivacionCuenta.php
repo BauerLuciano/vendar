@@ -15,6 +15,9 @@ class VerificarActivacionCuenta
             'cuenta.suspendida', 'register', 'password.*',
             'tienda.publica', 'auth.google', 'auth.google.callback',
             'cliente.inicio',
+            'suscripcion.mi-plan', 'suscripcion.pagar',
+            'suscripcion.confirmar-upgrade', 'suscripcion.plan-actual',
+            'mercadopago.retorno',
         ];
 
         foreach ($rutasPermitidas as $ruta) {

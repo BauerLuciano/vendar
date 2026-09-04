@@ -74,13 +74,7 @@ watch(moduloFiscalListo, actualizarLetraEsperada, { immediate: true });
 const mostrarEscaner = ref(false);
 
 const mostrarMovimientos = ref(false);
-const tabCajaPend = ref('caja');
-const tabPendientes = ref('carritos');
-const mostrarPendientes = ref(false);
-const ventasPendientes = ref([]);
 const ventasPendientesPago = ref([]);
-const guardandoCarrito = ref(false);
-const restaurandoCarrito = ref(false);
 
 const confirmarPagoModal = ref(false);
 const confirmarVentaId = ref(null);
@@ -116,90 +110,6 @@ async function fetchMovimientosTurno() {
 function iniciarPollingMovimientos() {
     fetchMovimientosTurno();
     intervaloMovimientos = setInterval(fetchMovimientosTurno, 30000);
-}
-
-async function guardarCarrito() {
-    if (carrito.value.length === 0) return;
-    guardandoCarrito.value = true;
-    try {
-        const items = carrito.value.map(i => ({
-            id: i.id,
-            nombre: i.nombre,
-            cantidad: i.cantidad,
-            precio_venta: i.precio_venta,
-        }));
-        const response = await fetch('/pos/guardar-carrito', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': page.props.csrf_token },
-            body: JSON.stringify({
-                items,
-                consumidor_id: clienteActivoObj.value?.id || null,
-            }),
-        });
-        if (response.ok) {
-            carrito.value = [];
-            clienteSeleccionado.value = null;
-            montoRecibido.value = null;
-            pagos.value = [{ metodo_pago: 'EFECTIVO', monto: null }];
-            await fetchPendientes();
-            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Carrito guardado', showConfirmButton: false, timer: 2000 });
-        }
-    } catch (e) {
-        console.error('Error al guardar carrito:', e);
-    } finally {
-        guardandoCarrito.value = false;
-    }
-}
-
-async function fetchPendientes() {
-    try {
-        const response = await fetch('/pos/listar-pendientes');
-        if (response.ok) {
-            ventasPendientes.value = await response.json();
-        }
-    } catch (e) {}
-}
-
-async function restaurarPendiente(p) {
-    restaurandoCarrito.value = true;
-    try {
-        const response = await fetch(`/pos/recuperar-carrito/${p.id}`, {
-            method: 'POST',
-            headers: { 'X-CSRF-TOKEN': page.props.csrf_token },
-        });
-        if (response.ok) {
-            const data = await response.json();
-            carrito.value = data.items.map(i => ({
-                ...i,
-                precio_venta: Number(i.precio_venta),
-                cantidad: Number(i.cantidad),
-            }));
-            if (data.consumidor_id) {
-                const c = props.clientes.find(c => c.id === data.consumidor_id);
-                if (c) clienteSeleccionado.value = c;
-            }
-            ventasPendientes.value = ventasPendientes.value.filter(v => v.id !== p.id);
-            mostrarPendientes.value = false;
-            debouncedFetchPrecios();
-            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Carrito restaurado', showConfirmButton: false, timer: 2000 });
-        }
-    } catch (e) {
-        console.error('Error al restaurar:', e);
-    } finally {
-        restaurandoCarrito.value = false;
-    }
-}
-
-async function eliminarPendiente(p) {
-    try {
-        const response = await fetch(`/pos/eliminar-pendiente/${p.id}`, {
-            method: 'DELETE',
-            headers: { 'X-CSRF-TOKEN': page.props.csrf_token },
-        });
-        if (response.ok) {
-            ventasPendientes.value = ventasPendientes.value.filter(v => v.id !== p.id);
-        }
-    } catch (e) {}
 }
 
 function detenerPollingMovimientos() {
@@ -1071,7 +981,6 @@ const handleKeydown = (e) => {
 onMounted(() => {
     window.addEventListener('keydown', handleKeydown);
     iniciarPollingMovimientos();
-    fetchPendientes();
     fetchVentasPendientesPago();
 });
 onUnmounted(() => {
@@ -1545,15 +1454,6 @@ onUnmounted(() => {
                                 <button @click="eliminarDelCarrito(index)" class="shrink-0 w-6 h-6 flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all text-sm">✕</button>
                             </div>
 
-                            <!-- Guardar carrito (sutil, solo cuando hay items) -->
-                            <div v-if="carrito.length > 0" class="flex justify-center pt-1">
-                                <button @click="guardarCarrito" :disabled="guardandoCarrito"
-                                    class="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all uppercase tracking-wider disabled:opacity-50"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                                    {{ guardandoCarrito ? 'Guardando...' : 'Guardar carrito' }}
-                                </button>
-                            </div>
                         </div>
 
                         <!-- Información de crédito (cuenta corriente) -->

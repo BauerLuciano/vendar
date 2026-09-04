@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, usePage } from '@inertiajs/vue3';
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 
 const props = defineProps({
@@ -12,6 +12,59 @@ const props = defineProps({
 const planCargando = ref(null);
 const estadoPago = ref(null);
 const polling = ref(null);
+const planRenovado = ref(null);
+
+const RENOVACION_KEY = 'vendar_renovacion_pendiente';
+const RENOVACION_MAX_EDAD_MS = 2 * 60 * 60 * 1000;
+
+const leerRenovacionPendiente = () => {
+    try {
+        const raw = localStorage.getItem(RENOVACION_KEY);
+        if (!raw) {
+            return null;
+        }
+        const datos = JSON.parse(raw);
+        if (!datos?.plan_id || !datos?.ts) {
+            localStorage.removeItem(RENOVACION_KEY);
+            return null;
+        }
+        if (Date.now() - datos.ts > RENOVACION_MAX_EDAD_MS) {
+            localStorage.removeItem(RENOVACION_KEY);
+            return null;
+        }
+        return datos;
+    } catch {
+        return null;
+    }
+};
+
+const limpiarUrl = () => {
+    if (window.location.search) {
+        history.replaceState({}, '', window.location.pathname);
+    }
+};
+
+const finalizarAprobado = () => {
+    localStorage.removeItem(RENOVACION_KEY);
+    estadoPago.value = 'aprobado';
+    setTimeout(() => {
+        limpiarUrl();
+        window.location.href = window.location.pathname;
+    }, 1500);
+};
+
+const requiereRenovacion = computed(() => {
+    if (!props.comercio) {
+        return false;
+    }
+    if (props.comercio.status === 'suspendido') {
+        return true;
+    }
+    if (props.comercio.vencimiento_pago) {
+        return new Date(props.comercio.vencimiento_pago) < new Date();
+    }
+    return false;
+});
 
 const formatearDinero = (monto) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(monto);
@@ -28,9 +81,14 @@ const pagarPlan = async (planId) => {
     planCargando.value = planId;
     try {
         const response = await axios.post(route('suscripcion.pagar'), {
-            plan_id: planId
+            plan_id: planId,
+            origin: window.location.origin,
         });
         if (response.data?.init_point) {
+            localStorage.setItem(RENOVACION_KEY, JSON.stringify({
+                plan_id: planId,
+                ts: Date.now(),
+            }));
             window.location.href = response.data.init_point;
         }
     } catch (error) {
@@ -48,10 +106,13 @@ const confirmarUpgrade = async (planId, paymentId) => {
             payment_id: paymentId,
         });
         if (response.data?.status === 'ok' || response.data?.status === 'already_upgraded') {
-            estadoPago.value = 'aprobado';
-            setTimeout(() => {
-                window.location.href = window.location.pathname;
-            }, 1500);
+            if (response.data?.plan) {
+                planRenovado.value = response.data.plan;
+            }
+            finalizarAprobado();
+        } else {
+            // El backend todavía no lo confirma; que el webhook lo procese.
+            iniciarPolling(planId);
         }
     } catch {
         // Si falla, el webhook lo procesará. Empezamos polling.
@@ -60,23 +121,25 @@ const confirmarUpgrade = async (planId, paymentId) => {
 };
 
 const iniciarPolling = (planId) => {
+    if (polling.value) {
+        return;
+    }
     let segundos = 0;
     polling.value = setInterval(async () => {
         segundos += 3;
         try {
             const res = await axios.get(route('suscripcion.plan-actual'));
-            if (res.data.plan_id === planId) {
+            const renovacionAplicada = res.data.plan_id === planId && res.data.pending_plan_id === null;
+            if (renovacionAplicada) {
                 clearInterval(polling.value);
                 polling.value = null;
-                estadoPago.value = 'aprobado';
-                setTimeout(() => {
-                    window.location.href = window.location.pathname;
-                }, 1000);
+                finalizarAprobado();
+                return;
             }
         } catch {
             // silent
         }
-        if (segundos >= 60) {
+        if (segundos >= 90) {
             clearInterval(polling.value);
             polling.value = null;
             estadoPago.value = 'timeout';
@@ -87,21 +150,39 @@ const iniciarPolling = (planId) => {
 onMounted(() => {
     const params = new URLSearchParams(window.location.search);
     const pago = params.get('pago');
-    const planId = params.get('plan_id')
-        ? Number(params.get('plan_id'))
-        : props.planes.find(p => p.slug === props.comercio?.plan_pendiente)?.id;
+    const urlPlanId = params.get('plan_id') ? Number(params.get('plan_id')) : null;
     const paymentId = params.get('payment_id');
 
-    if (pago === 'exito' && planId) {
+    const pendiente = leerRenovacionPendiente();
+    const planId = urlPlanId
+        ?? pendiente?.plan_id
+        ?? props.planes.find(p => p.slug === props.comercio?.plan_pendiente)?.id
+        ?? null;
+
+    if (pago === 'error') {
+        localStorage.removeItem(RENOVACION_KEY);
+        estadoPago.value = 'error';
+        return;
+    }
+
+    if (planId && (pago === 'exito' || pendiente)) {
+        planRenovado.value = props.planes.find(p => p.id === planId) || null;
         estadoPago.value = 'procesando';
-        if (paymentId) {
+
+        if (pago === 'exito' && paymentId) {
             confirmarUpgrade(planId, paymentId);
         } else {
             iniciarPolling(planId);
         }
-    } else if (pago === 'error') {
-        estadoPago.value = 'error';
-    } else if (pago === 'pendiente') {
+        return;
+    }
+
+    if (pendiente) {
+        estadoPago.value = 'timeout';
+        return;
+    }
+
+    if (pago === 'pendiente') {
         estadoPago.value = 'pendiente';
     }
 });
@@ -135,7 +216,7 @@ onUnmounted(() => {
                     <p class="text-sm mt-1">Estamos verificando tu pago con Mercado Pago. Tu plan se actualizará en segundos.</p>
                 </div>
                 <div v-if="estadoPago === 'aprobado'" class="mx-4 sm:mx-0 mb-8 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">¡Plan actualizado correctamente!</p>
+                    <p class="font-bold text-lg">🎉 ¡Felicitaciones! Se aprobó tu renovación del Plan {{ planRenovado?.nombre || 'Solicitado' }}.</p>
                     <p class="text-sm mt-1">Recargando...</p>
                 </div>
                 <div v-if="estadoPago === 'error'" class="mx-4 sm:mx-0 mb-8 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-6 text-center">
@@ -147,7 +228,7 @@ onUnmounted(() => {
                 </div>
                 <div v-if="estadoPago === 'timeout'" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
                     <p class="font-bold text-lg">Estamos procesando tu pago</p>
-                    <p class="text-sm mt-1">Mercado Pago nos notificará en breve. Si no ves los cambios en unos minutos, contactanos.</p>
+                    <p class="text-sm mt-1">Mercado Pago nos notificará cuando confirme tu renovación. Si no ves los cambios en unos minutos, contactanos.</p>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-8 px-4 sm:px-0">
@@ -219,6 +300,16 @@ onUnmounted(() => {
                         >
                             <span v-if="planCargando === plan.id">Generando Link... ⏳</span>
                             <span v-else>Elegir {{ plan.nombre }} ⚡</span>
+                        </button>
+
+                        <button
+                            v-else-if="requiereRenovacion"
+                            :disabled="planCargando === plan.id"
+                            class="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 bg-amber-500 text-white"
+                            @click="pagarPlan(plan.id)"
+                        >
+                            <span v-if="planCargando === plan.id">Generando Link... ⏳</span>
+                            <span v-else>Renovar {{ plan.nombre }} 🔄</span>
                         </button>
 
                         <div

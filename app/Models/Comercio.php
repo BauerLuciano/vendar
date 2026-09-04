@@ -58,6 +58,11 @@ class Comercio extends Model
         return $this->hasMany(PaymentGateway::class, 'comercio_id');
     }
 
+    public function payments()
+    {
+        return $this->morphMany(Payment::class, 'payable');
+    }
+
     public function paymentMethodConfigurations()
     {
         return $this->hasMany(PaymentMethodConfiguration::class, 'comercio_id');
@@ -86,5 +91,10 @@ class Comercio extends Model
     public function storeConfig()
     {
         return $this->hasOne(StoreConfig::class, 'comercio_id');
+    }
+
+    public function configuracionFiscal()
+    {
+        return $this->hasOne(ConfiguracionFiscalComercio::class, 'comercio_id');
     }
 }
