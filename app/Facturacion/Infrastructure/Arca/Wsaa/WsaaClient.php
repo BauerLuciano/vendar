@@ -8,6 +8,7 @@ use App\Facturacion\Infrastructure\Arca\Entorno\EntornoArca;
 use App\Facturacion\Infrastructure\Arca\Exceptions\ArcaIntegrationException;
 use App\Facturacion\Infrastructure\Arca\SoapClientFactory;
 use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use SoapVar;
@@ -57,7 +58,10 @@ final class WsaaClient
 
     private function solicitar(string $servicio, EntornoArca $entorno, CertificadoMaterial $material): WsaaToken
     {
-        $ahora = new DateTimeImmutable;
+        $ahora = new DateTimeImmutable(
+            'now',
+            new DateTimeZone('America/Argentina/Buenos_Aires')
+        );
         $expiracion = $ahora->modify('+'.$this->endpoints->ttlWsaa().' seconds');
 
         $mensaje = $this->mensajeLoginTicket($servicio, $ahora, $expiracion);
