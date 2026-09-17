@@ -38,6 +38,73 @@ const inputBusqueda = ref(null);
 const modalCrearCliente = ref(false);
 const formCliente = ref({ nombre: '', apellido: '', telefono: '', cuit: '', razon_social: '', domicilio_fiscal: '', tipo_documento: '' });
 const creandoCliente = ref(false);
+const erroresCliente = ref({ nombre: '', apellido: '', telefono: '', cuit: '', razon_social: '', domicilio_fiscal: '' });
+
+const REGEX_LETRAS_POS = /^[\p{L}]+(?: [\p{L}]+)*$/u;
+
+const limpiarErrorCliente = (campo) => {
+    erroresCliente.value[campo] = '';
+};
+
+const validarCampoCliente = (campo) => {
+    let err = '';
+
+    if (campo === 'nombre') {
+        const v = formCliente.value.nombre.trim();
+        if (v.length < 2) err = 'El nombre debe tener al menos 2 caracteres.';
+        else if (v.length > 50) err = 'El nombre no puede superar los 50 caracteres.';
+        else if (!REGEX_LETRAS_POS.test(v)) err = 'El nombre solo puede incluir letras y espacios.';
+    }
+
+    if (campo === 'apellido') {
+        const v = formCliente.value.apellido.trim();
+        if (v && v.length < 2) err = 'El apellido debe tener al menos 2 caracteres.';
+        else if (v.length > 50) err = 'El apellido no puede superar los 50 caracteres.';
+        else if (v && !REGEX_LETRAS_POS.test(v)) err = 'El apellido solo puede incluir letras y espacios.';
+    }
+
+    if (campo === 'telefono') {
+        const t = formCliente.value.telefono.trim();
+        if (t && !/^\d+$/.test(t)) err = 'El teléfono solo puede contener números.';
+        else if (t && t.length < 8) err = 'El teléfono debe tener al menos 8 dígitos.';
+        else if (t.length > 15) err = 'El teléfono no puede superar los 15 dígitos.';
+    }
+
+    if (campo === 'cuit') {
+        const c = formCliente.value.cuit.trim();
+        if (c && !/^\d{11}$/.test(c)) err = 'El CUIT debe tener 11 dígitos.';
+    }
+
+    if (campo === 'razon_social') {
+        const v = formCliente.value.razon_social.trim();
+        if (v && v.length > 255) err = 'La razón social no puede superar los 255 caracteres.';
+    }
+
+    if (campo === 'domicilio_fiscal') {
+        const v = formCliente.value.domicilio_fiscal.trim();
+        if (v && v.length > 255) err = 'El domicilio fiscal no puede superar los 255 caracteres.';
+    }
+
+    erroresCliente.value[campo] = err;
+
+    return err;
+};
+
+const validarFormularioCliente = () => {
+    const campos = ['nombre', 'apellido', 'telefono', 'cuit', 'razon_social', 'domicilio_fiscal'];
+    const conErrores = campos.filter((campo) => validarCampoCliente(campo));
+
+    if (conErrores.length > 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Revisá los campos marcados',
+            text: 'Hay campos con datos inválidos. Corregilos antes de guardar.',
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+        });
+    }
+
+    return conErrores.length === 0;
+};
 
 const moduloFiscalListo = computed(() => !!props.configuracionFiscal);
 const letraComprobante = ref(null);
@@ -360,11 +427,12 @@ const seleccionarCliente = (cliente) => {
 
 const abrirModalCliente = () => {
     formCliente.value = { nombre: '', apellido: '', telefono: '', cuit: '', razon_social: '', domicilio_fiscal: '', tipo_documento: '' };
+    Object.keys(erroresCliente.value).forEach((k) => { erroresCliente.value[k] = ''; });
     modalCrearCliente.value = true;
 };
 
 const guardarCliente = async () => {
-    if (!formCliente.value.nombre.trim()) return;
+    if (!validarFormularioCliente()) return;
     creandoCliente.value = true;
     try {
         const res = await axios.post(route('pos.crear.cliente'), formCliente.value);
@@ -430,6 +498,20 @@ const esUnicoEfectivo = computed(() => {
 
 const tieneCuentaCorriente = computed(() => {
     return pagos.value.some(p => p.metodo_pago === 'CUENTA_CORRIENTE');
+});
+
+const moduloClientesHabilitado = computed(() => {
+    const modulos = page.props.auth?.modulos || {};
+    return !!modulos.fiados;
+});
+
+watch(tieneCuentaCorriente, (activa) => {
+    if (!activa) {
+        clienteSeleccionado.value = null;
+        busquedaCliente.value = '';
+        clientesFiltradosSelect.value = [];
+        mostrarDropdownClientes.value = false;
+    }
 });
 
 const vuelto = computed(() => {
@@ -752,7 +834,7 @@ const finalizarVenta = () => {
     if (!puedeCobrar.value) return;
     
     if (tieneCuentaCorriente.value && !clienteSeleccionado.value) {
-        Swal.fire('Falta Cliente', 'Tenés que seleccionar a quién le vas a fiar.', 'warning');
+        Swal.fire('Falta Cliente', 'Para usar Cuenta Corriente tenés que seleccionar un cliente.', 'warning');
         return;
     }
 
@@ -1292,14 +1374,25 @@ onUnmounted(() => {
 
                         <!-- 1. CLIENTE -->
                         <div class="shrink-0 px-3 pt-2.5 pb-2 border-b border-slate-200 bg-slate-50/50">
-                            <div class="relative w-full" @click.stop>
+                            <!-- Sin Cuenta Corriente: Consumidor Final fijo (sin selector) -->
+                            <div v-if="!tieneCuentaCorriente" class="bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-500 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
+                                <span class="text-sm font-bold text-slate-700 truncate">Consumidor Final</span>
+                                <span class="ml-auto text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Sin identificar</span>
+                            </div>
+
+                            <!-- Con Cuenta Corriente: selector de cliente -->
+                            <div v-else class="relative w-full" @click.stop>
                                 <div
                                     @click="mostrarDropdownClientes = !mostrarDropdownClientes"
-                                    class="bg-white px-3 py-2 rounded-xl text-sm font-bold text-slate-700 cursor-pointer flex justify-between items-center border border-slate-200 hover:border-sky-400 transition-all shadow-sm"
+                                    class="bg-white px-3 py-2 rounded-xl text-sm font-bold cursor-pointer flex justify-between items-center border transition-all shadow-sm"
+                                    :class="clienteActivoObj
+                                        ? 'text-slate-700 border-slate-200 hover:border-sky-400'
+                                        : 'text-amber-700 border-amber-400 bg-amber-50/60 hover:border-amber-500'"
                                 >
                                     <span class="truncate flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-sky-500 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
-                                        {{ clienteActivoObj ? clienteActivoObj.nombre + ' ' + clienteActivoObj.apellido : 'Consumidor Final' }}
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" :class="clienteActivoObj ? 'text-sky-500' : 'text-amber-500'" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" /></svg>
+                                        {{ clienteActivoObj ? clienteActivoObj.nombre + ' ' + clienteActivoObj.apellido : 'Seleccioná un cliente' }}
                                     </span>
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                                 </div>
@@ -1318,7 +1411,7 @@ onUnmounted(() => {
                                             autofocus
                                         >
                                         <button
-                                            v-if="!buscandoClientes"
+                                            v-if="!buscandoClientes && moduloClientesHabilitado"
                                             @click="abrirModalCliente"
                                             type="button"
                                             title="Crear cliente nuevo"
@@ -1332,11 +1425,12 @@ onUnmounted(() => {
                                     </div>
                                     <ul class="max-h-56 overflow-y-auto">
                                         <li
+                                            v-if="clienteActivoObj"
                                             @click="seleccionarCliente(null)"
-                                            class="px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-sky-50 hover:text-sky-700 cursor-pointer border-b border-slate-50 flex items-center gap-2"
+                                            class="px-4 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 cursor-pointer border-b border-slate-50 flex items-center gap-2"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                            Consumidor Final
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            Quitar selección
                                         </li>
                                         <li
                                             v-for="c in clientesFiltradosSelect" :key="'cli-' + c.id"
@@ -1348,9 +1442,16 @@ onUnmounted(() => {
                                                 <span v-if="c.documento" class="text-[10px] font-mono text-slate-400">{{ c.documento }}</span>
                                             </div>
                                         </li>
+                                        <li v-if="clientesFiltradosSelect.length === 0 && busquedaCliente.length >= 2" class="px-4 py-2.5 text-sm font-medium text-slate-400">
+                                            Sin resultados...
+                                        </li>
                                     </ul>
                                 </div>
                             </div>
+
+                            <p v-if="tieneCuentaCorriente && !clienteActivoObj" class="mt-1.5 px-1 text-[10px] font-bold text-amber-600">
+                                La venta por cuenta corriente exige seleccionar un cliente o cambiar el método de pago.
+                            </p>
 
                             <div v-if="moduloFiscalListo" class="mt-2">
                                 <div v-if="errorFiscal" class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11px] font-bold text-amber-700">
@@ -1391,29 +1492,57 @@ onUnmounted(() => {
                                         <div class="space-y-3">
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Nombre *</label>
-                                                <input v-model="formCliente.nombre" type="text" placeholder="Nombre" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500" autofocus>
+                                                <input v-model="formCliente.nombre" type="text" maxlength="50" placeholder="Nombre"
+                                                    @input="limpiarErrorCliente('nombre')"
+                                                    @blur="validarCampoCliente('nombre')"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500"
+                                                    :class="{'border-rose-500': erroresCliente.nombre}" autofocus>
+                                                <p v-if="erroresCliente.nombre" class="mt-1 text-[10px] text-rose-500 font-bold">{{ erroresCliente.nombre }}</p>
                                             </div>
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Apellido</label>
-                                                <input v-model="formCliente.apellido" type="text" placeholder="Apellido" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                                <input v-model="formCliente.apellido" type="text" maxlength="50" placeholder="Apellido"
+                                                    @input="limpiarErrorCliente('apellido')"
+                                                    @blur="validarCampoCliente('apellido')"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500"
+                                                    :class="{'border-rose-500': erroresCliente.apellido}">
+                                                <p v-if="erroresCliente.apellido" class="mt-1 text-[10px] text-rose-500 font-bold">{{ erroresCliente.apellido }}</p>
                                             </div>
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Teléfono</label>
-                                                <input v-model="formCliente.telefono" type="text" placeholder="Teléfono" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                                <input v-model="formCliente.telefono" type="text" placeholder="Teléfono"
+                                                    @input="formCliente.telefono = formCliente.telefono.replace(/\D/g, '').slice(0, 15); limpiarErrorCliente('telefono')"
+                                                    @blur="validarCampoCliente('telefono')"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500"
+                                                    :class="{'border-rose-500': erroresCliente.telefono}">
+                                                <p v-if="erroresCliente.telefono" class="mt-1 text-[10px] text-rose-500 font-bold">{{ erroresCliente.telefono }}</p>
                                             </div>
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">CUIT</label>
                                                 <input v-model="formCliente.cuit" type="text" inputmode="numeric" placeholder="11 dígitos (para Factura A)"
-                                                    @input="formCliente.cuit = formCliente.cuit.replace(/\D/g, '').slice(0, 11)"
-                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                                    @input="formCliente.cuit = formCliente.cuit.replace(/\D/g, '').slice(0, 11); limpiarErrorCliente('cuit')"
+                                                    @blur="validarCampoCliente('cuit')"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500"
+                                                    :class="{'border-rose-500': erroresCliente.cuit}">
+                                                <p v-if="erroresCliente.cuit" class="mt-1 text-[10px] text-rose-500 font-bold">{{ erroresCliente.cuit }}</p>
                                             </div>
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Razón Social</label>
-                                                <input v-model="formCliente.razon_social" type="text" placeholder="Solo si facturás a una empresa" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                                <input v-model="formCliente.razon_social" type="text" placeholder="Solo si facturás a una empresa"
+                                                    @input="limpiarErrorCliente('razon_social')"
+                                                    @blur="validarCampoCliente('razon_social')"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500"
+                                                    :class="{'border-rose-500': erroresCliente.razon_social}">
+                                                <p v-if="erroresCliente.razon_social" class="mt-1 text-[10px] text-rose-500 font-bold">{{ erroresCliente.razon_social }}</p>
                                             </div>
                                             <div>
                                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Domicilio Fiscal</label>
-                                                <input v-model="formCliente.domicilio_fiscal" type="text" placeholder="Domicilio fiscal (para Factura A)" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500">
+                                                <input v-model="formCliente.domicilio_fiscal" type="text" placeholder="Domicilio fiscal (para Factura A)"
+                                                    @input="limpiarErrorCliente('domicilio_fiscal')"
+                                                    @blur="validarCampoCliente('domicilio_fiscal')"
+                                                    class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-sky-500 focus:border-sky-500"
+                                                    :class="{'border-rose-500': erroresCliente.domicilio_fiscal}">
+                                                <p v-if="erroresCliente.domicilio_fiscal" class="mt-1 text-[10px] text-rose-500 font-bold">{{ erroresCliente.domicilio_fiscal }}</p>
                                             </div>
                                         </div>
                                         <div class="flex gap-2 mt-5">

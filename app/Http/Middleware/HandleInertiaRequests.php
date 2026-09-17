@@ -19,24 +19,26 @@ class HandleInertiaRequests extends Middleware
 
     public function share(Request $request): array
     {
+        $user = $request->user() ?? auth('consumidor')->user();
+
         return [
             ...parent::share($request),
             
             'auth' => [
-                'user' => $request->user() ? (method_exists($request->user(), 'getRoleNames') ? [
-                    'id' => $request->user()->id,
-                    'name' => $request->user()->name,
-                    'email' => $request->user()->email,
-                    'branch_id' => $request->user()->branch_id,
-                    'sucursal_activa_id' => session('sucursal_activa_id', $request->user()->branch_id),
-                    'is_active' => $request->user()->is_active,
-                    'plan_deseado' => $request->user()->plan_deseado,
-                    'roles' => $request->user()->getRoleNames(),
-                    'permissions' => $request->user()->getAllPermissions()->pluck('name'),
+                'user' => $user ? (method_exists($user, 'getRoleNames') ? [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'branch_id' => $user->branch_id,
+                    'sucursal_activa_id' => session('sucursal_activa_id', $user->branch_id),
+                    'is_active' => $user->is_active,
+                    'plan_deseado' => $user->plan_deseado,
+                    'roles' => $user->getRoleNames(),
+                    'permissions' => $user->getAllPermissions()->pluck('name'),
                 ] : [
-                    'id' => $request->user()->id,
-                    'name' => $request->user()->nombre . ' ' . $request->user()->apellido,
-                    'email' => $request->user()->email,
+                    'id' => $user->id,
+                    'name' => $user->nombre . ' ' . $user->apellido,
+                    'email' => $user->email,
                 ]) : null,
                 
                 // 🔥 VARIABLE CLAVE PARA EL MODO DIOS: Le avisa a Vue si estamos en el local de un cliente

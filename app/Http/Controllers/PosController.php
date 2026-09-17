@@ -17,7 +17,6 @@ use App\Models\PaymentMethodConfiguration;
 use App\Models\Producto;
 use App\Models\RecargoTarjeta;
 use App\Models\TurnoCaja;
-
 use App\Services\Promotion\PromotionConflictResolver;
 use App\Services\Promotion\PromotionEngineService;
 use Carbon\Carbon;
@@ -462,19 +461,48 @@ class PosController extends Controller
         return response()->json($clientes);
     }
 
+    /**
+     * Rechaza caracteres de control y textos vacíos o de solo espacios.
+     */
+    private function reglaSinControl(string $mensaje): callable
+    {
+        return function (string $attribute, $value, $fail) use ($mensaje) {
+            if (is_string($value) && (preg_match('/[\x00-\x1F\x7F]/', $value) || trim($value) === '')) {
+                $fail($mensaje);
+            }
+        };
+    }
+
     public function crearCliente(Request $request)
     {
         $user = auth()->user();
         $comercioId = $user->branch?->comercio_id;
 
+        foreach (['nombre', 'apellido', 'razon_social', 'domicilio_fiscal'] as $campo) {
+            if (is_string($request->input($campo))) {
+                $request->merge([$campo => trim($request->input($campo))]);
+            }
+        }
+
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255',
-            'apellido' => 'nullable|string|max:255',
-            'telefono' => 'nullable|string|max:20|regex:/^\d+$/',
+            'nombre' => ['required', 'string', 'min:2', 'max:50', 'regex:/^[\p{L}]+(?: [\p{L}]+)*$/u'],
+            'apellido' => ['nullable', 'string', 'min:2', 'max:50', 'regex:/^[\p{L}]+(?: [\p{L}]+)*$/u'],
+            'telefono' => ['nullable', 'string', 'regex:/^\d+$/', 'min:8', 'max:15'],
             'cuit' => 'nullable|string|max:11',
-            'razon_social' => 'nullable|string|max:255',
-            'domicilio_fiscal' => 'nullable|string|max:255',
+            'razon_social' => ['nullable', 'string', 'max:255', $this->reglaSinControl('La razón social contiene caracteres no válidos.')],
+            'domicilio_fiscal' => ['nullable', 'string', 'max:255', $this->reglaSinControl('El domicilio fiscal contiene caracteres no válidos.')],
             'tipo_documento' => 'nullable|string|max:20',
+        ], [
+            'nombre.required' => 'El nombre es obligatorio.',
+            'nombre.min' => 'El nombre debe tener al menos 2 caracteres.',
+            'nombre.max' => 'El nombre no puede superar los 50 caracteres.',
+            'nombre.regex' => 'El nombre solo puede incluir letras y espacios.',
+            'apellido.min' => 'El apellido debe tener al menos 2 caracteres.',
+            'apellido.max' => 'El apellido no puede superar los 50 caracteres.',
+            'apellido.regex' => 'El apellido solo puede incluir letras y espacios.',
+            'telefono.regex' => 'El teléfono solo puede contener números.',
+            'telefono.min' => 'El teléfono debe tener al menos 8 dígitos.',
+            'telefono.max' => 'El teléfono no puede superar los 15 dígitos.',
         ]);
 
         $cuitNormalizado = $validated['cuit'] ?? null;

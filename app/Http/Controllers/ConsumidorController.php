@@ -65,18 +65,21 @@ class ConsumidorController extends Controller
     }
 
     /**
-     * Convierte cadenas vacías a null para documento y email
+     * Normaliza entradas antes de validar:
+     * - textos sin espacios al inicio/fin (no altera tildes ni ñ)
+     * - convierte cadenas vacías a null
      */
     private function normalizeInput(Request $request): void
     {
-        if ($request->input('documento') === '') {
-            $request->merge(['documento' => null]);
+        foreach (['nombre', 'apellido', 'direccion', 'razon_social', 'domicilio_fiscal', 'email'] as $campo) {
+            if (is_string($request->input($campo))) {
+                $request->merge([$campo => trim($request->input($campo))]);
+            }
         }
-        if ($request->input('email') === '') {
-            $request->merge(['email' => null]);
-        }
-        if ($request->input('cuit') === '') {
-            $request->merge(['cuit' => null]);
+        foreach (['documento', 'email', 'cuit'] as $campo) {
+            if ($request->input($campo) === '') {
+                $request->merge([$campo => null]);
+            }
         }
     }
 
@@ -89,35 +92,85 @@ class ConsumidorController extends Controller
         };
     }
 
+    /**
+     * Rechaza caracteres de control y textos vacíos o de solo espacios.
+     */
+    private function reglaSinControl(string $mensaje): callable
+    {
+        return function (string $attribute, $value, $fail) use ($mensaje) {
+            if (is_string($value) && (preg_match('/[\x00-\x1F\x7F]/', $value) || trim($value) === '')) {
+                $fail($mensaje);
+            }
+        };
+    }
+
+    /**
+     * Reglas compartidas para alta y edición de clientes.
+     */
+    private function reglasConsumidor(?int $consumidorId = null): array
+    {
+        $comercioId = $this->scope->obtenerComercioId();
+
+        $documentoUnique = $comercioId
+            ? Rule::unique('consumidores', 'documento')->ignore($consumidorId)->where(fn ($q) => $q->where('comercio_id', $comercioId))
+            : Rule::unique('consumidores', 'documento')->ignore($consumidorId);
+
+        $emailUnique = $comercioId
+            ? Rule::unique('consumidores', 'email')->ignore($consumidorId)->where(fn ($q) => $q->where('comercio_id', $comercioId))
+            : Rule::unique('consumidores', 'email')->ignore($consumidorId);
+
+        return [
+            'nombre' => ['required', 'string', 'min:2', 'max:50', 'regex:/^[\p{L}]+(?: [\p{L}]+)*$/u'],
+            'apellido' => ['required', 'string', 'min:2', 'max:50', 'regex:/^[\p{L}]+(?: [\p{L}]+)*$/u'],
+            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', $documentoUnique],
+            'email' => ['nullable', 'email', 'max:255', 'regex:/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/', $emailUnique],
+            'telefono' => ['nullable', 'string', 'regex:/^\d+$/', 'min:8', 'max:15'],
+            'direccion' => ['nullable', 'string', 'max:255', $this->reglaSinControl('La dirección contiene caracteres no válidos.')],
+            'cuit' => ['nullable', 'string', $this->reglaCuit()],
+            'tipo_documento' => 'nullable|string|in:CUIT,DNI',
+            'razon_social' => ['nullable', 'string', 'max:255', $this->reglaSinControl('La razón social contiene caracteres no válidos.')],
+            'domicilio_fiscal' => ['nullable', 'string', 'max:255', $this->reglaSinControl('El domicilio fiscal contiene caracteres no válidos.')],
+            'limite_cuenta_corriente' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'estado' => 'boolean',
+            'password' => ['nullable', 'string', 'min:6', 'max:72', 'confirmed'],
+        ];
+    }
+
+    private function mensajesConsumidor(): array
+    {
+        return [
+            'nombre.required' => 'El nombre es obligatorio.',
+            'nombre.min' => 'El nombre debe tener al menos 2 caracteres.',
+            'nombre.max' => 'El nombre no puede superar los 50 caracteres.',
+            'nombre.regex' => 'El nombre solo puede incluir letras y espacios.',
+            'apellido.required' => 'El apellido es obligatorio.',
+            'apellido.min' => 'El apellido debe tener al menos 2 caracteres.',
+            'apellido.max' => 'El apellido no puede superar los 50 caracteres.',
+            'apellido.regex' => 'El apellido solo puede incluir letras y espacios.',
+            'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
+            'documento.unique' => 'El documento ya está registrado por otro cliente en tu comercio.',
+            'email.email' => 'Ingresá un email válido.',
+            'email.regex' => 'Ingresá un email válido.',
+            'email.max' => 'El email no puede superar los 255 caracteres.',
+            'email.unique' => 'El email ya pertenece a otro cliente de tu comercio.',
+            'telefono.regex' => 'El teléfono solo puede contener números.',
+            'telefono.min' => 'El teléfono debe tener al menos 8 dígitos.',
+            'telefono.max' => 'El teléfono no puede superar los 15 dígitos.',
+            'limite_cuenta_corriente.min' => 'El límite no puede ser negativo.',
+            'limite_cuenta_corriente.max' => 'El límite supera el máximo permitido.',
+            'password.confirmed' => 'Las contraseñas no coinciden.',
+            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
+            'password.max' => 'La contraseña no puede superar los 72 caracteres.',
+        ];
+    }
+
     public function store(Request $request)
     {
         $this->normalizeInput($request);
 
         $comercioId = $this->scope->obtenerComercioId();
 
-        $validated = $request->validate([
-            'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
-            'apellido' => 'required|string|max:50|regex:/^[^0-9]+$/',
-            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', $comercioId ? Rule::unique('consumidores', 'documento')->where(fn ($q) => $q->where('comercio_id', $comercioId)) : Rule::unique('consumidores', 'documento')],
-            'email' => ['nullable', 'email', 'max:255', $comercioId ? Rule::unique('consumidores', 'email')->where(fn ($q) => $q->where('comercio_id', $comercioId)) : Rule::unique('consumidores', 'email')],
-            'telefono' => 'nullable|string|max:15|regex:/^\d+$/',
-            'direccion' => 'nullable|string|max:255',
-            'cuit' => ['nullable', 'string', $this->reglaCuit()],
-            'tipo_documento' => 'nullable|string|in:CUIT,DNI',
-            'razon_social' => 'nullable|string|max:255',
-            'domicilio_fiscal' => 'nullable|string|max:255',
-            'limite_cuenta_corriente' => 'required|numeric|min:0',
-            'estado' => 'boolean',
-            'password' => 'nullable|string|min:6',
-        ], [
-            'nombre.regex' => 'El nombre no puede contener números.',
-            'apellido.regex' => 'El apellido no puede contener números.',
-            'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
-            'documento.unique' => 'El documento ya está registrado por otro cliente en tu comercio.',
-            'telefono.regex' => 'El teléfono solo puede contener números.',
-            'email.unique' => 'El email ya pertenece a otro cliente de tu comercio.',
-            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
-        ]);
+        $validated = $request->validate($this->reglasConsumidor(), $this->mensajesConsumidor());
 
         $validated['comercio_id'] = $comercioId;
 
@@ -151,36 +204,8 @@ class ConsumidorController extends Controller
         }
 
         $this->normalizeInput($request);
-        $uniqueDocumento = $comercioId
-            ? Rule::unique('consumidores', 'documento')->ignore($consumidor->id)->where(fn ($q) => $q->where('comercio_id', $comercioId))
-            : Rule::unique('consumidores', 'documento')->ignore($consumidor->id);
-        $uniqueEmail = $comercioId
-            ? Rule::unique('consumidores', 'email')->ignore($consumidor->id)->where(fn ($q) => $q->where('comercio_id', $comercioId))
-            : Rule::unique('consumidores', 'email')->ignore($consumidor->id);
 
-        $validated = $request->validate([
-            'nombre' => 'required|string|max:50|regex:/^[^0-9]+$/',
-            'apellido' => 'required|string|max:50|regex:/^[^0-9]+$/',
-            'documento' => ['nullable', 'string', 'regex:/^\d{7,8}$/', $uniqueDocumento],
-            'email' => ['nullable', 'email', 'max:255', $uniqueEmail],
-            'telefono' => ['nullable', 'string', 'max:15', 'regex:/^\d+$/'],
-            'direccion' => 'nullable|string|max:255',
-            'cuit' => ['nullable', 'string', $this->reglaCuit()],
-            'tipo_documento' => 'nullable|string|in:CUIT,DNI',
-            'razon_social' => 'nullable|string|max:255',
-            'domicilio_fiscal' => 'nullable|string|max:255',
-            'limite_cuenta_corriente' => 'required|numeric|min:0',
-            'estado' => 'boolean',
-            'password' => 'nullable|string|min:6',
-        ], [
-            'nombre.regex' => 'El nombre no puede contener números.',
-            'apellido.regex' => 'El apellido no puede contener números.',
-            'documento.regex' => 'El documento debe tener entre 7 y 8 números.',
-            'documento.unique' => 'El documento ya está registrado por otro cliente en tu comercio.',
-            'telefono.regex' => 'El teléfono solo puede contener números.',
-            'email.unique' => 'El email ya pertenece a otro cliente de tu comercio.',
-            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
-        ]);
+        $validated = $request->validate($this->reglasConsumidor($consumidor->id), $this->mensajesConsumidor());
 
         $consumidor->nombre = $validated['nombre'];
         $consumidor->apellido = $validated['apellido'];

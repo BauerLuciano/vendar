@@ -114,6 +114,32 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
         ])->assertSessionHasErrors();
     }
 
+    // P2.2.4 — venta en cuenta corriente sin cliente seleccionado se rechaza
+    public function test_admin_a_no_puede_crear_venta_fiado_sin_consumidor(): void
+    {
+        $this->actingAsAdminA();
+
+        $response = $this->post('/ventas', [
+            'turno_caja_id' => 2,
+            'items' => [
+                ['id' => 5, 'cantidad' => 1, 'precio_venta' => 500, 'nombre' => 'Arroz 1kg'],
+            ],
+            'total' => 500,
+            'pagos' => [
+                ['metodo_pago' => 'CUENTA_CORRIENTE', 'monto' => 500],
+            ],
+        ]);
+
+        $response->assertSessionHasErrors();
+        $this->assertStringContainsString('cliente', session('errors')->get('error')[0]);
+
+        $this->assertDatabaseMissing('ventas', [
+            'turno_caja_id' => 2,
+            'total' => 500,
+            'metodo_pago' => 'CUENTA_CORRIENTE',
+        ]);
+    }
+
     // P2.3.1
     public function test_admin_a_puede_cancelar_su_venta(): void
     {

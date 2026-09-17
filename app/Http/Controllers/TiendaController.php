@@ -27,6 +27,14 @@ class TiendaController extends Controller
 
         $consumidor = auth('consumidor')->user();
 
+        // Multi-tenant: un consumidor solo opera en la tienda de SU comercio.
+        // Si está logueado en un comercio y entra a una tienda ajena,
+        // se le cierra la sesión y se le muestra la tienda como invitado.
+        if ($consumidor && $consumidor->comercio_id !== (int) $comercio->id) {
+            auth('consumidor')->logout();
+            return redirect('/tienda/'.$slug)->with('error', 'Tu sesión pertenece a otro comercio. Para comprar acá, entrá como invitado o creá una cuenta.');
+        }
+
         $sucursales = Sucursal::where('comercio_id', $comercio->id)
             ->where('estado', true)
             ->select('id', 'nombre', 'latitud', 'longitud', 'direccion', 'costo_delivery')

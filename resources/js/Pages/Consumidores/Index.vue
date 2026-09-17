@@ -139,6 +139,94 @@ watch(() => form.email, () => {
     }, 500);
 });
 
+// ----- VALIDACIÓN DE COINCIDENCIA DE CONTRASEÑAS -----
+const passwordMismatch = computed(() => {
+    return (form.password || form.password_confirmation) && form.password !== form.password_confirmation;
+});
+
+watch(passwordMismatch, (mismatch) => {
+    if (mismatch) {
+        form.setError('password_confirmation', 'Las contraseñas no coinciden.');
+    } else {
+        form.clearErrors('password_confirmation');
+    }
+});
+
+// ----- VALIDACIÓN LOCAL DEL FORMULARIO -----
+const erroresLocales = reactive({
+    nombre: '', apellido: '', telefono: '', email: '', direccion: '', limite_cuenta_corriente: '', password: '',
+});
+
+const REGEX_LETRAS = /^[\p{L}]+(?: [\p{L}]+)*$/u;
+const REGEX_EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+const limpiarErrorLocal = (campo) => {
+    erroresLocales[campo] = '';
+};
+
+const validarCampo = (campo) => {
+    let err = '';
+
+    if (campo === 'nombre' || campo === 'apellido') {
+        const dato = form[campo].trim();
+        const label = campo === 'nombre' ? 'El nombre' : 'El apellido';
+        if (dato.length < 2) err = `${label} debe tener al menos 2 caracteres.`;
+        else if (dato.length > 50) err = `${label} no puede superar los 50 caracteres.`;
+        else if (!REGEX_LETRAS.test(dato)) err = `${label} solo puede incluir letras y espacios.`;
+    }
+
+    if (campo === 'telefono') {
+        const t = (form.telefono || '').trim();
+        if (t && !/^\d+$/.test(t)) err = 'El teléfono solo puede contener números.';
+        else if (t && t.length < 8) err = 'El teléfono debe tener al menos 8 dígitos.';
+        else if (t.length > 15) err = 'El teléfono no puede superar los 15 dígitos.';
+    }
+
+    if (campo === 'email') {
+        const mail = (form.email || '').trim();
+        if (mail && !REGEX_EMAIL_VALIDO.test(mail)) err = 'Ingresá un email válido.';
+    }
+
+    if (campo === 'direccion') {
+        const dir = (form.direccion || '').trim();
+        if (dir && dir.length > 255) err = 'La dirección no puede superar los 255 caracteres.';
+        else if (dir && /[\x00-\x1F\x7F]/.test(form.direccion)) err = 'La dirección contiene caracteres no válidos.';
+    }
+
+    if (campo === 'limite_cuenta_corriente') {
+        const n = Number(form.limite_cuenta_corriente);
+        if (isNaN(n) || n < 0) err = 'El límite no puede ser negativo.';
+        else if (n > 99999999.99) err = 'El límite supera el máximo permitido.';
+    }
+
+    if (campo === 'password') {
+        const pass = form.password || '';
+        if ((pass || form.password_confirmation) && pass !== form.password_confirmation) err = 'Las contraseñas no coinciden.';
+        else if (pass && pass.length < 6) err = 'La contraseña debe tener al menos 6 caracteres.';
+        else if (pass && pass.length > 72) err = 'La contraseña no puede superar los 72 caracteres.';
+    }
+
+    erroresLocales[campo] = err;
+
+    return err;
+};
+
+const validarFormulario = () => {
+    const campos = ['nombre', 'apellido', 'telefono', 'email', 'direccion', 'limite_cuenta_corriente', 'password'];
+    const conErrores = campos.filter((campo) => validarCampo(campo));
+
+    if (conErrores.length > 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Revisá los campos marcados',
+            text: 'Hay campos con datos inválidos. Corregilos antes de guardar.',
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+        });
+    }
+
+    return conErrores.length === 0;
+};
+
 // Lista de métodos de pago
 const paymentMethods = [
     { value: 'EFECTIVO', label: 'Efectivo' },
@@ -251,6 +339,7 @@ const cerrarMenu = () => {
 const openModal = (cliente = null) => {
     cerrarMenu();
     form.clearErrors();
+    Object.keys(erroresLocales).forEach((k) => { erroresLocales[k] = ''; });
     documentoStatus.value = null;
     emailStatus.value = null;
     if (cliente) {
@@ -278,6 +367,7 @@ const closeModal = () => {
     if (emailDebounceTimer) clearTimeout(emailDebounceTimer);
     documentoStatus.value = null;
     emailStatus.value = null;
+    Object.keys(erroresLocales).forEach((k) => { erroresLocales[k] = ''; });
     isModalOpen.value = false;
     form.reset();
     form.clearErrors();
@@ -299,6 +389,15 @@ const checkDuplicadosNombre = async () => {
 };
 
 const submitForm = async () => {
+    if (passwordMismatch.value) {
+        Swal.fire({
+            icon: 'warning', title: 'Las contraseñas no coinciden',
+            text: 'Verificá que la contraseña y su confirmación sean iguales.',
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+        });
+        return;
+    }
+
     if (form.documento && documentoStatus.value !== 'available') {
         Swal.fire({
             icon: 'warning', title: 'DNI no disponible',
@@ -316,6 +415,8 @@ const submitForm = async () => {
         });
         return;
     }
+
+    if (!validarFormulario()) return;
 
     const { duplicados, total } = await checkDuplicadosNombre();
 
@@ -730,27 +831,31 @@ const calcularDisponible = (limite, deuda) => {
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Nombre</label>
                             <input 
                                 v-model="form.nombre" 
-                                @input="form.nombre = form.nombre.replace(/[0-9]/g, '')"
+                                @input="limpiarErrorLocal('nombre')"
+                                @blur="validarCampo('nombre')"
                                 maxlength="50"
                                 type="text" 
+                                placeholder="Ej: Juan Carlos"
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.nombre}" 
+                                :class="{'border-rose-500': form.errors.nombre || erroresLocales.nombre}" 
                                 required
                             >
-                            <p v-if="form.errors.nombre" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.nombre }}</p>
+                            <p v-if="form.errors.nombre || erroresLocales.nombre" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.nombre || form.errors.nombre }}</p>
                         </div>
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Apellido</label>
                             <input 
                                 v-model="form.apellido" 
-                                @input="form.apellido = form.apellido.replace(/[0-9]/g, '')"
+                                @input="limpiarErrorLocal('apellido')"
+                                @blur="validarCampo('apellido')"
                                 maxlength="50"
                                 type="text" 
+                                placeholder="Ej: De la Cruz"
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.apellido}" 
+                                :class="{'border-rose-500': form.errors.apellido || erroresLocales.apellido}" 
                                 required
                             >
-                            <p v-if="form.errors.apellido" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.apellido }}</p>
+                            <p v-if="form.errors.apellido || erroresLocales.apellido" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.apellido || form.errors.apellido }}</p>
                         </div>
                     </div>
 
@@ -801,10 +906,12 @@ const calcularDisponible = (limite, deuda) => {
                             <div class="relative">
                                 <input 
                                     v-model="form.email" 
+                                    @input="limpiarErrorLocal('email')"
+                                    @blur="validarCampo('email')"
                                     maxlength="255"
                                     type="email" 
                                     class="w-full bg-slate-50 border rounded-xl px-4 py-2.5 pr-10 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                    :class="{'border-rose-500': form.errors.email || emailStatus === 'unavailable', 'border-emerald-500': emailStatus === 'available' && !form.errors.email, 'border-slate-200': emailStatus !== 'available' && emailStatus !== 'unavailable' && !form.errors.email}"
+                                    :class="{'border-rose-500': form.errors.email || erroresLocales.email || emailStatus === 'unavailable', 'border-emerald-500': emailStatus === 'available' && !form.errors.email && !erroresLocales.email, 'border-slate-200': emailStatus !== 'available' && emailStatus !== 'unavailable' && !form.errors.email && !erroresLocales.email}"
                                 >
                                 <div class="absolute inset-y-0 right-0 flex items-center pr-3">
                                     <svg v-if="emailStatus === 'checking'" class="w-5 h-5 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -815,7 +922,7 @@ const calcularDisponible = (limite, deuda) => {
                                     <svg v-else-if="emailStatus === 'unavailable'" class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                                 </div>
                             </div>
-                            <p v-if="form.errors.email" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.email }}</p>
+                            <p v-if="form.errors.email || erroresLocales.email" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.email || form.errors.email }}</p>
                             <p v-if="emailStatus === 'available' && !form.errors.email" class="mt-1 text-xs text-emerald-600 font-bold flex items-center gap-1">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Email disponible
@@ -832,25 +939,28 @@ const calcularDisponible = (limite, deuda) => {
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Teléfono</label>
                             <input 
                                 v-model="form.telefono" 
-                                @input="form.telefono = form.telefono.replace(/\D/g, '')"
+                                @input="form.telefono = form.telefono.replace(/\D/g, ''); limpiarErrorLocal('telefono')"
+                                @blur="validarCampo('telefono')"
                                 maxlength="15"
                                 type="text" 
                                 placeholder="Ej: 3758445566"
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.telefono}"
+                                :class="{'border-rose-500': form.errors.telefono || erroresLocales.telefono}"
                             >
-                            <p v-if="form.errors.telefono" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.telefono }}</p>
+                            <p v-if="form.errors.telefono || erroresLocales.telefono" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.telefono || form.errors.telefono }}</p>
                         </div>
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Dirección</label>
                             <input 
                                 v-model="form.direccion" 
+                                @input="limpiarErrorLocal('direccion')"
+                                @blur="validarCampo('direccion')"
                                 maxlength="255"
                                 type="text" 
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.direccion}"
+                                :class="{'border-rose-500': form.errors.direccion || erroresLocales.direccion}"
                             >
-                            <p v-if="form.errors.direccion" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.direccion }}</p>
+                            <p v-if="form.errors.direccion || erroresLocales.direccion" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.direccion || form.errors.direccion }}</p>
                         </div>
                     </div>
 
@@ -859,14 +969,17 @@ const calcularDisponible = (limite, deuda) => {
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Límite Cta. Corriente ($)</label>
                             <input 
                                 v-model="form.limite_cuenta_corriente" 
+                                @input="limpiarErrorLocal('limite_cuenta_corriente')"
+                                @blur="validarCampo('limite_cuenta_corriente')"
                                 type="number" 
                                 step="0.01" 
                                 min="0" 
+                                max="99999999.99"
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                :class="{'border-rose-500': form.errors.limite_cuenta_corriente}" 
+                                :class="{'border-rose-500': form.errors.limite_cuenta_corriente || erroresLocales.limite_cuenta_corriente}" 
                                 required
                             >
-                            <p v-if="form.errors.limite_cuenta_corriente" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.limite_cuenta_corriente }}</p>
+                            <p v-if="form.errors.limite_cuenta_corriente || erroresLocales.limite_cuenta_corriente" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.limite_cuenta_corriente || form.errors.limite_cuenta_corriente }}</p>
                         </div>
                         <div>
                             <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Estado Operativo</label>
@@ -887,21 +1000,27 @@ const calcularDisponible = (limite, deuda) => {
                                 </label>
                                 <input 
                                     v-model="form.password" 
+                                    @input="limpiarErrorLocal('password')"
+                                    @blur="validarCampo('password')"
                                     type="password" 
                                     class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700" 
-                                    :class="{'border-rose-500': form.errors.password}" 
+                                    :class="{'border-rose-500': form.errors.password || erroresLocales.password}" 
                                     :placeholder="isEditing ? 'Dejar vacío para no cambiar' : 'Mínimo 6 caracteres'"
                                 >
-                                <p v-if="form.errors.password" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.password }}</p>
+                                <p v-if="form.errors.password || erroresLocales.password" class="mt-1 text-xs text-rose-500 font-bold">{{ erroresLocales.password || form.errors.password }}</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Repetir contraseña</label>
                                 <input 
                                     v-model="form.password_confirmation" 
+                                    @input="limpiarErrorLocal('password')"
+                                    @blur="validarCampo('password')"
                                     type="password" 
                                     class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 focus:border-sky-500 font-medium text-slate-700"
+                                    :class="{'border-rose-500': form.errors.password_confirmation}"
                                     placeholder="Repetir contraseña"
                                 >
+                                <p v-if="form.errors.password_confirmation" class="mt-1 text-xs text-rose-500 font-bold">{{ form.errors.password_confirmation }}</p>
                             </div>
                         </div>
                         <p class="text-[10px] text-slate-400 mt-2 font-medium">Esta contraseña permite al cliente ingresar a la tienda online para hacer pedidos.</p>

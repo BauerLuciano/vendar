@@ -185,7 +185,7 @@ class PedidoWebController extends Controller
             $pedido->comercio_id = $comercio->id;
             $pedido->sucursal_id = $sucursalId;
             $consumidor = auth('consumidor')->user();
-            $pedido->consumidor_id = $consumidor?->id;
+            $pedido->consumidor_id = $consumidor && $consumidor->comercio_id === $comercio->id ? $consumidor->id : null;
             $pedido->tipo_entrega = $request->tipo_entrega;
             $pedido->cliente_nombre = $nombreCliente;
             $pedido->cliente_telefono = $request->telefono_contacto;

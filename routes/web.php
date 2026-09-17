@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminGlobal\ArcaCredencialController;
 use App\Http\Controllers\AdminGlobal\PlanController;
 use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\Auth\GoogleLoginController;
@@ -14,7 +15,6 @@ use App\Http\Controllers\ElegirSucursalController;
 use App\Http\Controllers\Facturacion\DiagnosticoFiscalController;
 use App\Http\Controllers\Facturacion\WizardConfiguracionFiscalController;
 use App\Http\Controllers\GestionPedidosWebController;
-use App\Http\Controllers\AdminGlobal\ArcaCredencialController;
 use App\Http\Controllers\GlobalAdminController;
 use App\Http\Controllers\ImpersonateController;
 use App\Http\Controllers\IngresoMercaderiaController;
@@ -46,6 +46,8 @@ use App\Http\Middleware\VerificarEstadoCuenta;
 use App\Models\Comercio;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
+use App\Models\Sucursal;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -70,14 +72,14 @@ Route::get('/cuenta-suspendida', function () {
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
 
         $sucursal = $sucursalId
-            ? \App\Models\Sucursal::with('comercio.plan')->find($sucursalId)
+            ? Sucursal::with('comercio.plan')->find($sucursalId)
             : null;
 
         $comercio = $sucursal?->comercio;
 
         if ($comercio) {
             $vencimiento = $comercio->vencimiento_pago
-                ? \Carbon\Carbon::parse($comercio->vencimiento_pago)
+                ? Carbon::parse($comercio->vencimiento_pago)
                 : null;
 
             $suspendidaPorVencimiento = $vencimiento !== null && $vencimiento->isPast();
@@ -161,7 +163,7 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::post('/pos/abrir-turno', [PosController::class, 'abrirTurno'])->name('pos.abrir_turno');
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
     Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
-    Route::post('/pos/crear-cliente', [PosController::class, 'crearCliente'])->name('pos.crear.cliente');
+    Route::post('/pos/crear-cliente', [PosController::class, 'crearCliente'])->name('pos.crear.cliente')->middleware('modulo:fiados');
     Route::get('/pos/letra-esperada', [PosController::class, 'letraEsperada'])->name('pos.letra_esperada');
     Route::post('/pos/toggle-favorito', [PosController::class, 'toggleFavorito'])->name('pos.toggle.favorito');
     Route::get('/pos/favoritos', [PosController::class, 'listarFavoritos'])->name('pos.favoritos');
@@ -452,6 +454,14 @@ Route::get('/tienda/{slug}/panel', function ($slug) {
     $consumidor = auth('consumidor')->user();
 
     if (! $consumidor) {
+        return redirect('/tienda/'.$slug);
+    }
+
+    // Multi-tenant: el panel solo es accesible para consumidores de SU comercio.
+    // Un consumidor de otro comercio pierde su sesión al intentar entrar.
+    if ($consumidor->comercio_id !== $comercio->id) {
+        auth('consumidor')->logout();
+
         return redirect('/tienda/'.$slug);
     }
 

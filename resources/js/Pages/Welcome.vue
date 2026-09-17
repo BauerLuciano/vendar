@@ -374,6 +374,18 @@ watch(busqueda, () => {
 });
 
 onMounted(() => {
+    const flashError = page.props.flash?.error;
+    if (flashError) {
+        Swal.fire({
+            icon: 'info',
+            title: flashError,
+            background: 'var(--bg-elevated)',
+            color: 'var(--text-primary)',
+            timer: 5000,
+            showConfirmButton: false,
+        });
+    }
+
     setTimeout(() => {
         cargarCarritoMemoria();
     }, 500);
