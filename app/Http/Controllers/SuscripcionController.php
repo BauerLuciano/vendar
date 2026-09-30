@@ -2,22 +2,21 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\PaymentChannel;
 use App\Enums\PaymentStatus;
 use App\Models\Comercio;
-use App\Models\Payment;
 use App\Models\Plan;
 use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\Exceptions\PaymentException;
 use App\Services\Payment\PaymentService;
+use App\Services\Suscripcion\SuscripcionService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class SuscripcionController extends Controller
 {
     public function __construct(
         private readonly PaymentService $paymentService,
+        private readonly SuscripcionService $suscripcionService,
     ) {}
 
     public function miPlan()
@@ -33,6 +32,7 @@ class SuscripcionController extends Controller
         return Inertia::render('Suscripcion/MiPlan', [
             'comercio' => $comercio,
             'planes' => $planes,
+            'suscripcion' => $this->suscripcionService->estadoSuscripcion($comercio),
         ]);
     }
 
@@ -69,7 +69,20 @@ class SuscripcionController extends Controller
                 return response()->json(['error' => 'Origin no permitido'], 400);
             }
 
+            // Anti-duplicado: si ya hay una preferencia de pago en curso para
+            // este comercio no generamos otra, para no cobrar dos veces por la
+            // misma intención de renovación / cambio de plan.
+            if ($this->suscripcionService->pagoEnVuelo($comercio->id) !== null) {
+                return response()->json([
+                    'error' => 'Ya hay un pago en proceso para tu plan. Espera la confirmación de Mercado Pago antes de generar otro.',
+                ], 409);
+            }
+
+            $esRenovacion = (int) $comercio->plan_id === (int) $plan->id;
+            $estado = $this->suscripcionService->estadoSuscripcion($comercio);
+
             $comercio->update(['pending_plan_id' => $plan->id]);
+            $this->suscripcionService->marcarPagoEnVuelo($comercio->id, $plan->id);
 
             // Las back_urls deben ser un dominio con nombre (DNS) para que
             // Mercado Pago las acepte y habilite el botón "Volver al sitio" /
@@ -94,6 +107,12 @@ class SuscripcionController extends Controller
                 failureUrl: $publicUrl.'/retorno?pago=error',
                 pendingUrl: $publicUrl.'/retorno?pago=pendiente',
                 notificationUrl: $publicUrl.'/api/mercadopago/notificacion?tipo=plan',
+                metadata: [
+                    'tipo' => 'suscripcion',
+                    'intento' => $esRenovacion ? 'renovacion' : 'upgrade',
+                    'plan_id' => $plan->id,
+                    'estado' => $estado['estado'],
+                ],
             );
 
             $response = $this->paymentService
@@ -102,14 +121,21 @@ class SuscripcionController extends Controller
 
             return response()->json([
                 'init_point' => $response->checkoutUrl,
+                'es_renovacion' => $esRenovacion,
+                'plan_id' => $plan->id,
+                'estado' => $estado['estado'],
             ]);
 
         } catch (PaymentException $e) {
+            $this->suscripcionService->limpiarPagoEnVuelo($comercio->id ?? 0);
+
             return response()->json([
                 'error' => 'Error de pasarela de pago',
                 'detalle' => $e->getMessage(),
             ], 500);
         } catch (\Exception $e) {
+            $this->suscripcionService->limpiarPagoEnVuelo($comercio->id ?? 0);
+
             return response()->json([
                 'error' => 'Error general',
                 'detalle' => $e->getMessage(),
@@ -126,54 +152,17 @@ class SuscripcionController extends Controller
 
         $user = auth()->user();
         $comercio = Comercio::findOrFail($user->comercio_id);
+        $plan = Plan::findOrFail($request->plan_id);
+        $paymentId = (string) $request->payment_id;
 
-        if ($comercio->plan_id === (int) $request->plan_id) {
-            $reactivada = false;
-
-            if ($comercio->status === 'suspendido'
-                || ($comercio->vencimiento_pago && \Carbon\Carbon::parse($comercio->vencimiento_pago)->isPast())) {
-                $comercio->status = 'activo';
-                $comercio->vencimiento_pago = now()->addMonth()->toDateString();
-                $reactivada = true;
-            }
-
-            $comercio->pending_plan_id = null;
-            $comercio->save();
-
-            if ($reactivada) {
-                activity()
-                    ->performedOn($comercio)
-                    ->causedBy(auth()->user())
-                    ->withProperties(['plan_id' => $comercio->plan_id, 'via' => 'renovacion_mismo_plan'])
-                    ->log('plan_reactivated');
-            }
-
-            $this->registrarPagoRenovacion($comercio->id, (string) $request->payment_id);
-
-            return response()->json([
-                'status' => 'already_upgraded',
-                'plan_id' => $comercio->plan_id,
-                'plan' => Plan::find($comercio->plan_id),
-            ]);
-        }
-
-        if ((int) $comercio->pending_plan_id !== (int) $request->plan_id) {
-            \Log::warning('Intento de upgrade con plan_id no coincidente', [
-                'user_id' => $user->id,
-                'comercio_id' => $comercio->id,
-                'requested_plan_id' => $request->plan_id,
-                'pending_plan_id' => $comercio->pending_plan_id,
-            ]);
-
-            return response()->json([
-                'error' => 'El plan solicitado no coincide con la intención de pago. Generá una nueva preferencia.',
-            ], 400);
-        }
-
+        // La verificación contra Mercado Pago se hace SIEMPRE, también cuando
+        // la renovación es del mismo plan. Sin esto, un `plan_id` propio junto
+        // con un `payment_id` inventado alcanzaba para reactivar la cuenta y
+        // alikejar el vencimiento sin haber pagado.
         try {
             $status = $this->paymentService
                 ->forPlatform()
-                ->getPaymentStatus('mercadopago', $request->payment_id);
+                ->getPaymentStatus('mercadopago', $paymentId);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'No se pudo verificar el pago'], 502);
         }
@@ -186,43 +175,40 @@ class SuscripcionController extends Controller
             return response()->json(['error' => 'El pago no corresponde a este comercio'], 403);
         }
 
-        $plan = Plan::findOrFail($request->plan_id);
+        // Si el webhook ya aplicó este pago, `pending_plan_id` ya fue limpiado.
+        // Solo exigimos que coincida cuando el pago todavía no se aplicó, para
+        // no romper la carrera entre el webhook y la confirmación del frontend.
+        $yaAplicado = $this->suscripcionService->pagoYaRegistrado($paymentId);
 
-        DB::transaction(function () use ($comercio, $plan) {
-            $comercio = Comercio::lockForUpdate()->find($comercio->id);
+        if (! $yaAplicado && (int) $comercio->pending_plan_id !== (int) $plan->id) {
+            \Log::warning('Intento de upgrade con plan_id no coincidente', [
+                'user_id' => $user->id,
+                'comercio_id' => $comercio->id,
+                'requested_plan_id' => $request->plan_id,
+                'pending_plan_id' => $comercio->pending_plan_id,
+            ]);
 
-            $comercio->plan_id = $plan->id;
-            $comercio->pending_plan_id = null;
-            $comercio->modulos_habilitados = $plan->modulos;
-            $comercio->limite_sucursales = $plan->sucursales_limit;
-            $comercio->limite_usuarios = $plan->usuarios_limit;
+            return response()->json([
+                'error' => 'El plan solicitado no coincide con la intención de pago. Generá una nueva preferencia.',
+            ], 400);
+        }
 
-            $needsReactivation = $comercio->status === 'suspendido'
-                || ($comercio->vencimiento_pago && \Carbon\Carbon::parse($comercio->vencimiento_pago)->isPast());
+        $intento = $this->suscripcionService->aplicarPago(
+            comercio: $comercio,
+            plan: $plan,
+            paymentId: $paymentId,
+            amount: $status->amount,
+            via: 'confirmar_upgrade',
+        );
 
-            if ($needsReactivation) {
-                $comercio->status = 'activo';
-                $comercio->vencimiento_pago = now()->addMonth()->toDateString();
-            }
-
-            $comercio->save();
-
-            activity()
-                ->performedOn($comercio)
-                ->causedBy(auth()->user())
-                ->withProperties([
-                    'plan' => $plan->toArray(),
-                    'via' => 'confirmar_upgrade',
-                    'reactivated' => $needsReactivation,
-                ])
-                ->log($needsReactivation ? 'plan_reactivated' : 'plan_upgraded');
-        });
-
-        $this->registrarPagoRenovacion($comercio->id, (string) $request->payment_id);
+        $comercio->refresh();
 
         return response()->json([
-            'status' => 'ok',
-            'plan' => $plan,
+            'status' => $intento === 'renovacion' ? 'already_upgraded' : 'ok',
+            'intento' => $intento,
+            'plan_id' => $comercio->plan_id,
+            'plan' => Plan::find($comercio->plan_id),
+            'suscripcion' => $this->suscripcionService->estadoSuscripcion($comercio),
         ]);
     }
 
@@ -267,23 +253,27 @@ class SuscripcionController extends Controller
         return redirect()->away($destino);
     }
 
-    private function registrarPagoRenovacion(int $comercioId, string $paymentId, ?float $amount = null): void
+    /**
+     * Libera el pago en vuelo: descarta la preferencia de Mercado Pago que
+     * quedó abierta y limpia `pending_plan_id`.
+     *
+     * Es la salida para el caso "el usuario seleccionó un plan por error y
+     * nunca pagó". Sin esto quedaba bloqueado con un 409 durante toda la
+     * ventana de 30 minutos sin poder reintentar.
+     */
+    public function cancelarPago()
     {
-        Payment::firstOrCreate(
-            [
-                'provider' => 'mercadopago',
-                'gateway_transaction_id' => $paymentId,
-            ],
-            [
-                'payable_type' => Comercio::class,
-                'payable_id' => $comercioId,
-                'channel' => PaymentChannel::API,
-                'status' => PaymentStatus::APPROVED,
-                'reference' => (string) $comercioId,
-                'amount' => $amount,
-                'approved_at' => now(),
-            ],
-        );
+        $user = auth()->user();
+        $comercio = Comercio::findOrFail($user->comercio_id);
+
+        $this->suscripcionService->liberarPagoEnVuelo($comercio, 'cancelado_por_usuario');
+
+        $comercio->refresh();
+
+        return response()->json([
+            'status' => 'ok',
+            'suscripcion' => $this->suscripcionService->estadoSuscripcion($comercio),
+        ]);
     }
 
     public function planActual()
@@ -292,12 +282,13 @@ class SuscripcionController extends Controller
         $comercio = Comercio::find($user->comercio_id);
 
         if (! $comercio) {
-            return response()->json(['plan_id' => null]);
+            return response()->json(['plan_id' => null, 'pending_plan_id' => null]);
         }
 
         return response()->json([
             'plan_id' => $comercio->plan_id,
             'pending_plan_id' => $comercio->pending_plan_id,
+            'suscripcion' => $this->suscripcionService->estadoSuscripcion($comercio),
         ]);
     }
 

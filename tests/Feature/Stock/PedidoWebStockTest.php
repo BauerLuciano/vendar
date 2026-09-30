@@ -452,7 +452,12 @@ class PedidoWebStockTest extends TestCaseMultiTenant
                 'data' => ['id' => $mpTxId],
             ]);
 
-            $controller = new \App\Http\Controllers\MercadoPagoNotificacionController($psMock, $prMock);
+            $controller = new \App\Http\Controllers\MercadoPagoNotificacionController(
+                $psMock,
+                $prMock,
+                app(\App\Services\Payment\PaymentConfirmationService::class),
+                app(\App\Services\Suscripcion\SuscripcionService::class),
+            );
             $controller->notificacion($request);
         } else {
             $viumiUuid = 'test_viumi_' . uniqid();

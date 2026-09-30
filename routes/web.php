@@ -340,6 +340,7 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global|Encargado'])->g
     Route::post('/mi-plan/pagar', [SuscripcionController::class, 'generarPreferencia'])->name('suscripcion.pagar');
 
     Route::post('/api/mi-plan/confirmar-upgrade', [SuscripcionController::class, 'confirmarUpgrade'])->name('suscripcion.confirmar-upgrade');
+    Route::post('/api/mi-plan/cancelar-pago', [SuscripcionController::class, 'cancelarPago'])->name('suscripcion.cancelar-pago');
     Route::get('/api/mi-plan/plan-actual', [SuscripcionController::class, 'planActual'])->name('suscripcion.plan-actual');
 
 });

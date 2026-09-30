@@ -146,6 +146,7 @@ class MercadopagoGateway implements PaymentGateway
             'pending', 'in_process', 'in_mediation' => PaymentStatus::PENDING,
             'rejected' => PaymentStatus::REJECTED,
             'cancelled' => PaymentStatus::CANCELLED,
+            'expired' => PaymentStatus::EXPIRED,
             'refunded' => PaymentStatus::REFUNDED,
             'charged_back' => PaymentStatus::REFUNDED,
             default => PaymentStatus::PENDING,
@@ -158,11 +159,15 @@ class MercadopagoGateway implements PaymentGateway
 
         if (! $secret) {
             if (app()->environment('production')) {
-                \Log::critical('MercadoPago webhook secret is missing in production');
+                \Log::critical('MercadoPago webhook secret is missing in production', [
+                    'hint' => 'Definí MERCADOPAGO_WEBHOOK_SECRET con el secret de la app de Mercado Pago. Sin él el webhook responde 401 y la renovación del plan nunca se aplica.',
+                ]);
 
                 return false;
             }
-            \Log::warning('MercadoPago webhook secret not configured — skipping verification');
+            \Log::warning('MercadoPago webhook secret not configured — skipping verification', [
+                'environment' => app()->environment(),
+            ]);
 
             return true;
         }

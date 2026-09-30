@@ -2,12 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\PaymentChannel;
 use App\Enums\PaymentStatus;
 use App\Models\User;
 use Illuminate\Http\Request;
 use App\Models\Comercio;
-use App\Models\Payment;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +13,7 @@ use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
 use App\Services\Payment\PaymentConfirmationService;
 use App\Services\Payment\Contracts\PaymentStatusResponse;
+use App\Services\Suscripcion\SuscripcionService;
 
 class MercadoPagoNotificacionController extends Controller
 {
@@ -22,6 +21,7 @@ class MercadoPagoNotificacionController extends Controller
         private readonly PaymentService $paymentService,
         private readonly PaymentRecorder $paymentRecorder,
         private readonly PaymentConfirmationService $confirmationService,
+        private readonly SuscripcionService $suscripcionService,
     ) {}
 
     public function notificacion(Request $request)
@@ -152,6 +152,18 @@ class MercadoPagoNotificacionController extends Controller
         }
 
         if ($status->status !== PaymentStatus::APPROVED) {
+            // Un pago rechazado, cancelado o expirado es terminal: hay que
+            // liberar el estado en vuelo para que el usuario pueda reintentar
+            // y `pending_plan_id` no quede sucio. Un pago `pending` en cambio
+            // puede completarse más tarde, así que no se toca nada.
+            if (in_array($status->status, [PaymentStatus::REJECTED, PaymentStatus::CANCELLED, PaymentStatus::EXPIRED], true)) {
+                $comercio = $status->referenceId ? Comercio::find($status->referenceId) : null;
+
+                if ($comercio) {
+                    $this->suscripcionService->liberarPagoEnVuelo($comercio, 'pago_'.$status->status->value);
+                }
+            }
+
             return response()->json(['status' => 'not_approved']);
         }
 
@@ -165,7 +177,7 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['error' => 'Comercio not found'], 404);
         }
 
-        if ($this->yaAplicadaRenovacion($paymentId)) {
+        if ($this->suscripcionService->pagoYaRegistrado($paymentId)) {
             return response()->json(['status' => 'already_processed']);
         }
 
@@ -174,88 +186,14 @@ class MercadoPagoNotificacionController extends Controller
             return response()->json(['status' => 'already_processed']);
         }
 
-        $mismoPlan = $comercio->plan_id === $plan->id;
-
-        DB::transaction(function () use ($comercio, $plan, $paymentId, $status, $mismoPlan) {
-            $comercio = Comercio::lockForUpdate()->find($comercio->id);
-
-            if ($this->yaAplicadaRenovacion($paymentId)) {
-                return;
-            }
-
-            $needsReactivation = $comercio->status === 'suspendido'
-                || ($comercio->vencimiento_pago && \Carbon\Carbon::parse($comercio->vencimiento_pago)->isPast());
-
-            if ($mismoPlan) {
-                if ($needsReactivation) {
-                    $comercio->status = 'activo';
-                    $comercio->vencimiento_pago = now()->addMonth()->toDateString();
-                }
-
-                $comercio->pending_plan_id = null;
-                $comercio->save();
-
-                activity()
-                    ->performedOn($comercio)
-                    ->causedByAnonymous()
-                    ->withProperties(['plan_id' => $comercio->plan_id, 'payment_id' => $paymentId, 'via' => 'renovacion_mismo_plan_webhook'])
-                    ->log($needsReactivation ? 'plan_reactivated_via_webhook' : 'plan_renewed_via_webhook');
-            } else {
-                $comercio->plan_id = $plan->id;
-                $comercio->pending_plan_id = null;
-                $comercio->modulos_habilitados = $plan->modulos;
-                $comercio->limite_sucursales = $plan->sucursales_limit;
-                $comercio->limite_usuarios = $plan->usuarios_limit;
-
-                if ($needsReactivation) {
-                    $comercio->status = 'activo';
-                    $comercio->vencimiento_pago = now()->addMonth()->toDateString();
-                }
-
-                $comercio->save();
-
-                activity()
-                    ->performedOn($comercio)
-                    ->causedByAnonymous()
-                    ->withProperties([
-                        'plan' => $plan->toArray(),
-                        'via' => 'webhook',
-                        'payment_id' => $paymentId,
-                        'reactivated' => $needsReactivation,
-                    ])
-                    ->log($needsReactivation ? 'plan_reactivated_via_webhook' : 'plan_upgraded_via_webhook');
-            }
-
-            $this->registrarPagoPlan($comercio, $paymentId, (float) $status->amount);
-        });
-
-        return response()->json(['status' => $mismoPlan ? 'already_upgraded' : 'ok']);
-    }
-
-    private function yaAplicadaRenovacion(string $paymentId): bool
-    {
-        return Payment::query()
-            ->where('provider', 'mercadopago')
-            ->where('gateway_transaction_id', $paymentId)
-            ->exists();
-    }
-
-    private function registrarPagoPlan(Comercio $comercio, string $paymentId, ?float $amount = null): void
-    {
-        Payment::firstOrCreate(
-            [
-                'provider' => 'mercadopago',
-                'gateway_transaction_id' => $paymentId,
-            ],
-            [
-                'payable_type' => Comercio::class,
-                'payable_id' => $comercio->id,
-                'channel' => PaymentChannel::API,
-                'status' => PaymentStatus::APPROVED,
-                'reference' => (string) $comercio->id,
-                'amount' => $amount,
-                'approved_at' => now(),
-            ],
+        $intento = $this->suscripcionService->aplicarPago(
+            comercio: $comercio,
+            plan: $plan,
+            paymentId: $paymentId,
+            amount: $status->amount,
+            via: 'webhook',
         );
+
+        return response()->json(['status' => $intento === 'renovacion' ? 'already_upgraded' : 'ok']);
     }
 }
