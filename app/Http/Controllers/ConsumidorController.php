@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MetodoPago;
-use App\Facturacion\Domain\ValueObjects\Cuit;
 use App\Models\Consumidor;
 use App\Models\CuentaCorriente;
 use App\Models\MovimientoCaja;
@@ -11,6 +10,7 @@ use App\Models\MovimientoCuentaCorriente;
 use App\Models\PaymentMethodConfiguration;
 use App\Models\TurnoCaja;
 use App\Services\SucursalScopeService;
+use App\Support\Cuit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

@@ -2,23 +2,21 @@
 
 namespace App\Services\Ticket;
 
-use App\Facturacion\Domain\Entities\ComprobanteFiscal;
 use App\Models\Venta;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 /**
- * Genera el PDF de una venta (F9, arquitectura §12). Con comprobante fiscal se
- * usa la vista legal A4 (QR, CAE, desglose); sin módulo fiscal se mantiene el
- * ticket A4 actual. Es compartido por el email digital y la descarga manual.
+ * Genera el PDF de una venta. Solo existe la vista comercial: la variante legal
+ * (QR ARCA, CAE y desglose de IVA) se eliminó con el módulo de facturación
+ * electrónica. Es compartido por el email digital y la descarga manual.
  */
 final class TicketPdfService
 {
-    public function generar(Venta $venta, ?ComprobanteFiscal $comprobante = null)
+    public function generar(Venta $venta)
     {
-        $ticket = TicketBuilder::build($venta, $comprobante);
+        $ticket = TicketBuilder::build($venta);
 
-        $vista = $comprobante !== null ? 'facturacion.a4' : 'tickets.a4';
-        $pdf = Pdf::loadView($vista, ['ticket' => $ticket->toArray()]);
+        $pdf = Pdf::loadView('tickets.a4', ['ticket' => $ticket->toArray()]);
         $pdf->setPaper('a4', 'portrait');
 
         return $pdf;

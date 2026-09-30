@@ -52,7 +52,6 @@ class DatabaseSeeder extends Seeder
             ConsumidorSeeder::class,       // 3ro: Crea el resto de los clientes
             GlobalAdminSeeder::class,      // 4to: Crea el Admin Global (si no lo creaste antes)
             StoreConfigSeeder::class,      // 5to: Crea store_configs para todos los comercios
-            ConfiguracionFiscalComerciosSeeder::class, // 6to: Config fiscal por comercio (estado sin_datos)
         ]);
     }
 }

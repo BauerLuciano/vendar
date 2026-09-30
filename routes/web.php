@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\AdminGlobal\ArcaCredencialController;
 use App\Http\Controllers\AdminGlobal\PlanController;
 use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\Auth\GoogleLoginController;
@@ -12,8 +11,6 @@ use App\Http\Controllers\ConsumidorAuthController;
 use App\Http\Controllers\ConsumidorController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ElegirSucursalController;
-use App\Http\Controllers\Facturacion\DiagnosticoFiscalController;
-use App\Http\Controllers\Facturacion\WizardConfiguracionFiscalController;
 use App\Http\Controllers\GestionPedidosWebController;
 use App\Http\Controllers\GlobalAdminController;
 use App\Http\Controllers\ImpersonateController;
@@ -41,6 +38,7 @@ use App\Http\Controllers\TiendaController;
 use App\Http\Controllers\TransferenciaSugeridaController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\VentaController;
+use App\Http\Controllers\VentasCanceladasController;
 use App\Http\Controllers\ViumiWebhookController;
 use App\Http\Middleware\VerificarEstadoCuenta;
 use App\Models\Comercio;
@@ -164,13 +162,13 @@ Route::middleware(['auth', 'modulo:pos'])->group(function () {
     Route::get('/pos/buscar-productos', [PosController::class, 'buscarProductos'])->name('pos.buscar.productos');
     Route::get('/pos/buscar-clientes', [PosController::class, 'buscarClientes'])->name('pos.buscar.clientes');
     Route::post('/pos/crear-cliente', [PosController::class, 'crearCliente'])->name('pos.crear.cliente')->middleware('modulo:fiados');
-    Route::get('/pos/letra-esperada', [PosController::class, 'letraEsperada'])->name('pos.letra_esperada');
     Route::post('/pos/toggle-favorito', [PosController::class, 'toggleFavorito'])->name('pos.toggle.favorito');
     Route::get('/pos/favoritos', [PosController::class, 'listarFavoritos'])->name('pos.favoritos');
     Route::get('/pos/ultimos-vendidos', [PosController::class, 'ultimosVendidos'])->name('pos.ultimos.vendidos');
     Route::post('/pos/precios', [PosController::class, 'precios'])->name('pos.precios');
     Route::get('/pos/movimientos-turno', [PosController::class, 'movimientosTurno'])->name('pos.movimientos.turno');
     Route::get('/ventas', [VentaController::class, 'index'])->name('ventas.index');
+    Route::get('/ventas/canceladas', [VentasCanceladasController::class, 'index'])->name('ventas.canceladas');
     Route::post('/ventas', [VentaController::class, 'store'])->name('ventas.store');
     Route::get('/ventas/{venta}/imprimir', [TicketController::class, 'imprimir'])->name('ventas.imprimir');
     Route::get('/ventas/{venta}/pdf', [VentaController::class, 'pdf'])->name('ventas.pdf');
@@ -379,20 +377,6 @@ Route::middleware(['auth', 'role:SuperAdmin|Administrador Global'])->group(funct
     Route::get('/configuracion/recargos', [RecargoTarjetaController::class, 'index'])->name('recargos.index');
     Route::post('/configuracion/recargos/grouped', [RecargoTarjetaController::class, 'saveGrouped'])->name('recargos.saveGrouped');
     Route::delete('/configuracion/recargos/grouped', [RecargoTarjetaController::class, 'destroyGrouped'])->name('recargos.destroyGrouped');
-
-    // Facturación electrónica (F7: wizard de configuración fiscal)
-    Route::get('/configuracion/fiscal', [WizardConfiguracionFiscalController::class, 'index'])->name('configuracion.fiscal.wizard');
-    Route::post('/configuracion/fiscal/cuit', [WizardConfiguracionFiscalController::class, 'verificarCuit'])->name('configuracion.fiscal.cuit');
-    Route::post('/configuracion/fiscal/datos', [WizardConfiguracionFiscalController::class, 'confirmarDatos'])->name('configuracion.fiscal.datos');
-    Route::post('/configuracion/fiscal/certificado', [WizardConfiguracionFiscalController::class, 'cargarCertificado'])->name('configuracion.fiscal.certificado');
-    Route::post('/configuracion/fiscal/punto-venta', [WizardConfiguracionFiscalController::class, 'seleccionarPuntoVenta'])->name('configuracion.fiscal.punto-venta');
-    Route::post('/configuracion/fiscal/probar-conexion', [WizardConfiguracionFiscalController::class, 'probarConexion'])->name('configuracion.fiscal.probar-conexion');
-    Route::post('/configuracion/fiscal/activar', [WizardConfiguracionFiscalController::class, 'activar'])->name('configuracion.fiscal.activar');
-
-    // F8: Panel de Diagnóstico Fiscal (checklist, conectividad y pendientes de NC)
-    Route::get('/configuracion/fiscal/diagnostico', [DiagnosticoFiscalController::class, 'index'])->name('configuracion.fiscal.diagnostico');
-    Route::post('/configuracion/fiscal/diagnostico/probar-conexion', [DiagnosticoFiscalController::class, 'probarConexion'])->name('configuracion.fiscal.diagnostico.probar-conexion');
-    Route::post('/configuracion/fiscal/diagnostico/pendientes/{pendiente}/reintentar', [DiagnosticoFiscalController::class, 'reintentarNc'])->name('configuracion.fiscal.diagnostico.reintentar');
 });
 
 // ==================================================================
@@ -410,10 +394,6 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
-
-    // Credencial de plataforma del padrón ARCA (solo Administración Global)
-    Route::get('/arca/credencial', [ArcaCredencialController::class, 'index'])->name('admin.arca.credencial');
-    Route::post('/arca/credencial', [ArcaCredencialController::class, 'store'])->name('admin.arca.credencial.store');
     Route::post('/facturacion/{comercio}/pagar', [GlobalAdminController::class, 'marcarPagado'])->name('admin.facturacion.pagar');
     Route::post('/facturacion/{comercio}/link-mp', [GlobalAdminController::class, 'generarLinkMP'])->name('admin.facturacion.link-mp');
     Route::get('/solicitudes', [GlobalAdminController::class, 'solicitudesPendientes'])->name('admin.solicitudes');

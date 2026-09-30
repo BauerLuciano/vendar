@@ -123,39 +123,29 @@ Toda tarea debe seguir este flujo:
 
 ---
 
-## 📚 DOCUMENTACIÓN OFICIAL ARCA
+## 📚 MÓDULO DE FACTURACIÓN ELECTRÓNICA (ARCA) — ELIMINADO
 
-`docs/arca/` es documentación oficial del proyecto.
+El módulo de facturación electrónica (WSAA, WSFEv1, padrón, CAE, certificados,
+credencial de plataforma, wizard fiscal, panel de diagnóstico fiscal y notas de
+crédito) fue **eliminado del código**. Ya no hay manual de ARCA en el proyecto.
 
-Antes de implementar cualquier funcionalidad relacionada con:
-- WSAA
-- WSFEv1
-- autenticación
-- XML
-- CAE
-- códigos AFIP/ARCA
-- validaciones
-- mensajes de error
-- reglas de negocio propias de ARCA
-
-consultá primero los manuales de `docs/arca/`.
-
-Si se encuentran diferencias entre la implementación actual y la documentación oficial:
-- NO modificar el código automáticamente
-- Reportar primero la diferencia
-- Explicar el impacto
-- Proponer la solución
-
-Prioridad documental:
-1. `docs/arquitectura-facturacion.md`
-2. `docs/build-plan-facturacion.md`
-3. `docs/arca/`
+Lo que se conservó a propósito:
+- Las **migraciones y las tablas** fiscales (`configuracion_fiscal_comercios`,
+  `certificados_fiscales`, `comprobantes_fiscales`, `nc_pendientes`,
+  `control_secuencias_fiscales`), con sus datos históricos. No se dropeó nada.
+- `alicuota_iva` en `productos` y `detalle_ventas`, y `cuit` en `consumidores`
+  y `proveedores`: son datos comerciales, no fiscales.
+- El servicio comercial `App\Services\VentaOperacionService` (anulación y
+  devolución con stock, caja y cuenta corriente), que nació dentro del módulo
+  fiscal y se conservó al quitar la emisión de la Nota de Crédito.
+- La facturación SaaS (`/admin-global/facturacion`) y Mercado Pago, que son
+  otro dominio y no tienen relación con ARCA.
 
 ---
 
 ## 📝 INFORMES TÉCNICOS
 
-Toda fase terminada genera automáticamente un informe técnico en `docs/informes/` (F4.md, F5.md, F6.md, etc.).
+Toda fase terminada genera automáticamente un informe técnico en `docs/informes/` (F12.md, F13.md, F14.md, etc.).
 
 Cada informe debe contener como mínimo:
 - objetivo
@@ -167,8 +157,6 @@ Cada informe debe contener como mínimo:
 - resultados
 - criterios de aceptación
 - pendientes de la siguiente fase
-
-Cuando una implementación se base en un manual de `docs/arca/`, citar el manual utilizado y, cuando sea posible, la sección correspondiente, sin copiar textualmente su contenido.
 
 ---
 

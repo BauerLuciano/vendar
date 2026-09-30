@@ -5,10 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\MetodoPago;
 use App\Enums\PaymentChannel;
 use App\Enums\VentaStatus;
-use App\Facturacion\Application\EmisionVentaService;
-use App\Facturacion\Application\VentaOperacionFiscalService;
 use App\Jobs\EnviarTicketDigital;
-use App\Models\ComprobanteFiscal;
 use App\Models\Configuracion;
 use App\Models\Consumidor;
 use App\Models\CuentaCorriente;
@@ -23,8 +20,8 @@ use App\Models\Venta;
 use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\PaymentRecorder;
 use App\Services\Payment\PaymentService;
-use App\Services\Ticket\ComprobanteImpresionResolver;
 use App\Services\Ticket\TicketPdfService;
+use App\Services\VentaOperacionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,8 +32,7 @@ class VentaController extends Controller
     public function __construct(
         private readonly PaymentRecorder $paymentRecorder,
         private readonly PaymentService $paymentService,
-        private readonly EmisionVentaService $emisionVenta,
-        private readonly VentaOperacionFiscalService $operacionesVenta,
+        private readonly VentaOperacionService $operacionesVenta,
     ) {}
 
     public function index(Request $request)
@@ -83,34 +79,6 @@ class VentaController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        // F9 §11: historial fiscal. Se exponen los comprobantes del ledger de las
-        // ventas de la página (una venta puede tener su comprobante original y la
-        // nota de crédito posterior).
-        $fiscales = ComprobanteFiscal::whereIn('venta_id', $ventas->pluck('id'))
-            ->orderBy('id')
-            ->get()
-            ->map(fn (ComprobanteFiscal $c) => [
-                'id' => $c->id,
-                'venta_id' => $c->venta_id,
-                'tipo' => $c->tipo,
-                'letra' => $c->letra,
-                'punto_venta' => $c->punto_venta,
-                'numero' => (int) $c->numero,
-                'numero_completo' => $c->numero_completo,
-                'cae' => $c->cae,
-                'vencimiento_cae' => $c->vencimiento_cae?->format('d/m/Y'),
-                'estado' => $c->estado,
-                'es_nota_credito' => $c->comprobante_original_id !== null,
-                'comprobante_original_id' => $c->comprobante_original_id,
-            ])
-            ->groupBy('venta_id');
-
-        $ventas->through(function ($venta) use ($fiscales) {
-            $venta->fiscal = $fiscales->get($venta->id, collect());
-
-            return $venta;
-        });
-
         return Inertia::render('Ventas/Index', [
             'ventas' => $ventas,
             'filtros' => $request->only(['search', 'estado', 'fecha_desde', 'fecha_hasta']),
@@ -118,11 +86,9 @@ class VentaController extends Controller
     }
 
     /**
-     * F9 §11/§12: descarga el PDF de una venta. Con comprobante fiscal se emite
-     * la vista legal A4 (QR, CAE, desglose); sin módulo fiscal el ticket A4.
-     * Acepta ?comprobante_id para descargar un comprobante específico (NC).
+     * Descarga el PDF comercial de una venta.
      */
-    public function pdf(Request $request, Venta $venta, TicketPdfService $pdfService, ComprobanteImpresionResolver $resolver)
+    public function pdf(Request $request, Venta $venta, TicketPdfService $pdfService)
     {
         $comercioId = auth()->user()->branch?->comercio_id;
         if ($comercioId) {
@@ -134,17 +100,9 @@ class VentaController extends Controller
             }
         }
 
-        $comprobante = $comercioId
-            ? $resolver->resolver($request, $venta, $comercioId)
-            : null;
+        $pdf = $pdfService->generar($venta);
 
-        $pdf = $pdfService->generar($venta, $comprobante);
-
-        $nombre = $comprobante !== null
-            ? "comprobante_{$comprobante->numeroCompleto()}.pdf"
-            : "ticket_{$venta->id}.pdf";
-
-        return $pdf->download($nombre);
+        return $pdf->download("ticket_{$venta->id}.pdf");
     }
 
     public function store(Request $request)
@@ -477,14 +435,6 @@ class VentaController extends Controller
                 }
             }
 
-            // F5: emisión fiscal dentro de la misma transacción que completa la
-            // venta directa (invariante 1). Si falla, la excepción revierte todo
-            // y la venta no queda completada sin comprobante.
-            $comprobante = null;
-            if (! $esPendiente) {
-                $comprobante = $this->emisionVenta->emitirSiCorresponde($venta);
-            }
-
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -502,7 +452,6 @@ class VentaController extends Controller
             return redirect()->back()->with([
                 'success' => 'Venta exitosa',
                 'venta_id' => $venta->id,
-                'comprobante' => $comprobante?->numeroCompleto(),
             ]);
         }
 
@@ -682,10 +631,6 @@ class VentaController extends Controller
                     }
                 }
 
-                // F5: la emisión ocurre dentro de la transacción, antes de marcar la
-                // venta completada. Si falla, el rollback deja la venta PENDING.
-                $comprobante = $this->emisionVenta->emitirSiCorresponde($venta);
-
                 $venta->update(['estado' => VentaStatus::COMPLETED]);
 
                 EnviarTicketDigital::dispatch($venta->id);
@@ -693,11 +638,10 @@ class VentaController extends Controller
                 return redirect()->back()->with([
                     'success' => 'Pago confirmado',
                     'venta_id' => $venta->id,
-                    'comprobante' => $comprobante?->numeroCompleto(),
                 ]);
             });
         } catch (\Throwable $e) {
-            \Log::error("Emisión fiscal fallida al confirmar pago de venta #{$venta->id}: {$e->getMessage()}");
+            \Log::error("Fallo al confirmar pago de venta #{$venta->id}: {$e->getMessage()}");
 
             return redirect()->back()->withErrors(['error' => 'La venta no se pudo completar: '.$e->getMessage()]);
         }
@@ -727,7 +671,7 @@ class VentaController extends Controller
 
             return redirect()->back();
         } catch (\Throwable $e) {
-            \Log::error("Fallo fiscal al anular la venta #{$venta->id}: {$e->getMessage()}");
+            \Log::error("Fallo al anular la venta #{$venta->id}: {$e->getMessage()}");
 
             return redirect()->back()->withErrors(['error' => 'La anulación no se pudo completar: '.$e->getMessage()]);
         }
@@ -761,7 +705,7 @@ class VentaController extends Controller
 
             return redirect()->back()->with('success', 'Devolución procesada correctamente.');
         } catch (\Throwable $e) {
-            \Log::error("Fallo fiscal al devolver la venta #{$venta->id}: {$e->getMessage()}");
+            \Log::error("Fallo al devolver la venta #{$venta->id}: {$e->getMessage()}");
 
             return redirect()->back()->withErrors(['error' => 'La devolución no se pudo completar: '.$e->getMessage()]);
         }

@@ -4,12 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\MetodoPago;
 use App\Enums\PaymentChannel;
-use App\Facturacion\Application\EmisionVentaService;
-use App\Facturacion\Application\Exceptions\EmisionVentaException;
-use App\Facturacion\Domain\ValueObjects\Cuit;
-use App\Facturacion\Domain\ValueObjects\EstadoModuloFiscal;
 use App\Models\Caja;
-use App\Models\ConfiguracionFiscalComercio;
 use App\Models\Consumidor;
 use App\Models\DetalleVenta;
 use App\Models\MovimientoCaja;
@@ -19,6 +14,7 @@ use App\Models\RecargoTarjeta;
 use App\Models\TurnoCaja;
 use App\Services\Promotion\PromotionConflictResolver;
 use App\Services\Promotion\PromotionEngineService;
+use App\Support\Cuit;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +25,6 @@ class PosController extends Controller
     public function __construct(
         private readonly PromotionEngineService $engine,
         private readonly PromotionConflictResolver $conflictResolver,
-        private readonly EmisionVentaService $emisionVenta,
     ) {}
 
     // Esta es la puerta de entrada al POS
@@ -106,10 +101,6 @@ class PosController extends Controller
                 'nombre' => $c->nombreCategoria,
             ]);
 
-            $configuracionFiscal = ConfiguracionFiscalComercio::where('comercio_id', $comercioId)
-                ->where('estado_modulo', EstadoModuloFiscal::LISTO_PARA_FACTURAR->value)
-                ->first();
-
             return Inertia::render('Pos/Terminal', [
                 'turno' => $turnoAbierto->load('caja.sucursal'),
                 'productos' => $productos,
@@ -121,13 +112,6 @@ class PosController extends Controller
                 'metodosBase' => $metodosBase,
                 'recargos' => $recargos,
                 'bancosDisponibles' => $bancosDisponibles,
-                'configuracionFiscal' => $configuracionFiscal?->only([
-                    'cuit',
-                    'razon_social',
-                    'condicion_fiscal',
-                    'entorno',
-                    'punto_venta_activo',
-                ]),
             ]);
         }
 
@@ -528,37 +512,6 @@ class PosController extends Controller
         $cliente->load('cuentaCorriente');
 
         return response()->json($cliente);
-    }
-
-    /**
-     * Letra del comprobante que tendría la venta para el consumidor dado,
-     * sin emitir (servicio F5 §5). Devuelve la letra, o error cuando el padrón
-     * ARCA no puede validar a un cliente con CUIT.
-     */
-    public function letraEsperada(Request $request)
-    {
-        $user = auth()->user();
-        $comercioId = $user->branch?->comercio_id;
-
-        $consumidor = null;
-        if ($comercioId !== null && $request->integer('consumidor_id')) {
-            $consumidor = Consumidor::where('comercio_id', $comercioId)
-                ->where('id', $request->integer('consumidor_id'))
-                ->first();
-        }
-
-        try {
-            $letra = $this->emisionVenta->letraEsperada($comercioId, $consumidor);
-
-            return response()->json([
-                'letra' => $letra?->value ?? null,
-            ]);
-        } catch (EmisionVentaException $e) {
-            return response()->json([
-                'letra' => null,
-                'error' => $e->getMessage(),
-            ], 422);
-        }
     }
 
     /**

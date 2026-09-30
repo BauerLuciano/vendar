@@ -53,40 +53,4 @@ return [
             ? explode(',', env('MP_ALLOWED_RETURN_ORIGINS'))
             : ['http://localhost', 'http://127.0.0.1', 'http://vendar-app.test'],
     ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | ARCA (Facturación Electrónica)
-    |--------------------------------------------------------------------------
-    |
-    | Endpoints oficiales de ARCA por entorno (productivo/homologación) para
-    | WSAA, WSFE y el padrón (ws_sr_constancia_inscripcion). La credencial de
-    | plataforma se guarda cifrada en la tabla de configuración global y nunca
-    | se expone al comercio (arquitectura §14.4, invariante 10).
-    |
-    */
-
-    'arca' => [
-        'wsaa' => [
-            'wsdl_produccion' => env('ARCA_WSAA_WSDL_PRODUCCION', 'https://wsaa.afip.gov.ar/ws/services/LoginCms?WSDL'),
-            'wsdl_homologacion' => env('ARCA_WSAA_WSDL_HOMOLOGACION', 'https://wsaahomo.afip.gov.ar/ws/services/LoginCms?WSDL'),
-            'ttl_segundos' => env('ARCA_WSAA_TTL_SEGUNDOS', 600),
-        ],
-        'wsfe' => [
-            'wsdl_produccion' => env('ARCA_WSFE_WSDL_PRODUCCION', 'https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL'),
-            'wsdl_homologacion' => env('ARCA_WSFE_WSDL_HOMOLOGACION', 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL'),
-            'namespace_auth' => env('ARCA_WSFE_NAMESPACE_AUTH', 'http://ar.gov.afip.dif.FEV1/'),
-        ],
-        'padron' => [
-            'wsdl_produccion' => env('ARCA_PADRON_WSDL_PRODUCCION', 'https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL'),
-            'wsdl_homologacion' => env('ARCA_PADRON_WSDL_HOMOLOGACION', 'https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL'),
-            'namespace_auth' => env('ARCA_PADRON_NAMESPACE_AUTH', 'http://a5.soap.ws.server.puc.sr/'),
-        ],
-        'soap' => [
-            'connection_timeout' => env('ARCA_SOAP_TIMEOUT', 30),
-            'cache_wsdl' => env('ARCA_SOAP_CACHE_WSDL', WSDL_CACHE_NONE),
-            'exceptions' => true,
-            'trace' => env('APP_DEBUG', false),
-        ],
-    ],
 ];

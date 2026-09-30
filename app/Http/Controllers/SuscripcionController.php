@@ -81,6 +81,35 @@ class SuscripcionController extends Controller
             $esRenovacion = (int) $comercio->plan_id === (int) $plan->id;
             $estado = $this->suscripcionService->estadoSuscripcion($comercio);
 
+            // Renovación anticipada acotada a una ventana de 30 días.
+            //
+            // Antes el botón "Renovar ahora" estaba habilitado siempre y acá
+            // no había ninguna validación, así que un comercio podía
+            // acumular meses pagados por adelantado al precio vigente. La
+            // ventana se aplica únicamente a la renovación del MISMO plan:
+            // cambiar de plan (upgrade) y la facturación de la administración
+            // global no pasan por acá y quedan intactas.
+            if ($esRenovacion && ! $this->suscripcionService->puedeRenovarAhora($comercio)) {
+                \Log::info('Renovación anticipada bloqueada por ventana de renovación', [
+                    'user_id' => $user->id,
+                    'comercio_id' => $comercio->id,
+                    'plan_id' => $plan->id,
+                    'dias_restantes' => $estado['dias_restantes'],
+                    'dias_para_renovar' => $estado['dias_para_renovar'],
+                ]);
+
+                $diasParaRenovar = $estado['dias_para_renovar'];
+
+                return response()->json([
+                    'error' => 'Tu plan se renueva solo y ya está pagado hasta el '
+                        .$estado['vencimiento_pago'].'. '
+                        .'La renovación anticipada se habilita en '.$diasParaRenovar.' '
+                        .($diasParaRenovar === 1 ? 'día' : 'días').'.',
+                    'dias_para_renovar' => $diasParaRenovar,
+                    'ventana_renovacion_dias' => SuscripcionService::VENTANA_RENOVACION_DIAS,
+                ], 422);
+            }
+
             $comercio->update(['pending_plan_id' => $plan->id]);
             $this->suscripcionService->marcarPagoEnVuelo($comercio->id, $plan->id);
 

@@ -70,4 +70,45 @@ class Venta extends Model
             'label' => PaymentMethodConfiguration::resolveDisplayLabel($p['metodo_pago'], $comercioId),
         ])->toArray();
     }
+
+    /**
+     * Identidad del cliente tal como la ve un usuario del sistema.
+     *
+     * El modelo admite cuatro situaciones y no conviene suponer una sola:
+     *
+     *  1. Venta sin `consumidor_id` (pago directo en mostrador) → el
+     *     consumidor genérico.
+     *  2. Venta con un `Consumidor` cuyo nombre completo es "Consumidor
+     *     Final" (el registro genérico que siembran los seeders) → también
+     *     se presenta como el consumidor genérico, no como un cliente real.
+     *  3. Venta con un cliente identificado → se muestra nombre y apellido.
+     *  4. Venta abonada a cuenta corriente → es un cliente identificado cuyo
+     *     pago fue a la cuenta corriente del mismo; se marca aparte porque
+     *     para el usuario implicó fiado.
+     *
+     * No altera ninguna lógica comercial: sólo lee lo que ya está grabado.
+     *
+     * @return array{nombre: string, es_consumidor_final: bool, es_cuenta_corriente: bool, documento: ?string}
+     */
+    public function presentacionCliente(): array
+    {
+        $nombre = $this->consumidor
+            ? trim(($this->consumidor->nombre ?? '').' '.($this->consumidor->apellido ?? ''))
+            : '';
+
+        // El registro genérico se siembran con nombre "Consumidor" y apellido
+        // "Final". Comparamos el nombre completo ya concatenado, sin inventar
+        // una bandera nueva en la base.
+        $esGenerico = $nombre === '' || strcasecmp($nombre, 'Consumidor Final') === 0;
+
+        $esCuentaCorriente = collect($this->pagos_display)
+            ->contains(fn ($p) => $p['metodo_pago'] === MetodoPago::CUENTA_CORRIENTE->value);
+
+        return [
+            'nombre' => $esGenerico ? 'Consumidor Final' : $nombre,
+            'es_consumidor_final' => $esGenerico,
+            'es_cuenta_corriente' => $esCuentaCorriente,
+            'documento' => $esGenerico ? null : ($this->consumidor->documento ?? null),
+        ];
+    }
 }

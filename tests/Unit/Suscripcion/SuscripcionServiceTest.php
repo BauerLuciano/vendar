@@ -99,11 +99,14 @@ class SuscripcionServiceTest extends TestCase
 
     public function test_estado_activa_cuando_faltan_mas_de_diez_dias(): void
     {
-        $estado = $this->svc->estadoSuscripcion($this->comercioVigente(30));
+        // 12 días: todavía "activa" (el banner del Dashboard avisa a los 10),
+        // pero ya dentro de la ventana de renovación anticipada.
+        $estado = $this->svc->estadoSuscripcion($this->comercioVigente(12));
 
         $this->assertSame('activa', $estado['estado']);
-        $this->assertSame(30, $estado['dias_restantes']);
-        $this->assertFalse($estado['puede_renovar']);
+        $this->assertSame(12, $estado['dias_restantes']);
+        $this->assertTrue($estado['puede_renovar']);
+        $this->assertNull($estado['dias_para_renovar']);
     }
 
     public function test_estado_por_vencer_habilita_renovar(): void
@@ -184,6 +187,95 @@ class SuscripcionServiceTest extends TestCase
 
         $this->assertSame('sin_vencimiento', $estado['estado']);
         $this->assertNull($estado['plan_id']);
+        $this->assertFalse($estado['puede_renovar']);
+    }
+
+    // ------------------------------------------------------------------
+    // Ventana de renovación anticipada (SuscripcionService::VENTANA_RENOVACION_DIAS)
+    // ------------------------------------------------------------------
+
+    public function test_fuera_de_la_ventana_no_habilita_renovar_y_cuenta_los_dias(): void
+    {
+        $estado = $this->svc->estadoSuscripcion($this->comercioVigente(45));
+
+        $this->assertSame('activa', $estado['estado']);
+        $this->assertFalse($estado['puede_renovar']);
+        $this->assertSame(45, $estado['dias_restantes']);
+        // 45 - 30 = 15 días hasta que se abra la ventana.
+        $this->assertSame(15, $estado['dias_para_renovar']);
+    }
+
+    public function test_la_ventana_de_renovacion_es_de_treinta_dias(): void
+    {
+        $estado = $this->svc->estadoSuscripcion($this->comercioVigente(60));
+
+        $this->assertSame(30, $estado['ventana_renovacion_dias']);
+        $this->assertSame(30, SuscripcionService::VENTANA_RENOVACION_DIAS);
+    }
+
+    public function test_en_el_limite_exacto_de_la_ventana_si_puede_renovar(): void
+    {
+        // El umbral es inclusivo: con exactamente 30 días restantes ya entra
+        // en la ventana ("faltan 30 días o menos").
+        $estado = $this->svc->estadoSuscripcion($this->comercioVigente(30));
+
+        $this->assertSame(30, $estado['dias_restantes']);
+        $this->assertTrue($estado['puede_renovar']);
+        $this->assertNull($estado['dias_para_renovar']);
+    }
+
+    public function test_un_dia_por_encima_de_la_ventana_bloquea_la_renovacion(): void
+    {
+        $estado = $this->svc->estadoSuscripcion($this->comercioVigente(31));
+
+        $this->assertFalse($estado['puede_renovar']);
+        $this->assertSame(1, $estado['dias_para_renovar']);
+    }
+
+    public function test_cuenta_suspendida_con_vencimiento_lejano_puede_renovar_aunque_no_haya_ventana(): void
+    {
+        $comercio = $this->comercioVigente(200);
+        $comercio->status = 'suspendido';
+
+        $estado = $this->svc->estadoSuscripcion($comercio);
+
+        $this->assertTrue($estado['puede_renovar']);
+        $this->assertNull($estado['dias_para_renovar']);
+        $this->assertTrue($this->svc->puedeRenovarAhora($comercio));
+    }
+
+    public function test_renovacion_anticipada_bloqueada_antes_de_la_ventana(): void
+    {
+        $this->assertFalse($this->svc->puedeRenovarAhora($this->comercioVigente(45)));
+        $this->assertFalse($this->svc->puedeRenovarAhora($this->comercioVigente(31)));
+    }
+
+    public function test_renovacion_permitida_dentro_y_al_vencer(): void
+    {
+        $this->assertTrue($this->svc->puedeRenovarAhora($this->comercioVigente(30)));
+        $this->assertTrue($this->svc->puedeRenovarAhora($this->comercioVigente(0)));
+        $this->assertTrue($this->svc->puedeRenovarAhora($this->comercioVigente(-5)));
+    }
+
+    public function test_renovacion_bloqueada_sin_vencimiento_y_cuenta_activa(): void
+    {
+        $comercio = $this->comercioVigente(10);
+        $comercio->vencimiento_pago = null;
+
+        $this->assertFalse($this->svc->puedeRenovarAhora($comercio));
+    }
+
+    public function test_renovacion_bloqueada_si_no_hay_comercio(): void
+    {
+        $this->assertFalse($this->svc->puedeRenovarAhora(null));
+    }
+
+    public function test_el_estado_vacio_informa_la_ventana(): void
+    {
+        $estado = $this->svc->estadoSuscripcion(null);
+
+        $this->assertSame(30, $estado['ventana_renovacion_dias']);
+        $this->assertNull($estado['dias_para_renovar']);
         $this->assertFalse($estado['puede_renovar']);
     }
 

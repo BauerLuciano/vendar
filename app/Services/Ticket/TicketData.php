@@ -14,7 +14,6 @@ class TicketData
         public readonly array $totales,
         public readonly array $pagos,
         public readonly string $formato,
-        public readonly ?array $fiscal = null,
     ) {}
 
     public function toArray(): array
@@ -29,7 +28,6 @@ class TicketData
             'totales'  => $this->totales,
             'pagos'    => $this->pagos,
             'formato'  => $this->formato,
-            'fiscal'   => $this->fiscal,
         ];
     }
 }

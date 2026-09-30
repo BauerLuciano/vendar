@@ -82,6 +82,23 @@ const puedeRenovar = computed(() => props.suscripcion?.puede_renovar === true);
 const estaSuspendido = computed(() => props.suscripcion?.suspendido === true);
 const vencimientoActual = computed(() => props.suscripcion?.vencimiento_pago ?? null);
 
+// Ventana de renovación anticipada y cuenta regresiva. Los calcula el backend
+// (`SuscripcionService::VENTANA_RENOVACION_DIAS`): el 30 no está hardcodeado
+// en el cliente para que cambiar la regla no obligue a tocar Vue.
+const ventanaRenovacion = computed(() => props.suscripcion?.ventana_renovacion_dias ?? 30);
+const diasParaRenovar = computed(() => props.suscripcion?.dias_para_renovar ?? null);
+
+// Renovación "urgente": por vencer, vencida o suspendida. Distinto de
+// `puedeRenovar`, que es la ventana de 30 días (a los 20 días se puede
+// renovar pero no es urgente y no corresponde pintarlo en ámbar).
+const renovacionUrgente = computed(
+    () =>
+        puedeRenovar.value &&
+        (estadoActual.value === 'por_vencer' ||
+            estadoActual.value === 'vencida' ||
+            estaSuspendido.value)
+);
+
 const textoPlazo = computed(() => {
     const d = diasRestantes.value;
     if (d === null) {
@@ -100,17 +117,81 @@ const textoPlazo = computed(() => {
     return `Vence en ${d} días`;
 });
 
-const clasesPlazo = computed(() => {
+// --- Tarjeta "Tu suscripción" ---------------------------------------------
+// Antes eran tres renglones de texto suelto dentro de un div, indistinguibles
+// del resto de la tarjeta de plan. Ahora es un estado con encabezado, badge y
+// dos métricas (vencimiento / tiempo restante), para que se lea de un vistazo.
+
+const ETIQUETAS_ESTADO = {
+    activa: 'Activa',
+    por_vencer: 'Por vencer',
+    vencida: 'Vencida',
+    suspendida: 'Suspendida',
+    sin_vencimiento: 'Sin vencimiento',
+};
+
+const etiquetaEstado = computed(() =>
+    estaSuspendido.value && estadoActual.value !== 'vencida'
+        ? ETIQUETAS_ESTADO.suspendida
+        : (ETIQUETAS_ESTADO[estadoActual.value] ?? ETIQUETAS_ESTADO.sin_vencimiento)
+);
+
+// Paleta de la tarjeta completa, incluido el badge. El esquema crítico (rosa)
+// se aplica cuando la suscripción está vencida o suspendida y hay que actuar ya.
+const paletaEstado = computed(() => {
     if (estaSuspendido.value || estadoActual.value === 'vencida') {
-        return 'bg-rose-50 text-rose-700 border-rose-200';
+        return {
+            caja: 'border-rose-200 bg-rose-50/70',
+            cabecera: 'bg-rose-100/80 text-rose-700',
+            badge: 'bg-rose-600 text-white',
+            metricas: 'text-rose-900',
+            pie: 'bg-rose-100/70 text-rose-700',
+            critico: true,
+        };
     }
     if (estadoActual.value === 'por_vencer') {
-        return 'bg-amber-50 text-amber-700 border-amber-200';
+        return {
+            caja: 'border-amber-200 bg-amber-50/70',
+            cabecera: 'bg-amber-100/80 text-amber-800',
+            badge: 'bg-amber-500 text-white',
+            metricas: 'text-amber-950',
+            pie: 'bg-amber-100/70 text-amber-800',
+            critico: false,
+        };
     }
-    if (estadoActual.value === 'activa') {
-        return 'bg-slate-50 text-slate-600 border-slate-200';
+    return {
+        caja: 'border-slate-200 bg-slate-50',
+        cabecera: 'bg-slate-100/80 text-slate-500',
+        badge: 'bg-slate-700 text-white',
+        metricas: 'text-slate-800',
+        pie: 'bg-slate-100/70 text-slate-600',
+        critico: false,
+    };
+});
+
+// Texto del pie: por qué el botón está o no disponible.
+const notaRenovacion = computed(() => {
+    if (estaSuspendido.value) {
+        return { icono: '🔒', texto: 'Renová tu plan para volver a operar' };
     }
-    return 'bg-slate-50 text-slate-400 border-slate-100';
+    if (estadoActual.value === 'vencida') {
+        return { icono: '⚠️', texto: 'Suscripción vencida: renová para seguir operando' };
+    }
+    if (!puedeRenovar.value) {
+        const d = diasParaRenovar.value;
+        const n = d === null ? ventanaRenovacion.value : d;
+        return {
+            icono: '🔒',
+            texto: `Renovación disponible en ${n} ${n === 1 ? 'día' : 'días'}`,
+        };
+    }
+    if (renovacionUrgente.value) {
+        return { icono: '🔄', texto: 'Podés renovar ahora mismo' };
+    }
+    return {
+        icono: '✅',
+        texto: 'Renovación disponible: podés renovarlo cuando quieras',
+    };
 });
 
 // Espejo local del pago en vuelo que reporta el backend. Se refresca en cada
@@ -159,6 +240,21 @@ const pagarPlan = async (planId) => {
             estadoPago.value = 'en_curso';
             return;
         }
+
+        // 422: el backend rechazó la renovación anticipada por la ventana de
+        // 30 días. Aunque el botón ya está deshabilitado y muestra la cuenta
+        // regresiva, se puede llegar igual (pestaña abierta antes del cambio,
+        // bundle viejo en caché). Se muestra el motivo real del servidor en
+        // lugar del "Error al conectar con Mercado Pago" genérico, que recién
+        // volvió a aparecer de un error que no tiene nada de pasarela.
+        if (error.response?.status === 422) {
+            alert(
+                error.response.data?.error
+                    || 'La renovación anticipada todavía no está disponible.'
+            );
+            return;
+        }
+
         const msg = error.response?.data?.error || 'Error al conectar con Mercado Pago.';
         alert(msg);
     } finally {
@@ -558,23 +654,58 @@ onUnmounted(() => {
                                 </div>
                             </div>
 
-                            <!-- Estado y vencimiento: sólo en el plan contratado -->
+                            <!-- Estado de la suscripción: tarjeta destacada, sólo en
+                                 el plan contratado. Reemplaza los tres renglones de
+                                 texto suelto que no se distinguían del resto. -->
                             <div
-                                v-if="esPlanActual(plan.id) && vencimientoActual"
-                                class="mb-8 rounded-2xl border px-4 py-3 text-center"
-                                :class="clasesPlazo"
+                                v-if="esPlanActual(plan.id) && (vencimientoActual || estaSuspendido)"
+                                class="mb-8 rounded-2xl border overflow-hidden"
+                                :class="[
+                                    paletaEstado.caja,
+                                    paletaEstado.critico && 'ring-2 ring-rose-300/70'
+                                ]"
                             >
-                                <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Tu suscripción</p>
-                                <p class="text-sm font-black mt-1">Activo hasta el {{ vencimientoActual }}</p>
-                                <p v-if="textoPlazo" class="text-xs font-bold mt-0.5">{{ textoPlazo }}</p>
-                            </div>
-                            <div
-                                v-else-if="esPlanActual(plan.id) && estaSuspendido"
-                                class="mb-8 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-rose-700"
-                            >
-                                <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Tu suscripción</p>
-                                <p class="text-sm font-black mt-1">Cuenta suspendida</p>
-                                <p class="text-xs font-bold mt-0.5">Renová tu plan para volver a operar</p>
+                                <div
+                                    class="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-black/5"
+                                    :class="paletaEstado.cabecera"
+                                >
+                                    <span class="text-[10px] font-black uppercase tracking-widest">
+                                        Tu suscripción
+                                    </span>
+                                    <span
+                                        class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"
+                                        :class="paletaEstado.badge"
+                                    >
+                                        {{ etiquetaEstado }}
+                                    </span>
+                                </div>
+
+                                <dl class="grid grid-cols-2 divide-x divide-black/5">
+                                    <div class="px-4 py-3">
+                                        <dt class="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                            Fecha de vencimiento
+                                        </dt>
+                                        <dd class="text-sm font-black mt-0.5 font-mono" :class="paletaEstado.metricas">
+                                            {{ vencimientoActual || '—' }}
+                                        </dd>
+                                    </div>
+                                    <div class="px-4 py-3">
+                                        <dt class="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                            Tiempo restante
+                                        </dt>
+                                        <dd class="text-sm font-black mt-0.5" :class="paletaEstado.metricas">
+                                            {{ textoPlazo || 'Sin fecha' }}
+                                        </dd>
+                                    </div>
+                                </dl>
+
+                                <div
+                                    class="flex items-center gap-2 px-4 py-2.5 border-t border-black/5 text-[11px] font-bold"
+                                    :class="paletaEstado.pie"
+                                >
+                                    <span aria-hidden="true">{{ notaRenovacion.icono }}</span>
+                                    <span>{{ notaRenovacion.texto }}</span>
+                                </div>
                             </div>
 
                             <ul class="space-y-4 mb-10">
@@ -625,9 +756,9 @@ onUnmounted(() => {
                             <span v-else>Elegir {{ plan.nombre }} ⚡</span>
                         </button>
 
-                        <!-- Renovación del plan actual: próxima a vencer, vencida o suspendida -->
+                        <!-- Renovación urgente del plan actual: por vencer, vencida o suspendida -->
                         <button
-                            v-else-if="puedeRenovar"
+                            v-else-if="renovacionUrgente"
                             :disabled="planCargando === plan.id || hayPagoEnCurso"
                             class="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2"
                             :class="estadoActual === 'vencida' || estaSuspendido ? 'bg-rose-600 text-white' : 'bg-amber-500 text-white'"
@@ -637,23 +768,45 @@ onUnmounted(() => {
                             <span v-else>Renovar {{ plan.nombre }} 🔄</span>
                         </button>
 
-                        <!-- Plan vigente: sin acción destacada, pero la renovación anticipada
-                             sigue disponible en un link secundario. -->
+                        <!-- Plan vigente. Dentro de la ventana de 30 días se puede
+                             renovar anticipadamente; antes de abrirla se explica por
+                             qué no, en lugar de dejar un botón inerte sin motivo. -->
                         <div v-else class="w-full">
                             <div
-                                class="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs text-center border-2 border-slate-100 text-slate-400 bg-slate-50 select-none"
+                                class="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs text-center border-2 select-none"
+                                :class="puedeRenovar
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : 'border-slate-100 text-slate-400 bg-slate-50'"
                             >
                                 Este es tu plan actual
                             </div>
+
                             <button
-                                v-if="estadoActual === 'activa'"
+                                v-if="puedeRenovar"
                                 :disabled="planCargando === plan.id || hayPagoEnCurso"
-                                class="w-full mt-3 py-2.5 rounded-2xl font-black uppercase tracking-widest text-[10px] text-[#00adef] border-2 border-[#00adef]/30 hover:bg-[#00adef]/5 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                class="w-full mt-3 py-2.5 rounded-2xl font-black uppercase tracking-widest text-[10px] text-[#00adef] border-2 border-[#00adef]/30 hover:bg-[#00adef]/5 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-wait"
                                 @click="pagarPlan(plan.id)"
                             >
                                 <span v-if="planCargando === plan.id">Generando Link... ⏳</span>
                                 <span v-else>Renovar ahora</span>
                             </button>
+
+                            <!-- Fuera de la ventana: información accionable en lugar
+                                 de un botón deshabilitado sin explicación. -->
+                            <div
+                                v-else-if="diasParaRenovar !== null"
+                                class="w-full mt-3 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-center select-none"
+                            >
+                                <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                    Renovación anticipada
+                                </p>
+                                <p class="text-xs font-black text-slate-600 mt-1">
+                                    Disponible en {{ diasParaRenovar }} {{ diasParaRenovar === 1 ? 'día' : 'días' }}
+                                </p>
+                                <p class="text-[10px] font-bold text-slate-400 mt-0.5">
+                                    Podés renovar dentro de los {{ ventanaRenovacion }} días previos al vencimiento
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>

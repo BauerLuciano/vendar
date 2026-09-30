@@ -258,7 +258,7 @@ class Modulo2_VentasTest extends TestCaseMultiTenant
     }
 
     // Auditoría F10 (H3.2): un producto de otro comercio no puede venderse,
-    // aunque el stock negativo esté habilitado (evita usar su alícuota en el CAE).
+    // aunque el stock negativo esté habilitado.
     public function test_admin_a_no_puede_vender_producto_de_comercio_b(): void
     {
         Configuracion::where('clave', 'permitir_stock_negativo')

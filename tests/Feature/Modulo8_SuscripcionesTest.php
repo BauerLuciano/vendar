@@ -476,10 +476,12 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
 
     public function test_mi_plan_expone_estado_activa_sin_habilitar_renovar(): void
     {
+        // 45 días restantes: activa, pero FUERA de la ventana de renovación
+        // anticipada, así que no habilita renovar e informa la cuenta regresiva.
         $comercio = $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(45)->toDateString(),
         ]);
 
         $this->actingAsAdminA();
@@ -489,7 +491,33 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
             ->assertInertia(fn ($page) => $page
                 ->component('Suscripcion/MiPlan')
                 ->where('suscripcion.estado', 'activa')
+                ->where('suscripcion.dias_restantes', 45)
                 ->where('suscripcion.puede_renovar', false)
+                ->where('suscripcion.dias_para_renovar', 15)
+                ->where('suscripcion.ventana_renovacion_dias', 30)
+            );
+    }
+
+    public function test_mi_plan_habilita_renovar_dentro_de_la_ventana(): void
+    {
+        // 20 días restantes: activa, pero dentro de la ventana de 30 → el
+        // botón "Renovar ahora" queda disponible.
+        $comercio = $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $this->get('/mi-plan')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Suscripcion/MiPlan')
+                ->where('suscripcion.estado', 'activa')
+                ->where('suscripcion.dias_restantes', 20)
+                ->where('suscripcion.puede_renovar', true)
+                ->where('suscripcion.dias_para_renovar', null)
             );
     }
 
@@ -569,6 +597,16 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
             'services.mercadopago.public_url' => 'https://brandi-palmar-pickily.ngrok-free.dev',
         ]);
 
+        // Parte de una suscripción con 15 días: renovar la prorroga a ~1 mes y
+        // medio, fuera de la ventana de 30 días, así que la segunda
+        // preferencia debe rechazarse con 422 por regla de negocio (no por el
+        // bloqueo de pago en vuelo, que es lo que este test verifica).
+        $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(15)->toDateString(),
+        ]);
+
         Http::fake([
             'api.mercadopago.com/checkout/preferences' => Http::response([
                 'id' => 'pref-1',
@@ -591,8 +629,14 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
             'payment_id' => 'pago-ok',
         ])->assertOk();
 
-        // Con el pago aplicado ya se puede generar la siguiente preferencia.
-        $this->postJson('/mi-plan/pagar', ['plan_id' => 1, 'origin' => 'http://localhost'])->assertOk();
+        // El bloqueo de pago en vuelo quedó liberado: la segunda preferencia ya
+        // no responde 409. Ahora da 422 por la ventana de 30 días, porque al
+        // aplicar el pago el vencimiento se movió a ~1 mes y medio. Lo que este
+        // test verifica es que el bloqueo se soltó, no que se pueda renovar dos
+        // veces seguidas.
+        $this->postJson('/mi-plan/pagar', ['plan_id' => 1, 'origin' => 'http://localhost'])
+            ->assertStatus(422)
+            ->assertJsonPath('ventana_renovacion_dias', 30);
     }
 
     public function test_generar_preferencia_distingue_renovacion_de_cambio_de_plan(): void
@@ -657,7 +701,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
         ]);
 
         $this->fakePreferencia();
@@ -680,6 +724,145 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
             ->assertInertia(fn ($page) => $page
                 ->where('suscripcion.pago_en_vuelo.plan_id', 3)
             );
+    }
+
+    // ------------------------------------------------------------------
+    // Ventana de renovación anticipada (validación de backend)
+    //
+    // El botón de Vue ya respeta la ventana, pero si la regla viviera sólo en
+    // el cliente cualquiera podría llamar directo a /mi-plan/pagar y seguir
+    // acumulando meses por adelantado. Estos tests fijan el contrato HTTP.
+    // ------------------------------------------------------------------
+
+    public function test_renovacion_anticipada_fuera_de_la_ventana_es_rechazada_por_backend(): void
+    {
+        $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(45)->toDateString(),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $response = $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 1,
+            'origin' => 'http://localhost',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('dias_para_renovar', 15)
+            ->assertJsonPath('ventana_renovacion_dias', 30);
+
+        // No se genera preferencia ni se marca pago en vuelo: el rechazo tiene
+        // que ser anterior a cualquier efecto.
+        $this->assertDatabaseHas('comercios', [
+            'id' => 1,
+            'pending_plan_id' => null,
+        ]);
+    }
+
+    public function test_renovacion_anticipada_un_dia_antes_de_la_ventana_tambien_se_rechaza(): void
+    {
+        $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(31)->toDateString(),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 1,
+            'origin' => 'http://localhost',
+        ])->assertStatus(422);
+    }
+
+    public function test_renovacion_dentro_de_la_ventana_se_pide_normal(): void
+    {
+        config([
+            'services.mercadopago.access_token' => 'TEST-1234567890',
+            'services.mercadopago.public_url' => 'https://brandi-palmar-pickily.ngrok-free.dev',
+        ]);
+
+        // El alta de la preferencia va contra /checkout/preferences. Fakear
+        // sólo /v1/payments dejaba la llamada real y terminaba en 500.
+        Http::fake([
+            'api.mercadopago.com/checkout/preferences' => Http::response([
+                'id' => 'pref-ventana',
+                'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-ventana',
+            ]),
+        ]);
+
+        $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 1,
+            'origin' => 'http://localhost',
+        ])->assertOk()->assertJsonPath('es_renovacion', true);
+    }
+
+    public function test_cuenta_vencida_puede_renovar_aunque_no_haya_ventana(): void
+    {
+        config([
+            'services.mercadopago.access_token' => 'TEST-1234567890',
+            'services.mercadopago.public_url' => 'https://brandi-palmar-pickily.ngrok-free.dev',
+        ]);
+
+        Http::fake([
+            'api.mercadopago.com/checkout/preferences' => Http::response([
+                'id' => 'pref-vencida',
+                'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-vencida',
+            ]),
+        ]);
+
+        $this->prepararComercio([
+            'status' => 'suspendido',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->subDays(10)->toDateString(),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 1,
+            'origin' => 'http://localhost',
+        ])->assertOk();
+    }
+
+    public function test_la_ventana_no_afecta_el_cambio_de_plan(): void
+    {
+        // El requisito es acotar sólo la renovación anticipada. Cambiar de
+        // plan con 45 días restantes tiene que seguir funcionando.
+        config([
+            'services.mercadopago.access_token' => 'TEST-1234567890',
+            'services.mercadopago.public_url' => 'https://brandi-palmar-pickily.ngrok-free.dev',
+        ]);
+
+        Http::fake([
+            'api.mercadopago.com/checkout/preferences' => Http::response([
+                'id' => 'pref-upgrade',
+                'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-upgrade',
+            ]),
+        ]);
+
+        $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(45)->toDateString(),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 3,
+            'origin' => 'http://localhost',
+        ])->assertOk()->assertJsonPath('es_renovacion', false);
     }
 
     /**
@@ -730,7 +913,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
         ]);
 
         $this->fakePreferencia();
@@ -764,7 +947,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
         ]);
 
         $this->fakePreferencia();
@@ -789,7 +972,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
 
         $comercio = Comercio::findOrFail(1);
         $this->assertSame(3, (int) $comercio->plan_id);
-        $this->assertSame(now()->addDays(30)->addMonthNoOverflow()->toDateString(), $comercio->vencimiento_pago->toDateString());
+        $this->assertSame(now()->addDays(20)->addMonthNoOverflow()->toDateString(), $comercio->vencimiento_pago->toDateString());
         $this->assertNull($comercio->pending_plan_id);
 
         // El polling ahora ve la condición de éxito: plan aplicado + pendiente
@@ -880,7 +1063,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
         ]);
 
         $this->fakePreferencia();
@@ -916,7 +1099,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
         ]);
 
         $this->fakePreferencia();
@@ -976,7 +1159,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->prepararComercio([
             'status' => 'activo',
             'plan_id' => 1,
-            'vencimiento_pago' => now()->addDays(30)->toDateString(),
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
         ]);
 
         $this->fakePreferencia();

@@ -92,9 +92,4 @@ class Comercio extends Model
     {
         return $this->hasOne(StoreConfig::class, 'comercio_id');
     }
-
-    public function configuracionFiscal()
-    {
-        return $this->hasOne(ConfiguracionFiscalComercio::class, 'comercio_id');
-    }
 }

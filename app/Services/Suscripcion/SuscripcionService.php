@@ -26,6 +26,17 @@ class SuscripcionService
     public const UMBRAL_AVISO_DIAS = 10;
 
     /**
+     * Ventana de renovación anticipada: con esta cantidad de días o menos
+     * restantes el comercio ya puede renovar su plan.
+     *
+     * Antes de existir esta constante el botón "Renovar ahora" estaba
+     * habilitado en cualquier momento, lo que permitía acumular meses
+     * pagados por adelantado al precio vigente. La ventana se aplica sólo a
+     * la renovación del mismo plan: cambiar de plan (upgrade) no se toca.
+     */
+    public const VENTANA_RENOVACION_DIAS = 30;
+
+    /**
      * Ventana durante la cual no se permite generar una segunda preferencia
      * para el mismo comercio, para evitar pagos duplicados.
      */
@@ -40,6 +51,8 @@ class SuscripcionService
      *     dias_restantes: int|null,
      *     vencimiento_pago: string|null,
      *     puede_renovar: bool,
+     *     dias_para_renovar: int|null,
+     *     ventana_renovacion_dias: int,
      *     suspendido: bool,
      *     plan_id: int|null,
      *     pago_en_vuelo: array{plan_id: int, expira_en_minutos: int}|null
@@ -60,7 +73,11 @@ class SuscripcionService
                 'estado' => 'sin_vencimiento',
                 'dias_restantes' => null,
                 'vencimiento_pago' => null,
+                // Sin vencimiento sólo renueva quien puede quedarse sin
+                // operar: una cuenta suspendida.
                 'puede_renovar' => $suspendido,
+                'dias_para_renovar' => null,
+                'ventana_renovacion_dias' => self::VENTANA_RENOVACION_DIAS,
                 'suspendido' => $suspendido,
                 'plan_id' => $comercio->plan_id,
                 'pago_en_vuelo' => $pagoEnVuelo,
@@ -69,7 +86,7 @@ class SuscripcionService
 
         // Comparación por día completo, igual que el banner del Dashboard.
         $vencimiento = Carbon::parse($comercio->vencimiento_pago)->startOfDay();
-        $diasRestantes = (int) now()->startOfDay()->diffInDays($vencimiento, false);
+        $diasRestantes = $this->diasRestantes($vencimiento);
 
         $estado = match (true) {
             $diasRestantes < 0 => 'vencida',
@@ -77,15 +94,68 @@ class SuscripcionService
             default => 'activa',
         };
 
+        $puedeRenovar = $this->puedeRenovarAhora($comercio);
+
         return [
             'estado' => $estado,
             'dias_restantes' => $diasRestantes,
             'vencimiento_pago' => $vencimiento->format('d/m/Y'),
-            'puede_renovar' => in_array($estado, ['por_vencer', 'vencida'], true) || $suspendido,
+            'puede_renovar' => $puedeRenovar,
+            // Cuántos días faltan para que se abra la ventana. `null` cuando
+            // ya se puede renovar, para que el frontend no tenga que
+            // reconstruir el cálculo ni depender de un 30 hardcodeado.
+            'dias_para_renovar' => $puedeRenovar
+                ? null
+                : $diasRestantes - self::VENTANA_RENOVACION_DIAS,
+            'ventana_renovacion_dias' => self::VENTANA_RENOVACION_DIAS,
             'suspendido' => $suspendido,
             'plan_id' => $comercio->plan_id,
             'pago_en_vuelo' => $pagoEnVuelo,
         ];
+    }
+
+    /**
+     * ¿Se puede renovar ahora el plan vigente?
+     *
+     * Única fuente de verdad de la ventana de renovación anticipada. La usan
+     * `estadoSuscripcion()` para el frontend y
+     * `SuscripcionController::generarPreferencia()` como validación de
+     * backend, para que la restricción no se pueda saltar llamando directo
+     * al endpoint.
+     *
+     * Se permite cuando:
+     *  - la cuenta está suspendida (hay que poder reactivar sí o sí);
+     *  - la suscripción ya venció;
+     *  - dentro de la ventana: faltan `VENTANA_RENOVACION_DIAS` días o menos.
+     */
+    public function puedeRenovarAhora(?Comercio $comercio): bool
+    {
+        if (! $comercio) {
+            return false;
+        }
+
+        if ($comercio->status === 'suspendido') {
+            return true;
+        }
+
+        if (! $comercio->vencimiento_pago) {
+            return false;
+        }
+
+        return $this->diasRestantes(Carbon::parse($comercio->vencimiento_pago)->startOfDay())
+            <= self::VENTANA_RENOVACION_DIAS;
+    }
+
+    /**
+     * Días completos que faltan para el vencimiento. Negativo si ya venció.
+     *
+     * Se cuenta por día completo y en la misma dirección que
+     * `VerificarEstadoCuenta`, para que la ventana de renovación no se
+     * desalinee con el corte de acceso ni con el banner del Dashboard.
+     */
+    private function diasRestantes(Carbon $vencimiento): int
+    {
+        return (int) now()->startOfDay()->diffInDays($vencimiento, false);
     }
 
     /**
@@ -301,6 +371,8 @@ class SuscripcionService
      *     dias_restantes: int|null,
      *     vencimiento_pago: string|null,
      *     puede_renovar: bool,
+     *     dias_para_renovar: int|null,
+     *     ventana_renovacion_dias: int,
      *     suspendido: bool,
      *     plan_id: int|null,
      *     pago_en_vuelo: array{plan_id: int, expira_en_minutos: int}|null
@@ -313,6 +385,8 @@ class SuscripcionService
             'dias_restantes' => null,
             'vencimiento_pago' => null,
             'puede_renovar' => false,
+            'dias_para_renovar' => null,
+            'ventana_renovacion_dias' => self::VENTANA_RENOVACION_DIAS,
             'suspendido' => false,
             'plan_id' => null,
             'pago_en_vuelo' => null,

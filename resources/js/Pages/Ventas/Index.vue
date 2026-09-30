@@ -71,7 +71,7 @@ const abrirDetalle = (v) => {
 };
 
 const realizarAnulacion = (id, motivoFinal) => {
-    router.post(route('ventas.cancelar', id), {
+    router.patch(route('ventas.cancelar', id), {
         motivo: motivoFinal
     }, {
         onSuccess: () => {
@@ -84,11 +84,6 @@ const realizarAnulacion = (id, motivoFinal) => {
         }
     });
 };
-
-// F9: una venta puede emitir NC (parcial o total vía devolución) solo si tiene
-// un comprobante fiscal emitido y válido (arquitectura §11, invariante 2).
-const tieneComprobanteEmitido = (v) =>
-    (v.fiscal || []).some((c) => !c.es_nota_credito && c.estado === 'emitido');
 
 const confirmarAnulacion = async (v) => {
     cerrarMenu();
@@ -122,9 +117,15 @@ const confirmarAnulacion = async (v) => {
                     <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Historial de Ventas</h1>
                     <div class="h-1 w-12 bg-sky-500 mt-1"></div>
                 </div>
-                <Link :href="route('pos.index')" class="bg-sky-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg text-sm uppercase tracking-widest w-full sm:w-auto text-center hover:bg-sky-700 transition-colors">
-                    Nueva Venta (POS)
-                </Link>
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                    <Link :href="route('ventas.canceladas')" class="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold py-3 px-5 rounded-xl shadow-lg text-sm uppercase tracking-widest hover:bg-rose-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        Ventas Canceladas
+                    </Link>
+                    <Link :href="route('pos.index')" class="bg-sky-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg text-sm uppercase tracking-widest w-full sm:w-auto text-center hover:bg-sky-700 transition-colors">
+                        Nueva Venta (POS)
+                    </Link>
+                </div>
             </div>
 
             <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4">
@@ -188,7 +189,6 @@ const confirmarAnulacion = async (v) => {
                                 <th class="p-4 text-center rounded-l-xl">N° Ticket</th>
                                 <th class="p-4">Fecha</th>
                                 <th class="p-4">Cliente</th>
-                                <th class="p-4">Comprobante</th>
                                 <th class="p-4 text-center">Estado</th>
                                 <th class="p-4 text-right">Total</th>
                                 <th class="p-4 text-center rounded-r-xl">Acciones</th>
@@ -196,54 +196,22 @@ const confirmarAnulacion = async (v) => {
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             <tr v-if="ventas.data.length === 0">
-                                <td colspan="7" class="p-10 text-center text-slate-400 italic bg-slate-50">
+                                <td colspan="6" class="p-10 text-center text-slate-400 italic bg-slate-50">
                                     No se encontraron ventas con esos filtros.
                                 </td>
                             </tr>
                             <tr v-for="v in ventas.data" :key="v.id" 
-                                class="bg-white hover:bg-sky-50 transition-all shadow-sm"
-                                :class="{'opacity-60 grayscale bg-slate-50': v.estado === 'Cancelada'}"
+                                class="transition-all shadow-sm"
+                                :class="v.estado === 'Cancelada'
+                                    ? 'bg-rose-50 hover:bg-rose-100 border-l-4 border-rose-400'
+                                    : 'bg-white hover:bg-sky-50'"
                             >
                                 <td class="p-4 text-center font-mono font-bold text-sky-800">#{{ v.id }}</td>
                                 <td class="p-4 text-slate-600 font-medium">{{ formatearFecha(v.created_at) }}</td>
                                 <td class="p-4 font-bold text-slate-700">{{ v.consumidor?.nombre || 'Consumidor Final' }}</td>
-                                <td class="p-4">
-                                    <template v-if="v.fiscal?.length">
-                                        <div v-for="c in v.fiscal" :key="c.id" class="mb-1.5 last:mb-0">
-                                            <div class="flex items-center gap-1.5">
-                                                <span
-                                                    :class="c.es_nota_credito ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-sky-100 text-sky-700 border-sky-200'"
-                                                    class="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border"
-                                                >
-                                                    {{ c.es_nota_credito ? 'NC' : (c.tipo === 'FACTURA' ? 'Factura' : c.tipo) }} {{ c.letra }}
-                                                </span>
-                                                <span class="font-mono font-bold text-slate-700 text-xs">{{ c.numero_completo }}</span>
-                                                <a
-                                                    :href="route('ventas.imprimir', { venta: v.id, comprobante_id: c.id })"
-                                                    target="_blank"
-                                                    :title="'Reimprimir ' + c.numero_completo"
-                                                    class="ml-1 text-slate-300 hover:text-sky-600 transition-colors"
-                                                >
-                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                                                </a>
-                                                <a
-                                                    :href="route('ventas.pdf', { venta: v.id, comprobante_id: c.id })"
-                                                    :title="'Descargar ' + c.numero_completo"
-                                                    class="text-slate-300 hover:text-sky-600 transition-colors"
-                                                >
-                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                                </a>
-                                            </div>
-                                            <div v-if="c.cae" class="text-[10px] text-slate-400 font-medium mt-0.5 pl-1">
-                                                CAE {{ c.cae }} · Vto {{ c.vencimiento_cae }}
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <span v-else class="text-slate-300 font-medium">—</span>
-                                </td>
                                 <td class="p-4 text-center">
                                     <span 
-                                        :class="v.estado === 'Completada' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'"
+                                        :class="v.estado === 'Completada' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-600 text-white border-rose-700'"
                                         class="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border"
                                     >
                                         {{ v.estado }}
@@ -270,7 +238,7 @@ const confirmarAnulacion = async (v) => {
 
                                         <a :href="route('ventas.imprimir', v.id)" target="_blank" class="w-full text-left px-4 py-2.5 text-xs font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                                            {{ v.fiscal?.length ? 'Reimprimir Comprobante' : 'Imprimir Ticket' }}
+                                            Imprimir Ticket
                                         </a>
 
                                         <a :href="route('ventas.pdf', v.id)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-3 transition-colors">
@@ -282,7 +250,7 @@ const confirmarAnulacion = async (v) => {
                                             <div class="border-t border-slate-100 my-1"></div>
                                             <button @click="abrirDevolucion(v)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-600 hover:bg-amber-50 flex items-center gap-3 transition-colors">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                                {{ tieneComprobanteEmitido(v) ? 'Emitir Nota de Crédito' : 'Devolver Productos' }}
+                                                Devolver Productos
                                             </button>
                                             <button @click="confirmarAnulacion(v)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-3 transition-colors">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
