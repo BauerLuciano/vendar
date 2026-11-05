@@ -10,8 +10,13 @@ import DetallePermiso from './Componentes/DetallePermiso.vue';
 
 const props = defineProps({
     roles: Array,
-    permisos: Array
+    permisos: Array,
+    esAdminGlobal: { type: Boolean, default: false },
+    rolesProtegidos: { type: Array, default: () => ['Administrador Global', 'SuperAdmin'] }
 });
+
+const esRolProtegido = (rol) => props.rolesProtegidos.includes(rol.name);
+const puedeEditarRol = (rol) => !esRolProtegido(rol) || props.esAdminGlobal;
 
 // Pestaña Activa
 const tabActiva = ref('roles'); // 'roles' o 'permisos'
@@ -172,7 +177,7 @@ const verPermiso = (permiso) => {
                                 
                                 <td class="p-4">
                                     <div class="font-bold text-slate-800">{{ rol.name }}</div>
-                                    <div v-if="['Administrador Global', 'SuperAdmin'].includes(rol.name)" class="text-[10px] font-black text-rose-500 uppercase tracking-widest mt-0.5">Rol de Sistema (Intocable)</div>
+                                    <div v-if="esRolProtegido(rol)" class="text-[10px] font-black text-rose-500 uppercase tracking-widest mt-0.5">Rol de Sistema (Intocable)</div>
                                 </td>
                                 
                                 <td class="p-4 text-center">
@@ -196,12 +201,12 @@ const verPermiso = (permiso) => {
                                             Ver Detalles
                                         </button>
 
-                                        <button @click="editarRol(rol)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
+                                        <button v-if="puedeEditarRol(rol)" @click="editarRol(rol)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-600 hover:bg-sky-50 flex items-center gap-3 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                            Editar Rol
+                                            {{ esRolProtegido(rol) ? 'Editar Permisos' : 'Editar Rol' }}
                                         </button>
 
-                                        <template v-if="!['Administrador Global', 'SuperAdmin'].includes(rol.name)">
+                                        <template v-if="!esRolProtegido(rol)">
                                             <div class="border-t border-slate-100 my-1"></div>
                                             <button @click="eliminarRol(rol)" class="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-3 transition-colors">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -287,7 +292,7 @@ const verPermiso = (permiso) => {
 
         </div>
 
-        <ModalRol :mostrar="mostrarModalRol" :rol="rolSeleccionado" :permisosDisponibles="permisos" @cerrar="mostrarModalRol = false" />
+        <ModalRol :mostrar="mostrarModalRol" :rol="rolSeleccionado" :permisosDisponibles="permisos" :es-admin-global="esAdminGlobal" :roles-protegidos="rolesProtegidos" @cerrar="mostrarModalRol = false" />
         <DetalleRol :mostrar="mostrarDetalleRol" :rol="rolSeleccionado" @cerrar="mostrarDetalleRol = false" />
         <ModalPermiso :mostrar="mostrarModalPermiso" :permiso="permisoSeleccionado" @cerrar="mostrarModalPermiso = false" />
         <DetallePermiso :mostrar="mostrarDetallePermiso" :permiso="permisoSeleccionado" @cerrar="mostrarDetallePermiso = false" />

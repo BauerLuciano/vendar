@@ -22,6 +22,7 @@ class Modulo6_UsuariosTest extends TestCaseMultiTenant
             'name' => 'Test User A',
             'email' => $email,
             'password' => 'password123',
+            'password_confirmation' => 'password123',
             'branch_id' => 1,
             'rol' => 'Cajero',
         ])->assertRedirect();
@@ -42,6 +43,7 @@ class Modulo6_UsuariosTest extends TestCaseMultiTenant
             'name' => 'Test User B',
             'email' => $email,
             'password' => 'password123',
+            'password_confirmation' => 'password123',
             'branch_id' => 3,
             'rol' => 'Cajero',
         ])->assertRedirect();

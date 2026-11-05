@@ -1,15 +1,19 @@
 <script setup>
 import { useForm } from '@inertiajs/vue3';
-import { watch } from 'vue';
+import { watch, computed } from 'vue';
 import Swal from 'sweetalert2';
 
 const props = defineProps({
     mostrar: Boolean,
     rol: Object,
-    permisosDisponibles: Array
+    permisosDisponibles: Array,
+    esAdminGlobal: { type: Boolean, default: false },
+    rolesProtegidos: { type: Array, default: () => ['Administrador Global', 'SuperAdmin'] }
 });
 
 const emit = defineEmits(['cerrar']);
+
+const rolProtegido = computed(() => !!props.rol && props.rolesProtegidos.includes(props.rol.name));
 
 const form = useForm({
     nombre: '',
@@ -51,14 +55,15 @@ const guardar = () => {
     <div v-if="mostrar" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div class="bg-sky-600 p-4 text-white font-black text-center uppercase tracking-widest flex justify-between items-center px-6">
-                <span>{{ rol ? 'Editar Rol' : 'Nuevo Rol' }}</span>
+                <span>{{ rol ? (rolProtegido ? 'Editar Permisos del Rol' : 'Editar Rol') : 'Nuevo Rol' }}</span>
                 <button @click="$emit('cerrar')">✖</button>
             </div>
             
             <form @submit.prevent="guardar" class="p-6 space-y-6">
                 <div>
                     <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">Nombre del Rol</label>
-                    <input v-model="form.nombre" type="text" maxlength="255" class="w-full rounded-xl border-slate-200 focus:ring-sky-500" required placeholder="Ej: Vendedor Senior">
+                    <input v-model="form.nombre" type="text" maxlength="255" class="w-full rounded-xl border-slate-200 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500" :disabled="rolProtegido" required placeholder="Ej: Vendedor Senior">
+                    <p v-if="rolProtegido" class="text-[10px] text-amber-600 font-bold mt-1">El nombre de un rol de sistema no se puede modificar.</p>
                     <span v-if="form.errors.nombre" class="text-rose-500 text-xs">{{ form.errors.nombre }}</span>
                 </div>
 
@@ -75,7 +80,7 @@ const guardar = () => {
                 <div class="flex justify-end gap-3 pt-4 border-t">
                     <button type="button" @click="$emit('cerrar')" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
                     <button type="submit" :disabled="form.processing" class="px-6 py-2 bg-sky-600 text-white text-sm font-black uppercase rounded-xl hover:bg-sky-700 disabled:opacity-50">
-                        Guardar Rol
+                        {{ rolProtegido ? 'Guardar Permisos' : 'Guardar Rol' }}
                     </button>
                 </div>
             </form>

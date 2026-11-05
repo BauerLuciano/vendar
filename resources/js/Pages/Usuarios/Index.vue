@@ -10,6 +10,9 @@ const props = defineProps({
     usuarios: Object,
     roles: Array,
     sucursales: Array,
+    comercios: { type: Array, default: () => [] },
+    esAdminGlobal: { type: Boolean, default: false },
+    comercioActualId: { type: [Number, String], default: null },
     filtros: Object
 });
 
@@ -21,7 +24,8 @@ const usuarioSeleccionado = ref(null);
 const formFiltros = reactive({
     search: props.filtros?.search || '',
     sucursal_id: props.filtros?.sucursal_id || 'all',
-    rol: props.filtros?.rol || 'all'
+    rol: props.filtros?.rol || 'all',
+    comercio_id: props.filtros?.comercio_id || 'all'
 });
 
 let timeout = null;
@@ -40,6 +44,7 @@ const limpiarFiltros = () => {
     formFiltros.search = '';
     formFiltros.sucursal_id = 'all';
     formFiltros.rol = 'all';
+    formFiltros.comercio_id = 'all';
 };
 
 const toggleMenu = (id) => {
@@ -112,24 +117,31 @@ const eliminarUsuario = (usuario) => {
 
             <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4">
                 <div class="flex flex-col sm:flex-row gap-4 w-full">
-                    <div class="relative w-full sm:w-1/2">
+                    <div class="relative w-full sm:flex-1">
                         <input 
                             v-model="formFiltros.search" 
                             type="text" 
-                            placeholder="Buscar por Nombre, Email o ID..." 
+                            placeholder="Buscar por Nombre, Apellido, Email o ID..."
                             class="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:ring-sky-500 focus:border-sky-500 transition-all font-medium text-sm"
                         >
                         <svg class="w-5 h-5 text-slate-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     </div>
                     
-                    <div class="w-full sm:w-1/4">
+                    <div v-if="esAdminGlobal" class="w-full sm:w-1/5">
+                        <select v-model="formFiltros.comercio_id" class="w-full border border-slate-200 rounded-xl py-2.5 px-4 focus:ring-sky-500 focus:border-sky-500 text-slate-600 bg-slate-50 cursor-pointer font-medium text-sm">
+                            <option value="all">Todos los comercios</option>
+                            <option v-for="comercio in comercios" :key="comercio.id" :value="comercio.id">{{ comercio.nombre }}</option>
+                        </select>
+                    </div>
+
+                    <div class="w-full sm:w-1/5">
                         <select v-model="formFiltros.rol" class="w-full border border-slate-200 rounded-xl py-2.5 px-4 focus:ring-sky-500 focus:border-sky-500 text-slate-600 bg-slate-50 cursor-pointer font-medium text-sm">
                             <option value="all">Todos los roles</option>
                             <option v-for="r in roles" :key="r.id" :value="r.name">{{ r.name }}</option>
                         </select>
                     </div>
 
-                    <div class="w-full sm:w-1/4">
+                    <div class="w-full sm:w-1/5">
                         <select v-model="formFiltros.sucursal_id" class="w-full border border-slate-200 rounded-xl py-2.5 px-4 focus:ring-sky-500 focus:border-sky-500 text-slate-600 bg-slate-50 cursor-pointer font-medium text-sm">
                             <option value="all">Todas las sucursales</option>
                             <option v-for="suc in sucursales" :key="suc.id" :value="suc.id">{{ suc.nombre }}</option>
@@ -138,7 +150,7 @@ const eliminarUsuario = (usuario) => {
                 </div>
 
                 <div class="flex justify-end">
-                    <button v-if="formFiltros.search || formFiltros.rol !== 'all' || formFiltros.sucursal_id !== 'all'" @click="limpiarFiltros" class="text-sm text-slate-500 hover:text-rose-500 font-bold px-4 transition-colors">
+                    <button v-if="formFiltros.search || formFiltros.rol !== 'all' || formFiltros.sucursal_id !== 'all' || formFiltros.comercio_id !== 'all'" @click="limpiarFiltros" class="text-sm text-slate-500 hover:text-rose-500 font-bold px-4 transition-colors">
                         Limpiar Filtros
                     </button>
                 </div>
@@ -167,6 +179,9 @@ const eliminarUsuario = (usuario) => {
                                 <td class="p-4">
                                     <div class="flex flex-col">
                                         <span class="font-bold text-slate-800 text-sm">{{ user.name }}</span>
+                                        <span v-if="esAdminGlobal && user.comercio" class="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">
+                                            {{ user.comercio.nombre }}
+                                        </span>
                                         <span class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mt-0.5">Activo</span>
                                     </div>
                                 </td>
@@ -174,6 +189,7 @@ const eliminarUsuario = (usuario) => {
                                 <td class="p-4">
                                     <div class="flex flex-col space-y-1">
                                         <span class="text-xs text-slate-500 font-medium tracking-wide">MAIL: <span class="font-bold text-slate-700">{{ user.email }}</span></span>
+                                        <span v-if="user.telefono" class="text-xs text-slate-500 font-medium tracking-wide">TEL: <span class="font-bold text-slate-700">{{ user.telefono }}</span></span>
                                     </div>
                                 </td>
                                 
@@ -256,6 +272,9 @@ const eliminarUsuario = (usuario) => {
             :usuario="usuarioSeleccionado" 
             :roles="roles" 
             :sucursales="sucursales" 
+            :comercios="comercios"
+            :es-admin-global="esAdminGlobal"
+            :comercio-actual-id="comercioActualId"
             @cerrar="mostrarModal = false" 
         />
         <DetalleUsuario 
