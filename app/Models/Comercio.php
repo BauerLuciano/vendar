@@ -78,6 +78,20 @@ class Comercio extends Model
         return $this->hasMany(PedidoWeb::class);
     }
 
+    /**
+     * Relación real al plan contratado.
+     *
+     * `comercios.plan` es una columna legacy (slug) que convivía con esta
+     * relación y generaba lecturas ambiguas: `$comercio->plan` devolvía el
+     * string de la columna en lugar del modelo. El código nuevo debe usar
+     * `planContratado()` (o `$comercio->planContratado`) para nombre, precio
+     * configurado y duración. `plan()` se conserva por compatibilidad.
+     */
+    public function planContratado()
+    {
+        return $this->belongsTo(Plan::class, 'plan_id');
+    }
+
     public function plan()
     {
         return $this->belongsTo(Plan::class, 'plan_id');

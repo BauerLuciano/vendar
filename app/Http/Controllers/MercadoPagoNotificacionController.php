@@ -9,6 +9,7 @@ use App\Models\Comercio;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Services\Payment\PaymentService;
 use App\Services\Payment\PaymentRecorder;
 use App\Services\Payment\PaymentConfirmationService;
@@ -164,6 +165,12 @@ class MercadoPagoNotificacionController extends Controller
                 }
             }
 
+            Log::info('Webhook de plan no aprobado', [
+                'payment_id' => $paymentId,
+                'estado' => $status->status->value,
+                'reference_id' => $status->referenceId,
+            ]);
+
             return response()->json(['status' => 'not_approved']);
         }
 
@@ -183,6 +190,14 @@ class MercadoPagoNotificacionController extends Controller
 
         $plan = Plan::find($comercio->pending_plan_id);
         if (!$plan) {
+            // Pago aprobado sin intención registrada: no aplicamos nada para
+            // no cambiar el plan por un pago que no coincide con una
+            // preferencia generada desde esta pantalla.
+            Log::warning('Webhook de plan aprobado sin pending_plan_id', [
+                'payment_id' => $paymentId,
+                'comercio_id' => $comercio->id,
+            ]);
+
             return response()->json(['status' => 'already_processed']);
         }
 

@@ -9,7 +9,10 @@ use App\Services\Payment\Contracts\CheckoutRequest;
 use App\Services\Payment\Exceptions\PaymentException;
 use App\Services\Payment\PaymentService;
 use App\Services\Suscripcion\SuscripcionService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 
 class SuscripcionController extends Controller
@@ -38,43 +41,76 @@ class SuscripcionController extends Controller
 
     public function generarPreferencia(Request $request)
     {
-        try {
-            $request->validate([
-                'plan_id' => 'required|exists:planes,id',
-                'origin' => ['nullable', 'string', 'max:255'],
+        // La validación va fuera del try: antes una `plan_id` inválida caía en
+        // el catch genérico y el usuario recibía un 500 "Error general" en
+        // lugar del 422 con el motivo real.
+        $datos = $request->validate([
+            // `exists` se valida abajo con un mensaje accionable. Si el plan se
+            // desactivó o borró entre la carga de la pantalla y el clic, el
+            // usuario tiene que ver "no está disponible", no un error de
+            // validación genérico.
+            'plan_id' => 'required|integer',
+            'origin' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $user = auth()->user();
+        $comercio = Comercio::find($user->comercio_id);
+
+        if (! $comercio) {
+            return response()->json(['error' => 'Comercio no encontrado'], 404);
+        }
+
+        $plan = Plan::find($datos['plan_id']);
+
+        if (! $plan || ! $plan->activo) {
+            return response()->json([
+                'error' => 'El plan elegido ya no está disponible. Recargá la página y elegí otro.',
+            ], 400);
+        }
+
+        $returnOrigin = $this->resolverOriginRetorno($request);
+
+        if ($returnOrigin === null) {
+            Log::warning('Intento de generar preferencia de suscripción con origin no permitido', [
+                'user_id' => $user->id,
+                'comercio_id' => $comercio->id,
+                'origin' => $request->input('origin'),
+                'permitidos' => $this->originRetornoPermitidos(),
             ]);
 
-            $user = auth()->user();
-            $comercio = Comercio::find($user->comercio_id);
+            return response()->json([
+                'error' => 'No pudimos iniciar el pago porque el sitio desde el que estás accediendo no está autorizado.',
+                'detalle' => app()->environment('local')
+                    ? 'Agregá el origen "'.$request->input('origin').'" a MP_ALLOWED_RETURN_ORIGINS y recargá la configuración.'
+                    : null,
+            ], 400);
+        }
 
-            if (! $comercio) {
-                return response()->json(['error' => 'Comercio no encontrado'], 404);
-            }
+        // Serializa la generación de preferencias del mismo comercio. El
+        // chequeo de `pagoEnVuelo` no era atómico: dos clics simultáneos
+        // podían pasar el guard antes de que el primero marcara el pago.
+        $lock = Cache::lock('suscripcion:generar-pago:'.$comercio->id, 15);
 
-            $plan = Plan::findOrFail($request->plan_id);
+        try {
+            $lock->block(5);
+        } catch (LockTimeoutException) {
+            return response()->json([
+                'error' => 'Estamos procesando otra solicitud de pago. Esperá unos segundos y volvé a intentar.',
+            ], 409);
+        }
 
-            if (! $plan->activo) {
-                return response()->json(['error' => 'Plan no disponible'], 400);
-            }
-
-            $returnOrigin = $this->resolverOriginRetorno($request);
-
-            if ($returnOrigin === null) {
-                \Log::warning('Intento de generar preferencia de suscripción con origin no permitido', [
-                    'user_id' => $user->id,
-                    'comercio_id' => $comercio->id,
-                    'origin' => $request->input('origin'),
-                ]);
-
-                return response()->json(['error' => 'Origin no permitido'], 400);
-            }
-
+        try {
             // Anti-duplicado: si ya hay una preferencia de pago en curso para
             // este comercio no generamos otra, para no cobrar dos veces por la
-            // misma intención de renovación / cambio de plan.
-            if ($this->suscripcionService->pagoEnVuelo($comercio->id) !== null) {
+            // misma intención de renovación / cambio de plan. Devolvemos el
+            // link existente para que el usuario pueda reanudar ese mismo pago.
+            $enVuelo = $this->suscripcionService->pagoEnVuelo($comercio->id);
+
+            if ($enVuelo !== null) {
                 return response()->json([
-                    'error' => 'Ya hay un pago en proceso para tu plan. Espera la confirmación de Mercado Pago antes de generar otro.',
+                    'error' => 'Ya tenés un pago pendiente de confirmación. Podés reanudarlo o liberarlo antes de generar uno nuevo.',
+                    'pago_en_vuelo' => $enVuelo,
+                    'init_point' => $enVuelo['checkout_url'] ?? null,
                 ], 409);
             }
 
@@ -90,7 +126,7 @@ class SuscripcionController extends Controller
             // cambiar de plan (upgrade) y la facturación de la administración
             // global no pasan por acá y quedan intactas.
             if ($esRenovacion && ! $this->suscripcionService->puedeRenovarAhora($comercio)) {
-                \Log::info('Renovación anticipada bloqueada por ventana de renovación', [
+                Log::info('Renovación anticipada bloqueada por ventana de renovación', [
                     'user_id' => $user->id,
                     'comercio_id' => $comercio->id,
                     'plan_id' => $plan->id,
@@ -113,62 +149,105 @@ class SuscripcionController extends Controller
             $comercio->update(['pending_plan_id' => $plan->id]);
             $this->suscripcionService->marcarPagoEnVuelo($comercio->id, $plan->id);
 
-            // Las back_urls deben ser un dominio con nombre (DNS) para que
-            // Mercado Pago las acepte y habilite el botón "Volver al sitio" /
-            // auto_return. localhost queda descartado por MP (documentación
-            // oficial de Checkout Pro). Apuntamos al retorno público definido
-            // en MP_PUBLIC_URL, que redirige de vuelta a la app.
-            $publicUrl = rtrim((string) config('services.mercadopago.public_url', ''), '/');
+            try {
+                // El notification_url lo llama Mercado Pago desde sus
+                // servidores: necesita la URL pública (ngrok en desarrollo).
+                $publicUrl = $this->basePublica();
 
-            $checkoutRequest = new CheckoutRequest(
-                referenceId: (string) $comercio->id,
-                amount: (float) $plan->precio_mensual,
-                title: 'VendAR: '.$plan->nombre,
-                description: 'Plan '.$plan->nombre.' - VendAR',
-                items: [[
-                    'id' => 'plan-'.$plan->id,
-                    'title' => 'VendAR: '.$plan->nombre,
-                    'quantity' => 1,
-                    'unit_price' => (float) $plan->precio_mensual,
-                    'currency_id' => 'ARS',
-                ]],
-                successUrl: $publicUrl.'/retorno?pago=exito&plan_id='.$plan->id,
-                failureUrl: $publicUrl.'/retorno?pago=error',
-                pendingUrl: $publicUrl.'/retorno?pago=pendiente',
-                notificationUrl: $publicUrl.'/api/mercadopago/notificacion?tipo=plan',
-                metadata: [
-                    'tipo' => 'suscripcion',
-                    'intento' => $esRenovacion ? 'renovacion' : 'upgrade',
+                // Las back_urls las abre el navegador del usuario. Si está
+                // entrando por un dominio con nombre o por la IP de la red
+                // local, volvemos por ahí; si entra por localhost usamos la
+                // URL pública, porque MP no acepta localhost en back_urls.
+                $backUrlBase = $this->baseBackUrls($returnOrigin, $publicUrl);
+
+                $queryExito = http_build_query([
+                    'pago' => 'exito',
+                    'plan_id' => $plan->id,
+                    'origin' => $returnOrigin,
+                ]);
+                $queryError = http_build_query([
+                    'pago' => 'error',
+                    'origin' => $returnOrigin,
+                ]);
+                $queryPendiente = http_build_query([
+                    'pago' => 'pendiente',
+                    'plan_id' => $plan->id,
+                    'origin' => $returnOrigin,
+                ]);
+
+                $checkoutRequest = new CheckoutRequest(
+                    referenceId: (string) $comercio->id,
+                    amount: (float) $plan->precio_mensual,
+                    title: 'VendAR: '.$plan->nombre,
+                    description: 'Plan '.$plan->nombre.' - VendAR',
+                    items: [[
+                        'id' => 'plan-'.$plan->id,
+                        'title' => 'VendAR: '.$plan->nombre,
+                        'quantity' => 1,
+                        'unit_price' => (float) $plan->precio_mensual,
+                        'currency_id' => 'ARS',
+                    ]],
+                    successUrl: $backUrlBase.'/retorno?'.$queryExito,
+                    failureUrl: $backUrlBase.'/retorno?'.$queryError,
+                    pendingUrl: $backUrlBase.'/retorno?'.$queryPendiente,
+                    notificationUrl: $publicUrl.'/api/mercadopago/notificacion?tipo=plan',
+                    metadata: [
+                        'tipo' => 'suscripcion',
+                        'intento' => $esRenovacion ? 'renovacion' : 'upgrade',
+                        'plan_id' => $plan->id,
+                        'estado' => $estado['estado'],
+                    ],
+                );
+
+                $response = $this->paymentService
+                    ->forPlatform()
+                    ->createCheckout('mercadopago', $checkoutRequest);
+
+                // Guardamos el link de ESTA preferencia. "Reintentar pago"
+                // reanuda el mismo checkout en lugar de crear otro.
+                $this->suscripcionService->recordarCheckoutEnVuelo(
+                    $comercio->id,
+                    $response->checkoutUrl,
+                );
+
+                return response()->json([
+                    'init_point' => $response->checkoutUrl,
+                    'es_renovacion' => $esRenovacion,
                     'plan_id' => $plan->id,
                     'estado' => $estado['estado'],
-                ],
-            );
+                    'pago_en_vuelo' => $this->suscripcionService->pagoEnVuelo($comercio->id),
+                ]);
+            } catch (PaymentException $e) {
+                // Si la pasarela falla, liberamos también `pending_plan_id`.
+                // Antes sólo se limpiaba la caché y el pendiente quedaba sucio.
+                $this->suscripcionService->liberarPagoEnVuelo($comercio, 'error_pasarela');
 
-            $response = $this->paymentService
-                ->forPlatform()
-                ->createCheckout('mercadopago', $checkoutRequest);
+                Log::error('Error de Mercado Pago al generar preferencia de suscripción', [
+                    'comercio_id' => $comercio->id,
+                    'plan_id' => $plan->id,
+                    'error' => $e->getMessage(),
+                ]);
 
-            return response()->json([
-                'init_point' => $response->checkoutUrl,
-                'es_renovacion' => $esRenovacion,
-                'plan_id' => $plan->id,
-                'estado' => $estado['estado'],
-            ]);
+                return response()->json([
+                    'error' => 'No pudimos generar el link de pago con Mercado Pago. No se realizó ningún cobro.',
+                    'detalle' => app()->environment('local') ? $e->getMessage() : null,
+                ], 502);
+            } catch (\Throwable $e) {
+                $this->suscripcionService->liberarPagoEnVuelo($comercio, 'error_generacion');
 
-        } catch (PaymentException $e) {
-            $this->suscripcionService->limpiarPagoEnVuelo($comercio->id ?? 0);
+                Log::error('Error inesperado al generar preferencia de suscripción', [
+                    'comercio_id' => $comercio->id,
+                    'plan_id' => $plan->id,
+                    'error' => $e->getMessage(),
+                ]);
 
-            return response()->json([
-                'error' => 'Error de pasarela de pago',
-                'detalle' => $e->getMessage(),
-            ], 500);
-        } catch (\Exception $e) {
-            $this->suscripcionService->limpiarPagoEnVuelo($comercio->id ?? 0);
-
-            return response()->json([
-                'error' => 'Error general',
-                'detalle' => $e->getMessage(),
-            ], 500);
+                return response()->json([
+                    'error' => 'No pudimos iniciar el pago. No se realizó ningún cobro.',
+                    'detalle' => app()->environment('local') ? $e->getMessage() : null,
+                ], 500);
+            }
+        } finally {
+            $lock->release();
         }
     }
 
@@ -268,12 +347,28 @@ class SuscripcionController extends Controller
             $params['payment_id'] = $paymentId;
         }
 
-        $base = rtrim((string) config('app.url'), '/');
+        // Volvemos al origen desde el que el usuario inició el pago (validado
+        // contra la lista permitida). Así funciona tanto en localhost como
+        // entrando por la IP de la red local o por un dominio de desarrollo.
+        // Si no vino el parámetro, usamos el host con el que se alcanzó esta
+        // ruta y, como último recurso, APP_URL.
+        $originSolicitado = $this->normalizarOrigin((string) $request->input('origin', ''));
+        $originValido = $originSolicitado !== null
+            && in_array($originSolicitado, $this->originRetornoPermitidos(), true);
 
-        \Log::info('Retorno Mercado Pago (suscripción) recibido', [
+        $base = $originValido
+            ? $originSolicitado
+            : rtrim((string) $request->getSchemeAndHttpHost(), '/');
+
+        if ($base === '') {
+            $base = rtrim((string) config('app.url'), '/');
+        }
+
+        Log::info('Retorno Mercado Pago (suscripción) recibido', [
             'pago' => $pago,
             'plan_id' => $params['plan_id'] ?? null,
             'payment_id' => $paymentId,
+            'origin' => $originValido ? $originSolicitado : null,
             'parametros' => $request->query(),
         ]);
 
@@ -328,11 +423,23 @@ class SuscripcionController extends Controller
         $origin = ($raw !== '') ? $raw : (string) config('app.url');
         $normalized = $this->normalizarOrigin($origin);
 
-        if ($normalized === null || ! in_array($normalized, $this->originRetornoPermitidos(), true)) {
+        if ($normalized === null) {
             return null;
         }
 
-        return $normalized;
+        if (in_array($normalized, $this->originRetornoPermitidos(), true)) {
+            return $normalized;
+        }
+
+        // En desarrollo el frontend puede servirse desde un puerto distinto
+        // (php artisan serve, Vite, etc.) o desde la IP de la red local. Sin
+        // esta tolerancia, el usuario veía "origin no permitido" incluso
+        // estando en la misma máquina. En producción la lista es estricta.
+        if ($this->esOriginDeDesarrollo($normalized)) {
+            return $normalized;
+        }
+
+        return null;
     }
 
     private function originRetornoPermitidos(): array
@@ -354,6 +461,78 @@ class SuscripcionController extends Controller
         }
 
         return array_values(array_unique($normalized));
+    }
+
+    /**
+     * Orígenes aceptados sólo fuera de producción: loopback en cualquier
+     * puerto, dominios *.test / *.local y direcciones IP privadas (red local).
+     */
+    private function esOriginDeDesarrollo(string $origin): bool
+    {
+        if (app()->environment('production')) {
+            return false;
+        }
+
+        $host = strtolower((string) parse_url($origin, PHP_URL_HOST));
+
+        if ($host === '') {
+            return false;
+        }
+
+        if (in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+            return true;
+        }
+
+        if (str_ends_with($host, '.test') || str_ends_with($host, '.local')) {
+            return true;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return ! filter_var(
+                $host,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+            );
+        }
+
+        return false;
+    }
+
+    /**
+     * Base pública para el webhook (Mercado Pago la llama desde sus
+     * servidores). Nunca queda vacía: si MP_PUBLIC_URL no está definida se usa
+     * APP_URL y, en último caso, localhost.
+     */
+    private function basePublica(): string
+    {
+        $url = trim((string) config('services.mercadopago.public_url'));
+
+        if ($url === '') {
+            $url = trim((string) config('app.url'));
+        }
+
+        if ($url === '') {
+            $url = 'http://localhost';
+        }
+
+        return rtrim($url, '/');
+    }
+
+    /**
+     * Base para las back_urls que abre el navegador. Mercado Pago no acepta
+     * localhost/127.0.0.1, así que en ese caso usamos la URL pública. Si el
+     * usuario entró por un dominio con nombre o por una IP de la red local,
+     * volvemos por ese mismo origen, que sí es alcanzable desde su navegador.
+     */
+    private function baseBackUrls(string $returnOrigin, string $publicUrl): string
+    {
+        $host = strtolower((string) parse_url($returnOrigin, PHP_URL_HOST));
+
+        if ($host !== '' && ! in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+            return $returnOrigin;
+        }
+
+        return $publicUrl !== '' ? $publicUrl : $returnOrigin;
     }
 
     private function normalizarOrigin(string $value): ?string

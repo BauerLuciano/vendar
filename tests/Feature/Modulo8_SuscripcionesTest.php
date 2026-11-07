@@ -923,10 +923,13 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $this->postJson('/mi-plan/pagar', ['plan_id' => 3, 'origin' => 'http://localhost'])->assertOk();
         $this->assertSame(3, (int) Comercio::findOrFail(1)->pending_plan_id);
 
-        // El usuario se confunde y hace clic en otro plan (2). El guard lo frena.
+        // El usuario se confunde y hace clic en otro plan (2). El guard lo frena
+        // y devuelve el link de la intención original para poder reanudarla sin
+        // generar un segundo cobro.
         $this->postJson('/mi-plan/pagar', ['plan_id' => 2, 'origin' => 'http://localhost'])
             ->assertStatus(409)
-            ->assertJsonPath('error', 'Ya hay un pago en proceso para tu plan. Espera la confirmación de Mercado Pago antes de generar otro.');
+            ->assertJsonPath('pago_en_vuelo.plan_id', 3)
+            ->assertJsonPath('init_point', 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-vuelo');
 
         // Sólo se generó una preferencia y el pendiente sigue siendo el 3.
         Http::assertSentCount(1);
@@ -1378,9 +1381,12 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         Http::assertSent(function ($request) {
             $payload = $request->data();
 
-            return $payload['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1'
-                && $payload['back_urls']['failure'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=error'
-                && $payload['back_urls']['pending'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=pendiente'
+            // Con origin localhost las back_urls usan la URL pública (MP no
+            // acepta localhost) pero viajan con el origin real para que
+            // /retorno devuelva al usuario a su origen.
+            return $payload['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1&origin=http%3A%2F%2Flocalhost'
+                && $payload['back_urls']['failure'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=error&origin=http%3A%2F%2Flocalhost'
+                && $payload['back_urls']['pending'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=pendiente&plan_id=1&origin=http%3A%2F%2Flocalhost'
                 && $payload['notification_url'] === 'https://brandi-palmar-pickily.ngrok-free.dev/api/mercadopago/notificacion?tipo=plan'
                 && $payload['auto_return'] === 'approved';
         });
@@ -1414,7 +1420,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         Http::assertSent(function ($request) {
             $payload = $request->data();
 
-            return $payload['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1'
+            return $payload['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1&origin=https%3A%2F%2Fbrandi-palmar-pickily.ngrok-free.dev'
                 && $payload['auto_return'] === 'approved';
         });
     }
@@ -1439,7 +1445,9 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         ]);
 
         $response->assertStatus(400);
-        $response->assertJson(['error' => 'Origin no permitido']);
+        $response->assertJson([
+            'error' => 'No pudimos iniciar el pago porque el sitio desde el que estás accediendo no está autorizado.',
+        ]);
 
         Http::assertNothingSent();
     }
@@ -1470,7 +1478,9 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $response->assertOk();
 
         Http::assertSent(function ($request) {
-            return $request->data()['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1';
+            // Un dominio *.test de desarrollo se acepta y las back_urls
+            // vuelven por ese mismo origen (es alcanzable desde el navegador).
+            return $request->data()['back_urls']['success'] === 'http://vendar-app.test/retorno?pago=exito&plan_id=1&origin=http%3A%2F%2Fvendar-app.test';
         });
     }
 
@@ -1497,7 +1507,7 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
         $response->assertOk();
 
         Http::assertSent(function ($request) {
-            return $request->data()['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1';
+            return $request->data()['back_urls']['success'] === 'https://brandi-palmar-pickily.ngrok-free.dev/retorno?pago=exito&plan_id=1&origin=http%3A%2F%2Flocalhost';
         });
     }
 
@@ -1629,6 +1639,118 @@ class Modulo8_SuscripcionesTest extends TestCaseMultiTenant
 
         $this->get('/retorno?status=pending&plan_id=2')
             ->assertRedirect('http://localhost/mi-plan?pago=pendiente&plan_id=2');
+    }
+
+    // P7.5.6
+    public function test_retorno_vuelve_al_origin_permitido_del_checkout(): void
+    {
+        config([
+            'app.url' => 'http://localhost',
+            'services.mercadopago.public_url' => 'https://brandi-palmar-pickily.ngrok-free.dev',
+            'services.mercadopago.allowed_return_origins' => ['http://localhost', 'http://vendar-app.test'],
+        ]);
+
+        $this->get('/retorno?pago=exito&plan_id=1&origin='.urlencode('http://vendar-app.test'))
+            ->assertRedirect('http://vendar-app.test/mi-plan?pago=exito&plan_id=1');
+    }
+
+    // P7.5.7
+    public function test_retorno_ignora_un_origin_arbitrario(): void
+    {
+        config([
+            'app.url' => 'http://localhost',
+            'services.mercadopago.public_url' => 'http://localhost',
+            'services.mercadopago.allowed_return_origins' => ['http://localhost'],
+        ]);
+
+        $this->get('/retorno?pago=exito&plan_id=1&origin='.urlencode('https://evil.example.com'))
+            ->assertRedirect('http://localhost/mi-plan?pago=exito&plan_id=1');
+    }
+
+    // P7.5.8
+    public function test_pago_en_vuelo_guarda_el_checkout_de_la_preferencia_viva(): void
+    {
+        $this->prepararComercio([
+            'status' => 'activo',
+            'plan_id' => 1,
+            'vencimiento_pago' => now()->addDays(20)->toDateString(),
+        ]);
+
+        $this->fakePreferencia();
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', ['plan_id' => 3, 'origin' => 'http://localhost'])
+            ->assertOk()
+            ->assertJsonPath('pago_en_vuelo.plan_id', 3)
+            ->assertJsonPath('pago_en_vuelo.checkout_url', 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-vuelo');
+
+        // El link queda disponible en el estado para que la UI pueda reanudar
+        // exactamente ese checkout sin generar una segunda preferencia.
+        $this->get('/api/mi-plan/plan-actual')
+            ->assertOk()
+            ->assertJsonPath('suscripcion.pago_en_vuelo.checkout_url', 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-vuelo');
+    }
+
+    // P7.5.9
+    public function test_generar_preferencia_acepta_ip_privada_de_red_local_en_desarrollo(): void
+    {
+        config([
+            'services.mercadopago.access_token' => 'TEST-1234567890',
+            'services.mercadopago.public_url' => 'https://brandi-palmar-pickily.ngrok-free.dev',
+            'services.mercadopago.allowed_return_origins' => ['http://localhost'],
+            'app.url' => 'http://localhost',
+        ]);
+
+        Http::fake([
+            'api.mercadopago.com/checkout/preferences' => Http::response([
+                'id' => 'pref-lan',
+                'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-lan',
+            ]),
+        ]);
+
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 1,
+            'origin' => 'http://192.168.1.50',
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            return $request->data()['back_urls']['success']
+                === 'http://192.168.1.50/retorno?pago=exito&plan_id=1&origin=http%3A%2F%2F192.168.1.50';
+        });
+    }
+
+    // P7.5.10
+    public function test_generar_preferencia_rechaza_ip_privada_en_produccion(): void
+    {
+        config([
+            'services.mercadopago.access_token' => 'TEST-1234567890',
+            'services.mercadopago.public_url' => 'http://localhost',
+            'services.mercadopago.allowed_return_origins' => ['http://localhost'],
+            'app.url' => 'http://localhost',
+        ]);
+
+        Http::fake();
+
+        // Al simular `production`, Laravel deja de saltear CSRF en tests.
+        // Lo desactivamos para poder ejercitar la validación de origin real.
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class);
+
+        $this->app['env'] = 'production';
+
+        $this->actingAsAdminA();
+
+        $this->postJson('/mi-plan/pagar', [
+            'plan_id' => 1,
+            'origin' => 'http://192.168.1.50',
+        ])
+            ->assertStatus(400)
+            ->assertJson([
+                'error' => 'No pudimos iniciar el pago porque el sitio desde el que estás accediendo no está autorizado.',
+            ]);
+
+        Http::assertNothingSent();
     }
 
     // P7.6.1

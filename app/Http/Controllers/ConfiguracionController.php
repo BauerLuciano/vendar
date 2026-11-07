@@ -24,10 +24,20 @@ class ConfiguracionController extends Controller
             $user->comercio_id ?? $user->branch?->comercio_id
         );
 
+        // Nunca enviar credenciales al frontend. Se eliminan del array en
+        // lugar de enmascararlas parcialmente: la UI sólo necesita saber si
+        // la integración está configurada.
         $comercio->paymentGateways->each(function ($pg) {
-            if (isset($pg->configuration['client_secret'])) {
-                $pg->configuration['client_secret'] = '***';
-            }
+            $config = is_array($pg->configuration) ? $pg->configuration : [];
+
+            $configurado = ! empty($config['access_token'])
+                || ! empty($config['client_secret']);
+
+            unset($config['access_token'], $config['client_secret']);
+
+            $config['credenciales_configuradas'] = $configurado;
+
+            $pg->configuration = $config;
         });
 
         $paymentMethodConfigs = PaymentMethodConfiguration::where('comercio_id', $comercio->id)

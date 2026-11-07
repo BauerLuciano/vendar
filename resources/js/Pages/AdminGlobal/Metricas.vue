@@ -5,6 +5,7 @@ import { Head, Link } from '@inertiajs/vue3';
 const props = defineProps({
     kpis: { type: Object, default: () => ({}) },
     ultimosComercios: { type: Array, default: () => [] },
+    precios_confirmados: { type: Boolean, default: false },
 });
 
 const formatearDinero = (monto) => {
@@ -51,7 +52,8 @@ const colorEstado = (estado) => {
                         </div>
                         <div class="ml-4">
                             <p class="truncate text-sm font-medium text-slate-500">Facturación Mensual</p>
-                            <p class="text-2xl font-semibold text-slate-900">{{ formatearDinero(kpis?.mrr_estimado) }}</p>
+                            <p v-if="precios_confirmados && kpis?.mrr_estimado !== null" class="text-2xl font-semibold text-slate-900">{{ formatearDinero(kpis?.mrr_estimado) }}</p>
+                            <p v-else class="text-sm font-semibold text-amber-600">Pendiente de definición</p>
                         </div>
                     </div>
                 </div>
@@ -133,7 +135,9 @@ const colorEstado = (estado) => {
                     </div>
                     <div class="bg-slate-50 p-4 rounded-xl ring-1 ring-inset ring-slate-200 mt-6">
                         <p class="text-xs text-slate-500 leading-relaxed">
-                            💡 <strong class="text-slate-700">Escalabilidad:</strong> El MRR dinámico se calcula sumando tus planes activos actuales.
+                            💡 <strong class="text-slate-700">Escalabilidad:</strong>
+                            <span v-if="precios_confirmados">El MRR dinámico se calcula sumando tus planes activos actuales.</span>
+                            <span v-else>El MRR se mostrará cuando se definan los precios comerciales.</span>
                         </p>
                     </div>
                 </div>

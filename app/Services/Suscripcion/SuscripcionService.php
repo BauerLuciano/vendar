@@ -55,7 +55,7 @@ class SuscripcionService
      *     ventana_renovacion_dias: int,
      *     suspendido: bool,
      *     plan_id: int|null,
-     *     pago_en_vuelo: array{plan_id: int, expira_en_minutos: int}|null
+     *     pago_en_vuelo: array{plan_id: int, expira_en_minutos: int, checkout_url: string|null}|null
      * }
      */
     public function estadoSuscripcion(?Comercio $comercio): array
@@ -176,6 +176,61 @@ class SuscripcionService
     }
 
     /**
+     * Calcula el período que cubre un pago aprobado, sin acortar nunca un
+     * período vigente.
+     *
+     * Regla comercial acordada para los cobros manuales:
+     *  - si el vencimiento actual todavía está vigente (incluido el día del
+     *    vencimiento, porque el acceso se corta recién al finalizar ese día),
+     *    el nuevo período empieza después del vencimiento;
+     *  - si ya venció, empieza en la fecha de pago.
+     *
+     * La duración se toma del plan (`duracion_meses`) cuando exista. Los
+     * planes actuales no tienen esa columna y se asumen mensuales, pero el
+     * algoritmo no hardcodea el mes: si mañana se agrega duración al plan,
+     * se respeta sin tocar este método.
+     *
+     * @return array{inicio: Carbon, fin: Carbon, meses: int, continua_periodo_vigente: bool}
+     */
+    public function calcularPeriodo(
+        ?Carbon $vencimientoActual,
+        ?Plan $plan = null,
+        ?Carbon $fechaPago = null,
+    ): array {
+        $fechaPago = ($fechaPago ?? now())->copy()->startOfDay();
+
+        $vencimiento = $vencimientoActual?->copy()->startOfDay();
+        $periodoVigente = $vencimiento !== null
+            && $vencimiento->greaterThanOrEqualTo($fechaPago);
+
+        $inicio = $periodoVigente ? $vencimiento->copy() : $fechaPago->copy();
+        $meses = $this->mesesDelPlan($plan);
+
+        return [
+            'inicio' => $inicio,
+            'fin' => $inicio->copy()->addMonthsNoOverflow($meses),
+            'meses' => $meses,
+            'continua_periodo_vigente' => $periodoVigente,
+        ];
+    }
+
+    /**
+     * Duración contratada del plan en meses. Se deja desacoplada de la tabla
+     * actual: hoy todos los planes son mensuales, pero el día que exista una
+     * columna de duración este método la usa automáticamente.
+     */
+    private function mesesDelPlan(?Plan $plan): int
+    {
+        $meses = $plan?->getAttribute('duracion_meses');
+
+        if (! is_numeric($meses) || (int) $meses < 1) {
+            return 1;
+        }
+
+        return (int) $meses;
+    }
+
+    /**
      * Aplica un pago aprobado sobre la suscripción: prorroga el período, reactiva
      * la cuenta si estaba suspendida y, si el plan es distinto al actual,
      * actualiza módulos y límites.
@@ -274,15 +329,53 @@ class SuscripcionService
             [
                 'plan_id' => $planId,
                 'expira' => now()->addMinutes(self::MINUTOS_PAGO_EN_VUELO)->toIso8601String(),
+                // Se completa después de crear la preferencia. Guardarlo
+                // permite que "Reintentar pago" reanude el mismo checkout en
+                // lugar de generar una segunda preferencia y duplicar el cobro.
+                'checkout_url' => null,
             ],
             now()->addMinutes(self::MINUTOS_PAGO_EN_VUELO),
         );
     }
 
     /**
+     * Guarda el link del checkout de la preferencia viva sin extender su
+     * ventana de bloqueo. Así el usuario puede retomar exactamente el mismo
+     * pago desde la pantalla de "pago pendiente".
+     */
+    public function recordarCheckoutEnVuelo(int $comercioId, string $checkoutUrl): void
+    {
+        $clave = $this->clavePagoEnVuelo($comercioId);
+        $datos = Cache::get($clave);
+
+        if (! is_array($datos) || ! isset($datos['plan_id'], $datos['expira'])) {
+            return;
+        }
+
+        try {
+            $expira = Carbon::parse($datos['expira']);
+        } catch (\Throwable) {
+            return;
+        }
+
+        $segundos = (int) ceil(now()->diffInSeconds($expira, false));
+
+        if ($segundos <= 0) {
+            return;
+        }
+
+        $datos['checkout_url'] = $checkoutUrl;
+
+        Cache::put($clave, $datos, now()->addSeconds($segundos));
+    }
+
+    /**
      * Preferencia de pago viva, con los minutos que le quedan de bloqueo.
      *
-     * @return array{plan_id: int, expira_en_minutos: int}|null
+     * `checkout_url` puede ser `null` para intenciones creadas antes de que se
+     * empezara a guardar el link (o si Mercado Pago no lo devolvió).
+     *
+     * @return array{plan_id: int, expira_en_minutos: int, checkout_url: string|null}|null
      */
     public function pagoEnVuelo(?int $comercioId): ?array
     {
@@ -315,6 +408,9 @@ class SuscripcionService
         return [
             'plan_id' => (int) $datos['plan_id'],
             'expira_en_minutos' => $minutos,
+            'checkout_url' => isset($datos['checkout_url']) && is_string($datos['checkout_url'])
+                ? $datos['checkout_url']
+                : null,
         ];
     }
 
@@ -375,7 +471,7 @@ class SuscripcionService
      *     ventana_renovacion_dias: int,
      *     suspendido: bool,
      *     plan_id: int|null,
-     *     pago_en_vuelo: array{plan_id: int, expira_en_minutos: int}|null
+     *     pago_en_vuelo: array{plan_id: int, expira_en_minutos: int, checkout_url: string|null}|null
      * }
      */
     private function estadoVacio(): array

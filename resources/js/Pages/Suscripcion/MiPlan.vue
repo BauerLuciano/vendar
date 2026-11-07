@@ -28,10 +28,16 @@ const planRenovado = ref(null);
 const planObjetivo = ref(null);
 const cargandoAccion = ref(false);
 
-// Mensaje real del backend para los errores de confirmación (400/403/502).
-// Antes no existía: el `catch` genérico mandaba todo al polling y el usuario
-// nunca veía el motivo por el que su pago no se confirmaba.
+// Mensaje real del backend para los errores de inicio y confirmación del pago.
+// Antes los fallos de `pagarPlan` salían por `alert()` y los de confirmación se
+// descartaban, así que el usuario nunca veía el motivo real del problema.
 const mensajeError = ref(null);
+const detalleError = ref(null);
+
+// Link del checkout de la intención que ya está en vuelo. Sirve para que
+// "Reintentar pago" reanude exactamente ese pago en vez de generar un segundo
+// link y arriesgar un cobro duplicado.
+const checkoutExistente = ref(null);
 
 const RENOVACION_KEY = 'vendar_renovacion_pendiente';
 const RENOVACION_MAX_EDAD_MS = 2 * 60 * 60 * 1000;
@@ -205,8 +211,28 @@ const hayPagoEnVuelo = computed(() => pagoEnVuelo.value !== null);
 // Ojo: `timeout` NO bloquea, porque el polling ya se agotó y el usuario tiene
 // que poder reintentar. `aprobado` se auto-recarga, así que tampoco hace falta.
 const hayPagoEnCurso = computed(() =>
-    hayPagoEnVuelo.value || ['procesando', 'pendiente', 'en_curso'].includes(estadoPago.value)
+    hayPagoEnVuelo.value
+    || ['procesando', 'pendiente', 'en_curso', 'timeout'].includes(estadoPago.value)
 );
+
+// Los tres estados que significan "hay una intención de pago sin confirmar"
+// comparten el mismo banner con las dos salidas visibles desde el primer
+// momento: reanudar el mismo checkout o liberarlo.
+const esEstadoPendiente = computed(() =>
+    ['pendiente', 'en_curso', 'timeout'].includes(estadoPago.value)
+);
+
+const tituloPendiente = computed(() => {
+    if (estadoPago.value === 'timeout') {
+        return 'No pudimos confirmar tu pago todavía';
+    }
+    if (estadoPago.value === 'en_curso') {
+        return 'Ya hay un pago pendiente';
+    }
+    return 'Estamos esperando la confirmación del pago';
+});
+
+const minutosBloqueo = computed(() => pagoEnVuelo.value?.expira_en_minutos ?? null);
 
 const formatearDinero = (monto) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(monto);
@@ -221,11 +247,16 @@ const esPlanActual = (planId) => {
 
 const pagarPlan = async (planId) => {
     planCargando.value = planId;
+    mensajeError.value = null;
+    detalleError.value = null;
+    planObjetivo.value = planId;
+
     try {
         const response = await axios.post(route('suscripcion.pagar'), {
             plan_id: planId,
             origin: window.location.origin,
         });
+
         if (response.data?.init_point) {
             localStorage.setItem(RENOVACION_KEY, JSON.stringify({
                 plan_id: planId,
@@ -235,28 +266,52 @@ const pagarPlan = async (planId) => {
             window.location.href = response.data.init_point;
         }
     } catch (error) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        const mensaje = data?.error;
+
         // 409: ya hay una preferencia de pago en curso para este comercio.
-        if (error.response?.status === 409) {
+        // No generamos otra. Si el backend nos devolvió el link de esa misma
+        // preferencia, el botón "Reintentar pago" puede reanudarla sin cobrar
+        // dos veces.
+        if (status === 409) {
+            checkoutExistente.value = data?.init_point || data?.pago_en_vuelo?.checkout_url || null;
+            if (data?.pago_en_vuelo) {
+                pagoEnVuelo.value = data.pago_en_vuelo;
+            }
+
+            // El plan que realmente está en vuelo puede ser distinto del que
+            // se acaba de clickear. El polling y el reintento tienen que seguir
+            // la intención real (la que Mercado Pago va a cobrar), no el clic
+            // rechazado.
+            const planPendiente = Number(data?.pago_en_vuelo?.plan_id ?? planId);
+            planObjetivo.value = Number.isFinite(planPendiente) ? planPendiente : planId;
+
+            mensajeError.value = mensaje
+                || 'Ya hay un pago pendiente de confirmación para tu plan.';
             estadoPago.value = 'en_curso';
+            iniciarPolling(planObjetivo.value);
             return;
         }
 
         // 422: el backend rechazó la renovación anticipada por la ventana de
         // 30 días. Aunque el botón ya está deshabilitado y muestra la cuenta
         // regresiva, se puede llegar igual (pestaña abierta antes del cambio,
-        // bundle viejo en caché). Se muestra el motivo real del servidor en
-        // lugar del "Error al conectar con Mercado Pago" genérico, que recién
-        // volvió a aparecer de un error que no tiene nada de pasarela.
-        if (error.response?.status === 422) {
-            alert(
-                error.response.data?.error
-                    || 'La renovación anticipada todavía no está disponible.'
-            );
+        // bundle viejo en caché). Mostramos el motivo real del servidor.
+        if (status === 422) {
+            mensajeError.value = mensaje
+                || 'La renovación anticipada todavía no está disponible.';
+            detalleError.value = data?.detalle || null;
+            estadoPago.value = 'error_inicio';
             return;
         }
 
-        const msg = error.response?.data?.error || 'Error al conectar con Mercado Pago.';
-        alert(msg);
+        // Cualquier otro error (400 de origen/plan, 502 de Mercado Pago, 500
+        // inesperado): se muestra inline con el motivo real y, en desarrollo,
+        // el detalle técnico que devuelve el backend.
+        mensajeError.value = mensaje || 'No pudimos iniciar el pago.';
+        detalleError.value = data?.detalle || null;
+        estadoPago.value = 'error_inicio';
     } finally {
         planCargando.value = null;
     }
@@ -268,6 +323,10 @@ const recargarPagina = () => {
 };
 
 const confirmarUpgrade = async (planId, paymentId) => {
+    planObjetivo.value = planId;
+    mensajeError.value = null;
+    detalleError.value = null;
+
     try {
         const response = await axios.post(route('suscripcion.confirmar-upgrade'), {
             plan_id: planId,
@@ -288,6 +347,7 @@ const confirmarUpgrade = async (planId, paymentId) => {
     } catch (error) {
         const status = error.response?.status;
         const mensaje = error.response?.data?.error;
+        detalleError.value = error.response?.data?.detalle || null;
 
         // El backend responde con un mensaje explícito y accionable. Antes se
         // descartaba: cualquier 4xx/5xx caía al polling y el usuario veía
@@ -367,7 +427,7 @@ const iniciarPolling = (planId) => {
 
             // El backend es la fuente de verdad. `plan_id === planId` con
             // `pending_plan_id` limpio significa que el pago ya se aplicó.
-            if (res.data.plan_id === planId && res.data.pending_plan_id === null) {
+            if (Number(res.data.plan_id) === Number(planId) && res.data.pending_plan_id === null) {
                 detenerPolling();
                 finalizarAprobado();
                 return;
@@ -375,6 +435,10 @@ const iniciarPolling = (planId) => {
 
             const vuelo = res.data.suscripcion?.pago_en_vuelo ?? null;
             pagoEnVuelo.value = vuelo;
+
+            if (vuelo?.checkout_url) {
+                checkoutExistente.value = vuelo.checkout_url;
+            }
 
             // Si ya no queda ninguna preferencia viva y `pending_plan_id`
             // tampoco está, el pago fue liberado (rechazado, cancelado,
@@ -406,28 +470,75 @@ const iniciarPolling = (planId) => {
  */
 const cancelarPago = async () => {
     cargandoAccion.value = true;
+    mensajeError.value = null;
+    detalleError.value = null;
+
     try {
         const response = await axios.post(route('suscripcion.cancelar-pago'));
         pagoEnVuelo.value = response.data?.suscripcion?.pago_en_vuelo ?? null;
-    } catch {
-        pagoEnVuelo.value = null;
-    } finally {
-        cargandoAccion.value = false;
+        checkoutExistente.value = null;
         detenerPolling();
         localStorage.removeItem(RENOVACION_KEY);
         limpiarUrl();
         estadoPago.value = 'liberado';
+    } catch (error) {
+        // Si no pudimos liberar, NO afirmamos que se liberó: la intención
+        // sigue viva en el backend y el usuario tiene que poder reintentar.
+        mensajeError.value = error.response?.data?.error
+            || 'No pudimos liberar el pago pendiente. Intentá nuevamente.';
+        detalleError.value = error.response?.data?.detalle || null;
+        estadoPago.value = 'en_curso';
+    } finally {
+        cargandoAccion.value = false;
     }
 };
 
-const reintentarPago = () => {
+/**
+ * Reintenta el pago sin duplicar el cobro.
+ *
+ * - Si hay una intención viva con link de checkout, reanuda ESE mismo pago.
+ * - Si la intención no tiene link guardado (creada antes de este cambio),
+ *   primero la libera y recién después genera una nueva.
+ */
+const reintentarPago = async () => {
     mensajeError.value = null;
-    if (planObjetivo.value) {
-        estadoPago.value = null;
-        pagarPlan(planObjetivo.value);
-    } else {
-        recargarPagina();
+    detalleError.value = null;
+
+    const pendienteReal = ['pendiente', 'en_curso', 'timeout'].includes(estadoPago.value);
+    const url = checkoutExistente.value || pagoEnVuelo.value?.checkout_url;
+
+    if (pendienteReal && url) {
+        window.location.href = url;
+        return;
     }
+
+    const planId = planObjetivo.value;
+
+    if (!planId) {
+        recargarPagina();
+        return;
+    }
+
+    if (pagoEnVuelo.value) {
+        cargandoAccion.value = true;
+        try {
+            await axios.post(route('suscripcion.cancelar-pago'));
+        } catch {
+            // Si falla la liberación, el pago anterior puede seguir vivo.
+            // No generamos uno nuevo para no duplicar el cobro.
+            mensajeError.value = 'No pudimos liberar el pago pendiente anterior. Intentá nuevamente desde "Liberar pago pendiente".';
+            estadoPago.value = 'en_curso';
+            return;
+        } finally {
+            cargandoAccion.value = false;
+        }
+        pagoEnVuelo.value = null;
+        checkoutExistente.value = null;
+        detenerPolling();
+    }
+
+    estadoPago.value = null;
+    await pagarPlan(planId);
 };
 
 onMounted(() => {
@@ -438,6 +549,10 @@ onMounted(() => {
 
     const pendiente = leerRenovacionPendiente();
     const vuelo = pagoEnVuelo.value;
+
+    if (vuelo?.checkout_url) {
+        checkoutExistente.value = vuelo.checkout_url;
+    }
 
     // El navegador recuerda una renovación, pero el backend ya no tiene ninguna
     // preferencia viva. Eso significa que el pago se resolvió en otra pestaña o
@@ -454,26 +569,30 @@ onMounted(() => {
     const planId = urlPlanId
         ?? (vuelo ? vuelo.plan_id : null)
         ?? pendiente?.plan_id
-        ?? props.planes.find(p => p.slug === props.comercio?.plan_pendiente)?.id
+        ?? (props.comercio?.pending_plan_id ?? null)
         ?? null;
 
     if (pago === 'error') {
         localStorage.removeItem(RENOVACION_KEY);
         limpiarUrl();
+        planObjetivo.value = planId;
         estadoPago.value = 'error';
         return;
     }
 
-    // El backend tiene una preferencia viva: hay un pago pendiente real. Se
-    // muestra el banner y se espera la confirmación de Mercado Pago.
+    // El backend tiene una preferencia viva: hay un pago pendiente real. Desde
+    // el primer momento se muestran "Reintentar pago" (reanuda el mismo
+    // checkout) y "Liberar pago pendiente", sin esperar los 90 segundos del
+    // polling. El polling sigue en segundo plano por si MP confirma solo.
     if (planId && (pago === 'exito' || vuelo)) {
         planRenovado.value = props.planes.find(p => p.id === planId) || null;
         planObjetivo.value = planId;
-        estadoPago.value = 'procesando';
 
         if (pago === 'exito' && paymentId) {
+            estadoPago.value = 'procesando';
             confirmarUpgrade(planId, paymentId);
         } else {
+            estadoPago.value = 'pendiente';
             iniciarPolling(planId);
         }
         return;
@@ -486,7 +605,11 @@ onMounted(() => {
     }
 
     if (pago === 'pendiente') {
+        planObjetivo.value = planId;
         estadoPago.value = 'pendiente';
+        if (planId) {
+            iniciarPolling(planId);
+        }
     }
 });
 
@@ -516,24 +639,27 @@ onUnmounted(() => {
                     <p class="font-bold text-lg">Procesando tu pago...</p>
                     <p class="text-sm mt-1">Estamos verificando tu pago con Mercado Pago. Tu plan se actualizará en segundos.</p>
                     <p v-if="pagoEnVuelo" class="text-xs font-bold mt-2 opacity-70">
-                        Pago pendiente de confirmación · te quedan {{ pagoEnVuelo.expira_en_minutos }} min
+                        Pago pendiente de confirmación · te quedan {{ pagoEnVuelo.expira_en_minutos }} min de bloqueo anti-duplicado
                     </p>
                 </div>
+
                 <div v-if="estadoPago === 'aprobado'" class="mx-4 sm:mx-0 mb-8 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-6 text-center">
                     <p class="font-bold text-lg">🎉 ¡Felicitaciones! Se aprobó tu renovación del Plan {{ planRenovado?.nombre || 'Solicitado' }}.</p>
                     <p class="text-sm mt-1">Recargando...</p>
                 </div>
-                <div v-if="estadoPago === 'error' || estadoPago === 'error_fatal'" class="mx-4 sm:mx-0 mb-8 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">
-                        {{ estadoPago === 'error_fatal' ? 'No pudimos validar este pago' : 'El pago fue rechazado.' }}
-                    </p>
-                    <p v-if="mensajeError" class="text-sm mt-1">{{ mensajeError }}</p>
-                    <p class="text-sm mt-1">No se cobró nada y tu plan sigue igual.</p>
+
+                <!-- Error al iniciar el pago (origen, plan, pasarela). Reemplaza
+                     los `alert()` nativos por un mensaje integrado con el motivo
+                     real que devuelve el backend. -->
+                <div v-if="estadoPago === 'error_inicio'" class="mx-4 sm:mx-0 mb-8 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-6 text-center">
+                    <p class="font-bold text-lg">No pudimos iniciar el pago</p>
+                    <p v-if="mensajeError" class="text-sm mt-1 font-bold">{{ mensajeError }}</p>
+                    <p v-if="detalleError" class="text-xs mt-2 font-mono opacity-70 break-words">{{ detalleError }}</p>
+                    <p class="text-sm mt-2">No se cobró nada y tu plan sigue igual.</p>
                     <div class="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
                         <button
-                            v-if="estadoPago === 'error'"
                             class="py-3 px-6 rounded-2xl font-black uppercase tracking-widest text-xs bg-rose-600 text-white hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50"
-                            :disabled="cargandoAccion"
+                            :disabled="cargandoAccion || planCargando !== null"
                             @click="reintentarPago"
                         >
                             Reintentar pago
@@ -546,9 +672,44 @@ onUnmounted(() => {
                         </button>
                     </div>
                 </div>
+
+                <div v-if="estadoPago === 'error' || estadoPago === 'error_fatal'" class="mx-4 sm:mx-0 mb-8 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-6 text-center">
+                    <p class="font-bold text-lg">
+                        {{ estadoPago === 'error_fatal' ? 'No pudimos validar este pago' : 'El pago no se completó' }}
+                    </p>
+                    <p v-if="mensajeError" class="text-sm mt-1 font-bold">{{ mensajeError }}</p>
+                    <p v-if="detalleError" class="text-xs mt-2 font-mono opacity-70 break-words">{{ detalleError }}</p>
+                    <p class="text-sm mt-2">No se cobró nada y tu plan sigue igual.</p>
+                    <div class="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
+                        <button
+                            v-if="estadoPago === 'error'"
+                            class="py-3 px-6 rounded-2xl font-black uppercase tracking-widest text-xs bg-rose-600 text-white hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50"
+                            :disabled="cargandoAccion"
+                            @click="reintentarPago"
+                        >
+                            Reintentar pago
+                        </button>
+                        <button
+                            v-if="pagoEnVuelo"
+                            class="py-3 px-6 rounded-2xl font-black uppercase tracking-widest text-xs bg-white text-rose-700 border-2 border-rose-200 hover:bg-rose-50 active:scale-[0.98] transition-all disabled:opacity-50"
+                            :disabled="cargandoAccion"
+                            @click="cancelarPago"
+                        >
+                            Liberar pago pendiente
+                        </button>
+                        <button
+                            class="py-3 px-6 rounded-2xl font-black uppercase tracking-widest text-xs bg-white text-rose-700 border-2 border-rose-200 hover:bg-rose-50 active:scale-[0.98] transition-all"
+                            @click="recargarPagina"
+                        >
+                            Volver a los planes
+                        </button>
+                    </div>
+                </div>
+
                 <div v-if="estadoPago === 'verificar'" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
                     <p class="font-bold text-lg">No pudimos verificar tu pago</p>
-                    <p v-if="mensajeError" class="text-sm mt-1">{{ mensajeError }}</p>
+                    <p v-if="mensajeError" class="text-sm mt-1 font-bold">{{ mensajeError }}</p>
+                    <p v-if="detalleError" class="text-xs mt-2 font-mono opacity-70 break-words">{{ detalleError }}</p>
                     <p class="text-sm mt-1">
                         Si ya pagaste, tu plan se actualiza solo en cuanto Mercado Pago nos avise.
                         Podés consultar el estado ahora o reintentar el pago.
@@ -570,14 +731,22 @@ onUnmounted(() => {
                         </button>
                     </div>
                 </div>
-                <div v-if="estadoPago === 'pendiente'" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">Estamos esperando la confirmación del pago.</p>
-                </div>
-                <div v-if="estadoPago === 'timeout'" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">No pudimos confirmar tu pago todavía</p>
+
+                <!-- Pago con intención viva: las dos salidas están disponibles
+                     desde el primer momento, sin esperar el timeout del polling. -->
+                <div v-if="esEstadoPendiente" class="mx-4 sm:mx-0 mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-6 text-center">
+                    <p class="font-bold text-lg">{{ tituloPendiente }}</p>
+                    <p v-if="mensajeError" class="text-sm mt-1 font-bold">{{ mensajeError }}</p>
+                    <p v-if="detalleError" class="text-xs mt-2 font-mono opacity-70 break-words">{{ detalleError }}</p>
                     <p class="text-sm mt-1">
-                        Mercado Pago todavía no nos-notificó. Si ya pagaste, no hace falta que hagas nada: la suscripción se actualiza sola.
-                        Si no llegaste a pagar, podés reintentar o liberar el pago pendiente.
+                        Si todavía no pagaste, no se te cobró nada. Tu plan se actualiza únicamente cuando
+                        Mercado Pago confirma el pago.
+                    </p>
+                    <p class="text-xs font-bold mt-2 opacity-80">
+                        <template v-if="minutosBloqueo !== null">
+                            Quedan {{ minutosBloqueo }} min de bloqueo anti-duplicado.
+                        </template>
+                        Ese bloqueo evita generar un segundo cobro; no significa que el pago se haya realizado.
                     </p>
                     <div class="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
                         <button
@@ -595,7 +764,15 @@ onUnmounted(() => {
                             Liberar pago pendiente
                         </button>
                     </div>
+                    <button
+                        class="mt-3 text-[10px] font-black uppercase tracking-widest text-amber-700/70 hover:text-amber-800 underline underline-offset-2 disabled:opacity-50"
+                        :disabled="cargandoAccion"
+                        @click="verificarEstadoPago"
+                    >
+                        Consultar estado ahora
+                    </button>
                 </div>
+
                 <div v-if="estadoPago === 'liberado'" class="mx-4 sm:mx-0 mb-8 bg-slate-50 border border-slate-200 text-slate-700 rounded-2xl p-6 text-center">
                     <p class="font-bold text-lg">El pago pendiente fue cancelado</p>
                     <p class="text-sm mt-1">
@@ -608,26 +785,6 @@ onUnmounted(() => {
                     >
                         Volver a los planes
                     </button>
-                </div>
-                <div v-if="estadoPago === 'en_curso'" class="mx-4 sm:mx-0 mb-8 bg-sky-50 border border-sky-200 text-sky-800 rounded-2xl p-6 text-center">
-                    <p class="font-bold text-lg">Ya hay un pago en proceso</p>
-                    <p class="text-sm mt-1">Te enviamos a Mercado Pago hace instantes. Esperá la confirmación antes de generar otro pago, así no se duplica el cobro.</p>
-                    <div class="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
-                        <button
-                            class="py-3 px-6 rounded-2xl font-black uppercase tracking-widest text-xs bg-sky-700 text-white hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50"
-                            :disabled="cargandoAccion"
-                            @click="reintentarPago"
-                        >
-                            Reintentar pago
-                        </button>
-                        <button
-                            class="py-3 px-6 rounded-2xl font-black uppercase tracking-widest text-xs bg-white text-sky-700 border-2 border-sky-200 hover:bg-sky-50 active:scale-[0.98] transition-all disabled:opacity-50"
-                            :disabled="cargandoAccion"
-                            @click="cancelarPago"
-                        >
-                            Liberar pago pendiente
-                        </button>
-                    </div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-8 px-4 sm:px-0">

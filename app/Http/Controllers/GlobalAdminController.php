@@ -2,14 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PaymentStatus;
+use App\Exceptions\PagoManualInvalidoException;
 use App\Models\Comercio;
-use App\Models\Sucursal; 
+use App\Models\Payment;
+use App\Models\Sucursal;
 use App\Models\User;
 use App\Models\Plan;
+use App\Services\Suscripcion\PagoManualService;
+use App\Services\Suscripcion\SuscripcionService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class GlobalAdminController extends Controller
 {
@@ -102,14 +109,20 @@ class GlobalAdminController extends Controller
      */
     public function metricas()
     {
+        $preciosConfirmados = (bool) config('vendar.facturacion.precios_confirmados', false);
+
         // 1. Comercios totales y activos según tu campo 'status'
         $totalComercios = Comercio::count();
         $comerciosActivos = Comercio::where('status', 'activo')->count();
 
-        // 2. Cálculo dinámico de MRR desde planes en DB
-        $mrr = Comercio::where('status', 'activo')
-            ->join('planes', 'comercios.plan_id', '=', 'planes.id')
-            ->sum('planes.precio_mensual');
+        // 2. MRR: sólo se calcula si los precios están confirmados. Mientras
+        //    no lo estén, devolver un número sería una proyección basada en
+        //    importes que el negocio todavía no definió.
+        $mrr = $preciosConfirmados
+            ? (float) Comercio::where('status', 'activo')
+                ->join('planes', 'comercios.plan_id', '=', 'planes.id')
+                ->sum('planes.precio_mensual')
+            : null;
 
         // 3. Total de sucursales operando en la nube
         $totalSucursales = Sucursal::count();
@@ -117,8 +130,10 @@ class GlobalAdminController extends Controller
         // 4. Total de cuentas de usuario creadas
         $totalUsuarios = User::count();
 
-        // 5. Últimos 5 comercios registrados para la tabla rápida de monitoreo
-        $ultimosComercios = Comercio::with('plan')
+        // 5. Últimos 5 comercios registrados para la tabla rápida de monitoreo.
+        //    Se usa `planContratado` para no confundir la columna legacy
+        //    `comercios.plan` con la relación al plan.
+        $ultimosComercios = Comercio::with('planContratado')
             ->latest()
             ->take(5)
             ->get()
@@ -126,7 +141,8 @@ class GlobalAdminController extends Controller
                 return [
                     'id' => $c->id,
                     'nombre' => $c->nombre,
-                    'plan' => $c->plan?->nombre ?? $c->plan ?? 'N/A',
+                    'plan' => $c->planContratado?->nombre
+                        ?? ($c->plan ? strtoupper($c->plan) : 'N/A'),
                     'fecha' => $c->created_at ? $c->created_at->format('d/m/Y') : 'N/A',
                     'estado' => ucfirst($c->status)
                 ];
@@ -140,54 +156,179 @@ class GlobalAdminController extends Controller
                 'sucursales_nube'   => $totalSucursales,
                 'usuarios_totales'  => $totalUsuarios,
             ],
-            'ultimosComercios' => $ultimosComercios
+            'ultimosComercios' => $ultimosComercios,
+            'precios_confirmados' => $preciosConfirmados,
         ]);
     }
 
-    public function facturacion()
+    public function facturacion(Request $request)
     {
-        $hoy = now();
+        $hoy = now()->startOfDay();
+        $preciosConfirmados = (bool) config('vendar.facturacion.precios_confirmados', false);
 
         $comercios = Comercio::select('id', 'nombre', 'plan', 'plan_id', 'status', 'vencimiento_pago')
-            ->with('plan:id,precio_mensual,nombre as plan_nombre,slug')
+            ->with('planContratado:id,nombre,slug,precio_mensual')
             ->orderBy('vencimiento_pago', 'asc')
             ->get()
-            ->map(function ($c) use ($hoy) {
-                $monto = $c->plan?->precio_mensual ?? 0;
+            ->map(function (Comercio $c) use ($hoy, $preciosConfirmados) {
+                $plan = $c->planContratado;
+                $vencimiento = $c->vencimiento_pago
+                    ? Carbon::parse($c->vencimiento_pago)->startOfDay()
+                    : null;
 
-                // Determinamos el estado financiero real
-                $estadoFinanciero = 'Al Día';
-                if ($c->status === 'suspendido') {
-                    $estadoFinanciero = 'Suspendido';
-                } elseif ($c->vencimiento_pago && \Carbon\Carbon::parse($c->vencimiento_pago)->isBefore($hoy)) {
-                    $estadoFinanciero = 'Vencido';
-                }
+                $diasRestantes = $vencimiento
+                    ? (int) $hoy->diffInDays($vencimiento, false)
+                    : null;
+
+                $suspendido = $c->status === 'suspendido';
+
+                // El día del vencimiento todavía es un día con acceso: el
+                // middleware corta al finalizar la jornada. Por eso `dias === 0`
+                // no puede mostrarse como Vencido.
+                $estadoCobro = match (true) {
+                    $suspendido => 'Suspendido',
+                    $vencimiento === null => 'Sin vencimiento',
+                    $diasRestantes < 0 => 'Vencido',
+                    $diasRestantes === 0 => 'Al Día',
+                    $diasRestantes <= SuscripcionService::UMBRAL_AVISO_DIAS => 'Por Vencer',
+                    default => 'Al Día',
+                };
+
+                $precioConfigurado = $plan?->precio_mensual !== null
+                    ? (float) $plan->precio_mensual
+                    : null;
 
                 return [
-                    'id'               => $c->id,
-                    'nombre'           => $c->nombre,
-                    'plan'             => $c->plan?->nombre ?? strtoupper($c->plan),
-                    'slug'             => $c->plan?->slug ?? $c->plan,
-                    'monto'            => $monto,
-                    'vencimiento'      => $c->vencimiento_pago ? \Carbon\Carbon::parse($c->vencimiento_pago)->format('d/m/Y') : 'Sin fecha',
-                    'estado_cobro'     => $estadoFinanciero,
-                    'dias_restantes'   => $c->vencimiento_pago ? \Carbon\Carbon::parse($c->vencimiento_pago)->diffInDays($hoy, false) : 0,
+                    'id' => $c->id,
+                    'nombre' => $c->nombre,
+                    'plan' => $plan?->nombre
+                        ?? ($c->plan ? strtoupper($c->plan) : 'Sin plan'),
+                    'slug' => $plan?->slug ?? $c->plan,
+                    // Precio configurado en el plan, no tarifa comercial.
+                    'precio_configurado' => $precioConfigurado,
+                    'precio_es_referencia' => ! $preciosConfirmados,
+                    'vencimiento' => $vencimiento?->format('d/m/Y'),
+                    'estado_cobro' => $estadoCobro,
+                    'dias_restantes' => $diasRestantes,
+                    'dias_atraso' => $diasRestantes !== null && $diasRestantes < 0
+                        ? abs($diasRestantes)
+                        : 0,
+                    'suspendido' => $suspendido,
                 ];
             });
 
-        // Cálculos rápidos para tus tarjetas de métricas financieras
-        $totalEsperado = $comercios->whereIn('estado_cobro', ['Al Día', 'Vencido'])->sum('monto');
-        $totalVencido = $comercios->where('estado_cobro', 'Vencido')->sum('monto');
-        $clientesMorosos = $comercios->where('estado_cobro', 'Vencido')->count();
+        $vencidos = $comercios->where('estado_cobro', 'Vencido')->count();
+        $suspendidos = $comercios->where('estado_cobro', 'Suspendido')->count();
+
+        $historial = $this->construirHistorial($request);
 
         return Inertia::render('AdminGlobal/Facturacion', [
             'comercios' => $comercios,
             'resumen' => [
-                'total_esperado'   => $totalEsperado,
-                'total_vencido'    => $totalVencido,
-                'clientes_morosos' => $clientesMorosos,
-            ]
+                'total_comercios' => $comercios->count(),
+                'al_dia' => $comercios->where('estado_cobro', 'Al Día')->count(),
+                'por_vencer' => $comercios->where('estado_cobro', 'Por Vencer')->count(),
+                'vencidos' => $vencidos,
+                'suspendidos' => $suspendidos,
+                'sin_vencimiento' => $comercios->where('estado_cobro', 'Sin vencimiento')->count(),
+                // Los suspendidos siguen siendo deuda: no desaparecen de mora.
+                'en_mora' => $vencidos + $suspendidos,
+                'clientes_morosos' => $vencidos + $suspendidos,
+            ],
+            'historial' => $historial['pagos'],
+            'historial_filtros' => $historial['filtros'],
+            'comercios_filtro' => Comercio::orderBy('nombre')->get(['id', 'nombre']),
+            'estados_pago' => array_map(fn (PaymentStatus $e) => $e->value, PaymentStatus::cases()),
+            'precios_confirmados' => $preciosConfirmados,
+            'cobros_habilitados' => (bool) config('vendar.facturacion.cobros_habilitados', false),
+            'aviso_precios' => 'Los precios comerciales de VendAR todavía están pendientes de definición. El registro de cobros permanece deshabilitado.',
+            'aviso_pagos_online' => 'Los pagos online estarán disponibles próximamente.',
         ]);
+    }
+
+    /**
+     * Historial de pagos de suscripción con filtros por comercio, estado y
+     * período. No inventa registros: si no hay pagos, devuelve una lista vacía.
+     */
+    public function historialPagos(Request $request)
+    {
+        $estados = array_map(fn (PaymentStatus $e) => $e->value, PaymentStatus::cases());
+
+        $request->validate([
+            'comercio_id' => 'nullable|integer|exists:comercios,id',
+            'estado' => ['nullable', Rule::in($estados)],
+            'periodo' => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
+        ]);
+
+        $historial = $this->construirHistorial($request);
+
+        return response()->json([
+            'pagos' => $historial['pagos'],
+            'filtros' => $historial['filtros'],
+            'total' => count($historial['pagos']),
+        ]);
+    }
+
+    /**
+     * @return array{pagos: array<int, array<string, mixed>>, filtros: array<string, mixed>}
+     */
+    private function construirHistorial(Request $request): array
+    {
+        $filtros = [
+            'comercio_id' => $request->integer('comercio_id') ?: null,
+            'estado' => $request->string('estado')->toString() ?: null,
+            'periodo' => $request->string('periodo')->toString() ?: null,
+        ];
+
+        $query = Payment::query()
+            ->where('payable_type', Comercio::class)
+            ->with(['createdBy:id,name,email', 'payable:id,nombre'])
+            ->orderByDesc('approved_at')
+            ->orderByDesc('id');
+
+        if ($filtros['comercio_id']) {
+            $query->where('payable_id', $filtros['comercio_id']);
+        }
+
+        $estadosValidos = array_map(fn (PaymentStatus $e) => $e->value, PaymentStatus::cases());
+        if ($filtros['estado'] && in_array($filtros['estado'], $estadosValidos, true)) {
+            $query->where('status', $filtros['estado']);
+        }
+
+        if ($filtros['periodo'] && preg_match('/^\d{4}-\d{2}$/', $filtros['periodo'])) {
+            $desde = Carbon::createFromFormat('Y-m', $filtros['periodo'])->startOfMonth();
+            $hasta = $desde->copy()->endOfMonth();
+
+            $query->where(function ($q) use ($desde, $hasta) {
+                $q->whereBetween('period_start', [$desde, $hasta])
+                    ->orWhereBetween('period_end', [$desde, $hasta]);
+            });
+        }
+
+        $pagos = $query->limit(100)->get()->map(function (Payment $p) {
+            return [
+                'id' => $p->id,
+                'comercio_id' => $p->payable_id,
+                'comercio' => $p->payable?->nombre,
+                'fecha' => $p->approved_at?->format('d/m/Y H:i')
+                    ?? $p->created_at?->format('d/m/Y H:i'),
+                'importe' => $p->amount !== null ? (float) $p->amount : null,
+                'moneda' => $p->currency,
+                'metodo' => $p->payment_method,
+                'periodo_inicio' => $p->period_start?->format('d/m/Y'),
+                'periodo_fin' => $p->period_end?->format('d/m/Y'),
+                'estado' => $p->status instanceof PaymentStatus
+                    ? $p->status->value
+                    : (string) $p->status,
+                'responsable' => $p->createdBy?->name,
+                'referencia' => $p->reference,
+            ];
+        })->values()->all();
+
+        return [
+            'pagos' => $pagos,
+            'filtros' => $filtros,
+        ];
     }
 
     /**
@@ -282,23 +423,47 @@ class GlobalAdminController extends Controller
         return redirect()->back()->with('exito', "Solicitud de {$nombre} rechazada.");
     }
 
-    public function marcarPagado(Request $request, Comercio $comercio)
-    {
-        $request->validate(['fecha' => 'nullable|date']);
+    public function marcarPagado(
+        Request $request,
+        Comercio $comercio,
+        PagoManualService $pagoManualService,
+    ) {
+        // Mientras no haya precios comerciales definidos, ni siquiera el
+        // Administrador Global puede registrar un cobro. La acción se rechaza
+        // en backend y la interfaz no muestra el botón.
+        if (! $pagoManualService->estaHabilitado()) {
+            abort(403, 'Los precios comerciales todavía están pendientes de definición. El registro de cobros permanece deshabilitado.');
+        }
 
-        $comercio->update([
-            'vencimiento_pago' => $request->fecha ?? now()->addMonth(),
-            'status' => 'activo',
+        // La fecha de vencimiento NO se acepta desde el formulario. Sólo se
+        // registra la fecha en que se recibió el pago; el período lo calcula
+        // el servicio a partir del vencimiento vigente.
+        $validated = $request->validate([
+            'importe' => 'required|numeric|min:0',
+            'payment_method' => ['required', 'string', Rule::in(PagoManualService::METODOS_VALIDOS)],
+            'referencia' => 'nullable|string|max:255',
+            'idempotency_key' => 'nullable|string|max:191',
+            'fecha_pago' => 'nullable|date',
         ]);
 
-        return redirect()->back()->with('exito', "{$comercio->nombre} marcado como al día.");
+        try {
+            $pago = $pagoManualService->registrar($comercio, $validated, $request->user());
+        } catch (PagoManualInvalidoException $e) {
+            return redirect()->back()->withErrors(['pago' => $e->getMessage()]);
+        }
+
+        return redirect()->back()->with(
+            'exito',
+            "Pago #{$pago->id} registrado para {$comercio->nombre}."
+        );
     }
 
     public function generarLinkMP(Comercio $comercio)
     {
         return response()->json([
-            'message' => 'Funcionalidad próxima a implementarse.',
-            'preview' => route('admin.facturacion'),
+            'disponible' => false,
+            'cobro_generado' => false,
+            'message' => 'Los pagos online estarán disponibles próximamente.',
         ]);
     }
 }

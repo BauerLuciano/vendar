@@ -394,6 +394,7 @@ Route::middleware(['auth', 'role:Administrador Global'])->prefix('admin-global')
 
     Route::get('/metricas', [GlobalAdminController::class, 'metricas'])->name('admin.metricas');
     Route::get('/facturacion', [GlobalAdminController::class, 'facturacion'])->name('admin.facturacion');
+    Route::get('/facturacion/historial', [GlobalAdminController::class, 'historialPagos'])->name('admin.facturacion.historial');
     Route::post('/facturacion/{comercio}/pagar', [GlobalAdminController::class, 'marcarPagado'])->name('admin.facturacion.pagar');
     Route::post('/facturacion/{comercio}/link-mp', [GlobalAdminController::class, 'generarLinkMP'])->name('admin.facturacion.link-mp');
     Route::get('/solicitudes', [GlobalAdminController::class, 'solicitudesPendientes'])->name('admin.solicitudes');
