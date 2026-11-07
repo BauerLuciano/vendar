@@ -183,7 +183,7 @@ PHPUnit los reporta como `DEPR` por la constante `PDO::MYSQL_ATTR_SSL_CA` en PHP
 | Suite | Resultado |
 |---|---|
 | `tests/Feature/BuildB2_CajasUnicidadTest.php` | 13/13 |
-| `tests/Unit/Suscripcion/SuscripcionServiceTest.php` | 26/26 |
+| `tests/Unit/Suscripcion/SuscripcionServiceTest.php` | 25/25 |
 | `tests/Feature/BuildB1_UsuariosSeguridadTest.php` | 28/28 |
 
 Los 3 casos de B1 que fallaron en la primera corrida por un reinicio espontáneo de PostgreSQL (`terminating connection due to administrator command`) se repitieron con el contenedor healthy y pasaron (5 aserciones). No hubo fallo de lógica.
