@@ -191,10 +191,20 @@ class ConfiguracionController extends Controller
             'display_data.titular' => 'nullable|string|regex:/^[\pL\s\.\,]*$/u|max:255',
             'enabled' => 'boolean',
         ], [
+            'metodo_pago.required' => 'Seleccioná un método de pago.',
+            'metodo_pago.in' => 'Seleccioná un método de pago válido.',
+            'provider.max' => 'La pasarela no debe superar los 100 caracteres.',
+            'display_data.array' => 'Los datos para mostrar no tienen un formato válido.',
+            'display_data.alias.max' => 'El alias no debe superar los 255 caracteres.',
             'display_data.cvu.regex' => 'El CVU solo puede contener números.',
+            'display_data.cvu.max' => 'El CVU no debe superar los 255 caracteres.',
             'display_data.cbu.regex' => 'El CBU solo puede contener números.',
+            'display_data.cbu.max' => 'El CBU no debe superar los 255 caracteres.',
             'display_data.banco.regex' => 'El banco solo puede contener letras.',
+            'display_data.banco.max' => 'El banco no debe superar los 255 caracteres.',
             'display_data.titular.regex' => 'El nombre del titular solo puede contener letras.',
+            'display_data.titular.max' => 'El nombre del titular no debe superar los 255 caracteres.',
+            'enabled.boolean' => 'El estado de habilitación no es válido.',
         ]);
 
         PaymentMethodConfiguration::updateOrCreate(

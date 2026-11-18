@@ -12,17 +12,27 @@ const props = defineProps({
 
 const pestañaActiva = ref('sugerencias');
 
+const setSwalText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value ?? '—';
+};
+
 const despacharTransferencia = (sugerencia) => {
     Swal.fire({
         title: '¿Despachar transferencia?',
-        html: `Se descontarán <b>${sugerencia.cantidad} unidades</b> de <b>${sugerencia.producto.nombre}</b> desde <b>${sugerencia.origen.nombre}</b>.<br><br>El stock quedará en tránsito hasta que la sucursal destino lo reciba.`,
+        html: `Se descontarán <b><span id="swal-desp-cantidad"></span> unidades</b> de <b><span id="swal-desp-producto"></span></b> desde <b><span id="swal-desp-origen"></span></b>.<br><br>El stock quedará en tránsito hasta que la sucursal destino lo reciba.`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#f59e0b',
         cancelButtonColor: '#64748b',
         confirmButtonText: 'Sí, despachar',
         cancelButtonText: 'Cancelar',
-        reverseButtons: true
+        reverseButtons: true,
+        didOpen: () => {
+            setSwalText('swal-desp-cantidad', sugerencia.cantidad);
+            setSwalText('swal-desp-producto', sugerencia.producto?.nombre);
+            setSwalText('swal-desp-origen', sugerencia.origen?.nombre);
+        }
     }).then((result) => {
         if (result.isConfirmed) {
             router.post(route('transferencias.despachar', sugerencia.id), {}, {
@@ -47,14 +57,20 @@ const despacharTransferencia = (sugerencia) => {
 const recibirTransferencia = (item) => {
     Swal.fire({
         title: '¿Recibir transferencia?',
-        html: `Se sumarán <b>${item.cantidad} unidades</b> de <b>${item.producto.nombre}</b> al stock de <b>${item.destino.nombre}</b>.<br><br>Origen: ${item.origen.nombre}`,
+        html: `Se sumarán <b><span id="swal-rec-cantidad"></span> unidades</b> de <b><span id="swal-rec-producto"></span></b> al stock de <b><span id="swal-rec-destino"></span></b>.<br><br>Origen: <span id="swal-rec-origen"></span>`,
         icon: 'question',
         showCancelButton: true,
         confirmButtonColor: '#10b981',
         cancelButtonColor: '#64748b',
         confirmButtonText: 'Sí, recibir',
         cancelButtonText: 'Cancelar',
-        reverseButtons: true
+        reverseButtons: true,
+        didOpen: () => {
+            setSwalText('swal-rec-cantidad', item.cantidad);
+            setSwalText('swal-rec-producto', item.producto?.nombre);
+            setSwalText('swal-rec-destino', item.destino?.nombre);
+            setSwalText('swal-rec-origen', item.origen?.nombre);
+        }
     }).then((result) => {
         if (result.isConfirmed) {
             router.post(route('transferencias.recibir', item.id), {}, {
@@ -79,14 +95,18 @@ const recibirTransferencia = (item) => {
 const cancelarTransferencia = (item) => {
     Swal.fire({
         title: '¿Cancelar transferencia?',
-        html: `Se cancelará la transferencia de <b>${item.producto.nombre}</b> (${item.cantidad} unidades).<br><br>Esta acción no se puede deshacer.`,
+        html: `Se cancelará la transferencia de <b><span id="swal-canc-producto"></span></b> (<span id="swal-canc-cantidad"></span> unidades).<br><br>Esta acción no se puede deshacer.`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
         cancelButtonColor: '#64748b',
         confirmButtonText: 'Sí, cancelar',
         cancelButtonText: 'No, volver',
-        reverseButtons: true
+        reverseButtons: true,
+        didOpen: () => {
+            setSwalText('swal-canc-producto', item.producto?.nombre);
+            setSwalText('swal-canc-cantidad', item.cantidad);
+        }
     }).then((result) => {
         if (result.isConfirmed) {
             router.post(route('transferencias.cancelar', item.id), {}, {

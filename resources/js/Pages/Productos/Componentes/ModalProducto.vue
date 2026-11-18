@@ -247,9 +247,9 @@ async function buscarCodigo(codigo) {
                 title: 'Producto ya existe en DB',
                 html: `
                     <div class="text-left space-y-1">
-                        <p class="text-sm font-bold text-slate-700">${p.nombre}</p>
-                        <p class="text-xs text-slate-500">Marca: ${p.marca || '—'} · Categoría: ${p.categoria || '—'}</p>
-                        <p class="text-xs text-slate-500">Código: ${p.codigo_barras}</p>
+                        <p id="swal-producto-nombre" class="text-sm font-bold text-slate-700"></p>
+                        <p class="text-xs text-slate-500">Marca: <span id="swal-producto-marca"></span> · Categoría: <span id="swal-producto-categoria"></span></p>
+                        <p class="text-xs text-slate-500">Código: <span id="swal-producto-codigo"></span></p>
                     </div>
                 `,
                 icon: 'info',
@@ -257,6 +257,16 @@ async function buscarCodigo(codigo) {
                 confirmButtonColor: '#0284c7',
                 showCancelButton: true,
                 cancelButtonText: 'Cerrar',
+                didOpen: () => {
+                    const setText = (id, value) => {
+                        const el = document.getElementById(id);
+                        if (el) el.textContent = value ?? '—';
+                    };
+                    setText('swal-producto-nombre', p.nombre);
+                    setText('swal-producto-marca', p.marca || '—');
+                    setText('swal-producto-categoria', p.categoria || '—');
+                    setText('swal-producto-codigo', p.codigo_barras);
+                },
             });
             
             if (result.isConfirmed) {
@@ -272,15 +282,13 @@ async function buscarCodigo(codigo) {
                 html: `
                     <div class="flex flex-col items-center gap-3">
                         <div class="w-32 h-32 bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200">
-                            ${apiData.imagen
-                                ? `<img src="${apiData.imagen}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
-                                : '<span class="text-3xl text-slate-300">📦</span>'
-                            }
+                            <img id="swal-api-imagen" class="hidden w-full h-full object-cover" alt="">
+                            <span id="swal-api-placeholder" class="text-3xl text-slate-300">📦</span>
                         </div>
                         <div class="text-left w-full space-y-1">
-                            <p class="font-bold text-slate-800 text-base">${apiData.nombre || apiData.title || 'Producto'}</p>
-                            ${apiData.marca ? `<p class="text-sm text-slate-500"><span class="font-medium">Marca:</span> ${apiData.marca}</p>` : ''}
-                            ${apiData.presentacion ? `<p class="text-sm text-slate-500"><span class="font-medium">Presentación:</span> ${apiData.presentacion}</p>` : ''}
+                            <p id="swal-api-nombre" class="font-bold text-slate-800 text-base"></p>
+                            <p id="swal-api-marca-row" class="hidden text-sm text-slate-500"><span class="font-medium">Marca:</span> <span id="swal-api-marca"></span></p>
+                            <p id="swal-api-presentacion-row" class="hidden text-sm text-slate-500"><span class="font-medium">Presentación:</span> <span id="swal-api-presentacion"></span></p>
                         </div>
                     </div>
                 `,
@@ -292,6 +300,64 @@ async function buscarCodigo(codigo) {
                 cancelButtonColor: '#64748b',
                 reverseButtons: true,
                 customClass: { popup: 'rounded-2xl' },
+                didOpen: () => {
+                    const img = document.getElementById('swal-api-imagen');
+                    const placeholder = document.getElementById('swal-api-placeholder');
+                    const nombre = document.getElementById('swal-api-nombre');
+                    const nombreProducto = apiData.nombre || apiData.title || 'Producto';
+
+                    if (nombre) nombre.textContent = nombreProducto;
+                    if (img) img.alt = nombreProducto;
+
+                    const mostrarPlaceholder = () => {
+                        if (img) {
+                            img.removeAttribute('src');
+                            img.classList.add('hidden');
+                        }
+                        if (placeholder) placeholder.classList.remove('hidden');
+                    };
+
+                    const mostrarFila = (rowId, valueId, value) => {
+                        const row = document.getElementById(rowId);
+                        const el = document.getElementById(valueId);
+                        if (!row || !el) return;
+                        if (value) {
+                            el.textContent = value;
+                            row.classList.remove('hidden');
+                        } else {
+                            row.classList.add('hidden');
+                        }
+                    };
+
+                    mostrarFila('swal-api-marca-row', 'swal-api-marca', apiData.marca);
+                    mostrarFila('swal-api-presentacion-row', 'swal-api-presentacion', apiData.presentacion);
+
+                    const esUrlSegura = (url) => {
+                        if (typeof url !== 'string') return false;
+                        const valor = url.trim();
+                        if (!valor || valor.startsWith('//') || valor.includes('\\')) return false;
+                        try {
+                            const parsed = new URL(valor, window.location.origin);
+                            if (valor.startsWith('/')) {
+                                return parsed.origin === window.location.origin;
+                            }
+                            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                        } catch {
+                            return false;
+                        }
+                    };
+
+                    if (img && esUrlSegura(apiData.imagen)) {
+                        img.addEventListener('error', mostrarPlaceholder, { once: true });
+                        img.addEventListener('load', () => {
+                            img.classList.remove('hidden');
+                            if (placeholder) placeholder.classList.add('hidden');
+                        }, { once: true });
+                        img.src = apiData.imagen.trim();
+                    } else {
+                        mostrarPlaceholder();
+                    }
+                },
             });
 
             if (!confirmar.isConfirmed) return;

@@ -17,7 +17,11 @@ const form = useForm({
         <div class="w-full max-w-2xl animate-fade-in-up">
             <div class="text-center mb-8">
                 <div class="w-16 h-16 bg-white/10 backdrop-blur rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <i class="ri-store-2-line text-3xl text-sky-400"></i>
+                    <svg class="inline-block h-[1em] w-[1em] align-middle text-3xl text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <path d="M3 9l2-5h14l2 5" />
+                        <path d="M4 9v11h16V9" />
+                        <path d="M9 20v-6h6v6" />
+                    </svg>
                 </div>
                 <h1 class="text-2xl font-black text-white tracking-tight">Elegí tu sucursal</h1>
                 <p class="text-slate-400 text-sm mt-1">Seleccioná en qué sucursal querés trabajar hoy</p>
@@ -30,13 +34,20 @@ const form = useForm({
                     class="relative group bg-white/5 hover:bg-white/10 backdrop-blur border border-white/10 hover:border-sky-500/50 rounded-2xl p-6 text-left transition-all duration-200 hover:shadow-xl hover:shadow-sky-500/10 disabled:opacity-50">
                     <div class="flex items-start gap-4">
                         <div class="w-12 h-12 bg-sky-500/10 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-sky-500/20 transition-colors">
-                            <i class="ri-store-3-line text-xl text-sky-400"></i>
+                            <svg class="inline-block h-[1em] w-[1em] align-middle text-xl text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <path d="M3 9l2-5h14l2 5" />
+                                <path d="M4 9v11h16V9" />
+                                <path d="M9 20v-6h6v6" />
+                            </svg>
                         </div>
                         <div class="min-w-0">
                             <h3 class="text-lg font-bold text-white group-hover:text-sky-300 transition-colors truncate">{{ suc.nombre }}</h3>
                             <p v-if="suc.direccion" class="text-xs text-slate-400 mt-0.5 truncate">{{ suc.direccion }}</p>
                             <span class="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider text-sky-400/70 group-hover:text-sky-400 transition-colors">
-                                Ingresar <i class="ri-arrow-right-line ml-1"></i>
+                                Ingresar <svg class="inline-block h-[1em] w-[1em] align-middle ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                    <path d="M5 12h14" />
+                                    <path d="M12 5l7 7-7 7" />
+                                </svg>
                             </span>
                         </div>
                     </div>

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 
@@ -95,8 +95,10 @@ const togglePedido = (id) => {
 
 const subiendoComprobante = ref(null);
 const comprobanteFile = ref(null);
+const comprobanteInput = ref(null);
 
 const seleccionarComprobante = (pedidoId, event) => {
+    comprobanteInput.value = event.target;
     comprobanteFile.value = event.target.files[0];
     if (comprobanteFile.value) {
         subirComprobante(pedidoId);
@@ -108,19 +110,35 @@ const subirComprobante = async (pedidoId) => {
     subiendoComprobante.value = pedidoId;
     const formData = new FormData();
     formData.append('comprobante', comprobanteFile.value);
+
+    let res;
     try {
-        const res = await axios.post(`/api/pedidos/${pedidoId}/comprobante`, formData);
-        if (res.data.success) {
-            Swal.fire({ icon: 'success', title: 'Comprobante subido', text: 'El local lo verificará pronto.', toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, background: '#0f1929', color: '#fff' });
-            const pedido = pedidos.find(p => p.id === pedidoId);
-            if (pedido) pedido.comprobante_transferencia_url = res.data.url;
-        }
+        res = await axios.post(`/api/pedidos/${pedidoId}/comprobante`, formData);
     } catch (error) {
         Swal.fire({ icon: 'error', title: 'Error', text: error.response?.data?.error || 'No se pudo subir el comprobante.', background: '#0f1929', color: '#fff' });
+        return;
     } finally {
         subiendoComprobante.value = null;
         comprobanteFile.value = null;
+        if (comprobanteInput.value) {
+            comprobanteInput.value.value = '';
+            comprobanteInput.value = null;
+        }
     }
+
+    try {
+        const pedido = props.pedidos.find(p => p.id === pedidoId);
+        if (pedido) {
+            pedido.comprobante_transferencia_url = res.data.url;
+        } else {
+            router.reload({ only: ['pedidos'] });
+        }
+    } catch (error) {
+        Swal.fire({ icon: 'warning', title: 'Comprobante subido', text: 'El comprobante se subió, pero actualizá la página para verlo.', background: '#0f1929', color: '#fff' });
+        return;
+    }
+
+    Swal.fire({ icon: 'success', title: 'Comprobante subido', text: 'El local lo verificará pronto.', toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, background: '#0f1929', color: '#fff' });
 };
 
 const formatearDinero = (monto) => {

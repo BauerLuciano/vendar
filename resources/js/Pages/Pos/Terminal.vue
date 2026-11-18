@@ -656,8 +656,8 @@ const clickEnProducto = async (producto) => {
         const { value: formValues } = await Swal.fire({
             title: 'Ingresar Cantidad',
             html: `
-                <div class="mb-4 text-slate-500 font-bold text-sm">Estás vendiendo: <span class="text-sky-600">${producto.nombre}</span></div>
-                <div class="text-[10px] text-amber-600 font-black mb-2 uppercase tracking-widest">Disponible: ${producto.stock_actual} kg</div>
+                <div class="mb-4 text-slate-500 font-bold text-sm">Estás vendiendo: <span id="swal-peso-producto" class="text-sky-600"></span></div>
+                <div class="text-[10px] text-amber-600 font-black mb-2 uppercase tracking-widest">Disponible: <span id="swal-peso-disponible"></span> kg</div>
                 <div class="flex flex-col sm:flex-row gap-3 justify-center items-center">
                     <input id="swal-peso" type="number" step="0.001" min="0.001" class="w-32 border-slate-300 rounded-xl text-center text-xl font-black text-slate-800 focus:ring-sky-500 focus:border-sky-500" placeholder="Ej: 250">
                     <select id="swal-unidad" class="w-32 border-slate-300 rounded-xl text-slate-700 font-bold text-lg bg-slate-50 focus:ring-sky-500 focus:border-sky-500">
@@ -671,7 +671,13 @@ const clickEnProducto = async (producto) => {
             confirmButtonText: 'Agregar',
             cancelButtonText: 'Cancelar',
             confirmButtonColor: '#0284c7',
-            didOpen: () => { document.getElementById('swal-peso').focus() },
+            didOpen: () => {
+                const nombre = document.getElementById('swal-peso-producto');
+                const disponible = document.getElementById('swal-peso-disponible');
+                if (nombre) nombre.textContent = producto.nombre ?? '—';
+                if (disponible) disponible.textContent = producto.stock_actual ?? '—';
+                document.getElementById('swal-peso')?.focus();
+            },
             preConfirm: () => {
                 const peso = parseFloat(document.getElementById('swal-peso').value);
                 const unidad = document.getElementById('swal-unidad').value;

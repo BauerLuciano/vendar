@@ -17,9 +17,15 @@
 
             <button v-if="sucursalActiva && !esAdminGlobal" @click="cambiarSucursal"
                 class="hidden md:inline-flex items-center gap-1.5 bg-sky-500/10 border border-sky-500/30 text-sky-400 text-[10px] font-bold px-2.5 py-1.5 rounded-lg hover:bg-sky-500/20 transition-colors group cursor-pointer">
-                <i class="ri-store-2-line text-xs"></i>
+                <svg class="inline-block h-[1em] w-[1em] align-middle text-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M3 9l2-5h14l2 5" />
+                    <path d="M4 9v11h16V9" />
+                    <path d="M9 20v-6h6v6" />
+                </svg>
                 <span>{{ sucursalActiva.nombre }}</span>
-                <i class="ri-arrow-down-s-line text-xs text-sky-400/50 group-hover:text-sky-400 transition-colors"></i>
+                <svg class="inline-block h-[1em] w-[1em] align-middle text-xs text-sky-400/50 group-hover:text-sky-400 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M6 9l6 6 6-6" />
+                </svg>
             </button>
 
             <a v-if="turnoActivo" :href="route('caja-diaria.index')" class="hidden md:inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 transition-colors">

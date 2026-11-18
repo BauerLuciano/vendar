@@ -421,24 +421,12 @@ const submitForm = async () => {
     const { duplicados, total } = await checkDuplicadosNombre();
 
     if (total > 0) {
-        let filas = duplicados.map(c =>
-            `<tr>
-                <td class="px-3 py-2 text-sm font-semibold text-slate-700 border-b">${c.nombre} ${c.apellido}</td>
-                <td class="px-3 py-2 text-sm text-slate-500 border-b font-mono">${c.documento || '—'}</td>
-                <td class="px-3 py-2 text-sm text-slate-500 border-b">${c.email || '—'}</td>
-                <td class="px-3 py-2 text-sm text-slate-500 border-b">${c.telefono || '—'}</td>
-                <td class="px-3 py-2 text-sm border-b text-center">
-                    <span class="${c.estado ? 'text-emerald-600' : 'text-rose-500'} font-bold">${c.estado ? 'Activo' : 'Inactivo'}</span>
-                </td>
-            </tr>`
-        ).join('');
-
         const result = await Swal.fire({
             html: `
                 <div class="text-left">
                     <div class="px-6 pt-5 pb-3 border-b border-slate-100">
-                        <p class="text-base font-bold text-slate-800">Ya existe${total > 1 ? 'n' : ''} ${total} cliente${total > 1 ? 's' : ''} con este nombre</p>
-                        <p class="text-xs text-slate-400 mt-1">${form.nombre} ${form.apellido}</p>
+                        <p id="swal-duplicados-titulo" class="text-base font-bold text-slate-800"></p>
+                        <p id="swal-duplicados-nombre" class="text-xs text-slate-400 mt-1"></p>
                     </div>
                     <div class="max-h-52 overflow-y-auto">
                         <table class="w-full text-left border-collapse">
@@ -451,7 +439,7 @@ const submitForm = async () => {
                                     <th class="px-3 py-2 font-bold text-center">Estado</th>
                                 </tr>
                             </thead>
-                            <tbody>${filas}</tbody>
+                            <tbody id="swal-duplicados-body"></tbody>
                         </table>
                     </div>
                 </div>
@@ -467,6 +455,51 @@ const submitForm = async () => {
                 popup: 'rounded-2xl overflow-hidden',
                 confirmButton: '!rounded-xl !text-xs !font-bold !px-5 !py-2.5 !mx-2',
                 cancelButton: '!rounded-xl !text-xs !font-bold !px-5 !py-2.5 !mx-2',
+            },
+            didOpen: () => {
+                const titulo = document.getElementById('swal-duplicados-titulo');
+                const nombre = document.getElementById('swal-duplicados-nombre');
+                const body = document.getElementById('swal-duplicados-body');
+
+                if (titulo) {
+                    titulo.textContent = `Ya existe${total > 1 ? 'n' : ''} ${total} cliente${total > 1 ? 's' : ''} con este nombre`;
+                }
+                if (nombre) {
+                    nombre.textContent = [form.nombre, form.apellido].filter(Boolean).join(' ') || '—';
+                }
+                if (!body) return;
+
+                const fragment = document.createDocumentFragment();
+                duplicados.forEach((c) => {
+                    const tr = document.createElement('tr');
+
+                    const tdNombre = document.createElement('td');
+                    tdNombre.className = 'px-3 py-2 text-sm font-semibold text-slate-700 border-b';
+                    tdNombre.textContent = [c.nombre, c.apellido].filter(Boolean).join(' ') || '—';
+
+                    const tdDocumento = document.createElement('td');
+                    tdDocumento.className = 'px-3 py-2 text-sm text-slate-500 border-b font-mono';
+                    tdDocumento.textContent = c.documento || '—';
+
+                    const tdEmail = document.createElement('td');
+                    tdEmail.className = 'px-3 py-2 text-sm text-slate-500 border-b';
+                    tdEmail.textContent = c.email || '—';
+
+                    const tdTelefono = document.createElement('td');
+                    tdTelefono.className = 'px-3 py-2 text-sm text-slate-500 border-b';
+                    tdTelefono.textContent = c.telefono || '—';
+
+                    const tdEstado = document.createElement('td');
+                    tdEstado.className = 'px-3 py-2 text-sm border-b text-center';
+                    const estado = document.createElement('span');
+                    estado.className = `${c.estado ? 'text-emerald-600' : 'text-rose-500'} font-bold`;
+                    estado.textContent = c.estado ? 'Activo' : 'Inactivo';
+                    tdEstado.appendChild(estado);
+
+                    tr.append(tdNombre, tdDocumento, tdEmail, tdTelefono, tdEstado);
+                    fragment.appendChild(tr);
+                });
+                body.appendChild(fragment);
             }
         });
 

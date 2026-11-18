@@ -58,21 +58,14 @@ const abrirNuevo = () => {
 
 onMounted(() => {
     if (page.props.flash.alertas_inflacion && page.props.flash.alertas_inflacion.length > 0) {
-        let listaProductos = page.props.flash.alertas_inflacion.map(p => 
-            `<li class="flex justify-between items-center border-b border-slate-100 py-2">
-                <span class="font-bold text-slate-700">${p.producto}</span>
-                <span class="bg-rose-100 text-rose-600 px-2 py-0.5 rounded-lg text-xs font-black">+${p.porcentaje || 'Aumento'}</span>
-            </li>`
-        ).join('');
+        const alertasInflacion = page.props.flash.alertas_inflacion;
 
         Swal.fire({
             title: '<span class="text-2xl font-black text-slate-800">¡Alerta de Aumentos!</span>',
             html: `
                 <div class="text-left mt-4">
                     <p class="text-slate-500 text-sm mb-4">Los siguientes productos entraron con un costo mayor al registrado anteriormente:</p>
-                    <ul class="bg-slate-50 p-4 rounded-2xl border border-slate-200 max-h-60 overflow-y-auto">
-                        ${listaProductos}
-                    </ul>
+                    <ul id="swal-aumentos-list" class="bg-slate-50 p-4 rounded-2xl border border-slate-200 max-h-60 overflow-y-auto"></ul>
                     <p class="mt-4 text-[11px] text-slate-400 italic text-center text-balance">
                         Los costos han sido actualizados automáticamente en tu catálogo de productos.
                     </p>
@@ -84,6 +77,28 @@ onMounted(() => {
             customClass: {
                 popup: 'rounded-3xl',
                 confirmButton: 'rounded-xl font-bold uppercase text-xs tracking-widest py-3 px-6'
+            },
+            didOpen: () => {
+                const lista = document.getElementById('swal-aumentos-list');
+                if (!lista) return;
+
+                const fragment = document.createDocumentFragment();
+                alertasInflacion.forEach((p) => {
+                    const item = document.createElement('li');
+                    item.className = 'flex justify-between items-center border-b border-slate-100 py-2';
+
+                    const nombre = document.createElement('span');
+                    nombre.className = 'font-bold text-slate-700';
+                    nombre.textContent = p.producto ?? '—';
+
+                    const porcentaje = document.createElement('span');
+                    porcentaje.className = 'bg-rose-100 text-rose-600 px-2 py-0.5 rounded-lg text-xs font-black';
+                    porcentaje.textContent = '+' + (p.porcentaje || 'Aumento');
+
+                    item.append(nombre, porcentaje);
+                    fragment.appendChild(item);
+                });
+                lista.appendChild(fragment);
             }
         });
     }

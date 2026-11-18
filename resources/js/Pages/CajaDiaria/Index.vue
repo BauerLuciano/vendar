@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { Head, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import axios from 'axios'; 
@@ -180,6 +180,137 @@ watch(() => formGasto.value.concepto, (nuevoConcepto) => {
     formGasto.value.consumidor_id = '';
   }
 });
+
+const focoStack = [];
+const cierreSnapshot = ref('');
+const gastoSnapshot = ref('');
+
+const cierreModificado = computed(() => JSON.stringify(formCierre.value) !== cierreSnapshot.value);
+const gastoModificado = computed(() => JSON.stringify(formGasto.value) !== gastoSnapshot.value);
+
+const guardarFoco = () => {
+  if (document.activeElement instanceof HTMLElement) {
+    focoStack.push(document.activeElement);
+  }
+};
+
+const restaurarFoco = () => {
+  const elemento = focoStack.pop();
+  if (elemento && elemento.isConnected) {
+    nextTick(() => elemento.focus());
+  }
+};
+
+const enfocarCierre = (id) => {
+  nextTick(() => document.getElementById(id)?.focus());
+};
+
+const resetFormGasto = () => {
+  formGasto.value = {
+    tipo: 'EGRESO',
+    concepto: 'GASTO_OPERATIVO',
+    metodo_pago: 'EFECTIVO',
+    monto: '',
+    descripcion: '',
+    consumidor_id: '',
+  };
+};
+
+const abrirPanelGlobal = () => {
+  guardarFoco();
+  mostrarPanelGlobal.value = true;
+  enfocarCierre('caja-panel-global-close');
+};
+
+const cerrarPanelGlobal = () => {
+  mostrarPanelGlobal.value = false;
+  restaurarFoco();
+};
+
+const abrirDetalleGlobal = (sesion) => {
+  guardarFoco();
+  sesionGlobalSeleccionada.value = sesion;
+  mostrarModalDetalleGlobal.value = true;
+  enfocarCierre('caja-detalle-global-close');
+};
+
+const cerrarDetalleGlobal = () => {
+  mostrarModalDetalleGlobal.value = false;
+  restaurarFoco();
+};
+
+const abrirDetalleHistorial = (caja) => {
+  guardarFoco();
+  cajaSeleccionada.value = caja;
+  mostrarModalDetalleHistorial.value = true;
+  enfocarCierre('caja-historial-close');
+};
+
+const cerrarDetalleHistorial = () => {
+  mostrarModalDetalleHistorial.value = false;
+  restaurarFoco();
+};
+
+const abrirModalCierre = () => {
+  guardarFoco();
+  cierreSnapshot.value = JSON.stringify(formCierre.value);
+  mostrarModalCierre.value = true;
+  enfocarCierre('caja-cierre-close');
+};
+
+const cerrarModalCierreSinConfirmar = () => {
+  mostrarModalCierre.value = false;
+  restaurarFoco();
+};
+
+const cerrarModalCierre = async () => {
+  if (cierreModificado.value) {
+    const result = await Swal.fire({
+      title: '¿Descartar los cambios sin guardar?',
+      text: 'Se perderán los valores ingresados en el arqueo.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Descartar',
+      cancelButtonText: 'Seguir editando',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+  }
+  cerrarModalCierreSinConfirmar();
+};
+
+const abrirModalGasto = () => {
+  guardarFoco();
+  resetFormGasto();
+  gastoSnapshot.value = JSON.stringify(formGasto.value);
+  mostrarModalGasto.value = true;
+  enfocarCierre('caja-gasto-close');
+};
+
+const cerrarModalGastoSinConfirmar = () => {
+  mostrarModalGasto.value = false;
+  restaurarFoco();
+};
+
+const cerrarModalGasto = async () => {
+  if (gastoModificado.value) {
+    const result = await Swal.fire({
+      title: '¿Descartar los cambios sin guardar?',
+      text: 'Se perderán los datos del movimiento manual.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Descartar',
+      cancelButtonText: 'Seguir editando',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+  }
+  cerrarModalGastoSinConfirmar();
+};
 
 let pollingInterval = null;
 const itemsPerPage = 10;
@@ -372,8 +503,7 @@ const cargarSesionesGlobal = async () => {
 
 // ADMIN: ver detalle (movimientos) de una sesión de otra sucursal
 const verDetalleSesionGlobal = async (sesion) => {
-  sesionGlobalSeleccionada.value = sesion;
-  mostrarModalDetalleGlobal.value = true;
+  abrirDetalleGlobal(sesion);
   cargandoMovimientosGlobal.value = true;
   try {
     const res = await axios.get(`/api/sesiones-caja/${sesion.id}/movimientos`);
@@ -485,7 +615,7 @@ const cerrarCaja = async () => {
             const sesionIdCerrada = sesionActual.value.id; 
             await axios.post(`/api/sesiones-caja/${sesionIdCerrada}/cerrar`, formCierre.value);
             detenerRadar();
-            mostrarModalCierre.value = false;
+            cerrarModalCierreSinConfirmar();
 
             inicializar();
 
@@ -494,7 +624,7 @@ const cerrarCaja = async () => {
               html: 'El turno se ha cerrado correctamente.',
               icon: 'success',
               showDenyButton: true,
-              confirmButtonText: '<i class="ri-printer-line"></i> Imprimir Reporte',
+              confirmButtonText: 'Imprimir Reporte',
               denyButtonText: 'No, gracias',
               confirmButtonColor: '#0f172a',
               denyButtonColor: '#64748b',
@@ -554,16 +684,8 @@ const registrarGastoManual = async () => {
       payload.consumidor_id = null;
     }
     await axios.post('/api/sesiones-caja/movimiento-manual', payload);
-    mostrarModalGasto.value = false;
-    
-    formGasto.value = { 
-      tipo: 'EGRESO', 
-      concepto: 'GASTO_OPERATIVO', 
-      metodo_pago: 'EFECTIVO', 
-      monto: '', 
-      descripcion: '',
-      consumidor_id: '' 
-    };
+    cerrarModalGastoSinConfirmar();
+    resetFormGasto();
     
     cargarDatosCajaAbierta(sesionActual.value.id);
     Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: `Movimiento registrado`, showConfirmButton: false, timer: 3000 });
@@ -573,8 +695,7 @@ const registrarGastoManual = async () => {
 };
 
 const verDetalleCajaCerrada = async (caja) => {
-  cajaSeleccionada.value = caja;
-  mostrarModalDetalleHistorial.value = true;
+  abrirDetalleHistorial(caja);
   cargandoMovimientosHistorial.value = true;
   currentPageModalMovs.value = 1;
   try {
@@ -583,12 +704,30 @@ const verDetalleCajaCerrada = async (caja) => {
   } catch (error) { console.error(error); } finally { cargandoMovimientosHistorial.value = false; }
 };
 
+// Bloquea Escape para diálogos modales; un toast no debe impedir cerrar un modal.
+const haySwalModal = () => Swal.isVisible() && !Swal.getPopup()?.classList.contains('swal2-toast');
+
 const cerrarModales = (e) => {
-    if (e.key === 'Escape') {
-        mostrarModalCierre.value = false;
-        mostrarModalGasto.value = false;
-        mostrarModalDetalleHistorial.value = false;
-        mostrarModalDetalleGlobal.value = false;
+    if (e.key !== 'Escape' || haySwalModal()) return;
+
+    if (mostrarModalDetalleGlobal.value) {
+        cerrarDetalleGlobal();
+        return;
+    }
+    if (mostrarModalDetalleHistorial.value) {
+        cerrarDetalleHistorial();
+        return;
+    }
+    if (mostrarModalCierre.value) {
+        cerrarModalCierre();
+        return;
+    }
+    if (mostrarModalGasto.value) {
+        cerrarModalGasto();
+        return;
+    }
+    if (mostrarPanelGlobal.value) {
+        cerrarPanelGlobal();
     }
 };
 
@@ -616,19 +755,142 @@ onUnmounted(() => {
   <Head title="Caja Diaria - VendAR" />
 
   <AuthenticatedLayout>
+    <svg class="hidden" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <symbol id="caja-icon-bank-card" viewBox="0 0 24 24">
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <path d="M2 10h20" />
+        <path d="M6 15h4" />
+      </symbol>
+      <symbol id="caja-icon-eye" viewBox="0 0 24 24">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z" />
+        <circle cx="12" cy="12" r="3" />
+      </symbol>
+      <symbol id="caja-icon-history" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5" />
+        <path d="M12 7v5l3 2" />
+      </symbol>
+      <symbol id="caja-icon-loader" viewBox="0 0 24 24">
+        <path d="M21 12a9 9 0 1 1-6.2-8.6" />
+      </symbol>
+      <symbol id="caja-icon-money-dollar" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v10" />
+        <path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1.1-3 2.5 1.3 2.5 3 2.5 3 1.1 3 2.5-1.3 2.5-3 2.5-3-1.1-3-2.5" />
+      </symbol>
+      <symbol id="caja-icon-bank" viewBox="0 0 24 24">
+        <path d="M3 10l9-6 9 6" />
+        <path d="M5 10v8" />
+        <path d="M9 10v8" />
+        <path d="M15 10v8" />
+        <path d="M19 10v8" />
+        <path d="M3 20h18" />
+      </symbol>
+      <symbol id="caja-icon-store" viewBox="0 0 24 24">
+        <path d="M3 9l2-5h14l2 5" />
+        <path d="M4 9v11h16V9" />
+        <path d="M9 20v-6h6v6" />
+      </symbol>
+      <symbol id="caja-icon-lock" viewBox="0 0 24 24">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+      </symbol>
+      <symbol id="caja-icon-play" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M10 8l6 4-6 4z" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="caja-icon-unlock" viewBox="0 0 24 24">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+      </symbol>
+      <symbol id="caja-icon-add" viewBox="0 0 24 24">
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </symbol>
+      <symbol id="caja-icon-close" viewBox="0 0 24 24">
+        <path d="M6 6l12 12" />
+        <path d="M18 6L6 18" />
+      </symbol>
+      <symbol id="caja-icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 11a8 8 0 0 0-14.9-4" />
+        <path d="M4 4v5h5" />
+        <path d="M4 13a8 8 0 0 0 14.9 4" />
+        <path d="M20 20v-5h-5" />
+      </symbol>
+      <symbol id="caja-icon-alert" viewBox="0 0 24 24">
+        <path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </symbol>
+      <symbol id="caja-icon-information" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5" />
+        <path d="M12 8h.01" />
+      </symbol>
+      <symbol id="caja-icon-arrow-back" viewBox="0 0 24 24">
+        <path d="M19 12H5" />
+        <path d="M12 19l-7-7 7-7" />
+      </symbol>
+      <symbol id="caja-icon-scales" viewBox="0 0 24 24">
+        <path d="M12 3v18" />
+        <path d="M5 7h14" />
+        <path d="M5 7l-3 6h6z" />
+        <path d="M19 7l-3 6h6z" />
+        <path d="M8 21h8" />
+      </symbol>
+      <symbol id="caja-icon-computer" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="12" rx="2" />
+        <path d="M8 20h8" />
+        <path d="M12 16v4" />
+      </symbol>
+      <symbol id="caja-icon-alert-circle-solid" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" fill="currentColor" stroke="none" />
+        <path d="M12 8v5" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+        <path d="M12 16h.01" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+      </symbol>
+      <symbol id="caja-icon-alert-triangle-solid" viewBox="0 0 24 24">
+        <path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" fill="currentColor" stroke="none" />
+        <path d="M12 9v4" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+        <path d="M12 17h.01" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+      </symbol>
+      <symbol id="caja-icon-check-double" viewBox="0 0 24 24">
+        <path d="M2 12l5 5L20 4" />
+        <path d="M9 12l4 4L23 5" />
+      </symbol>
+      <symbol id="caja-icon-file-list" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M8 13h8" />
+        <path d="M8 17h8" />
+      </symbol>
+      <symbol id="caja-icon-list-check" viewBox="0 0 24 24">
+        <path d="M9 6h11" />
+        <path d="M9 12h11" />
+        <path d="M9 18h11" />
+        <path d="M3 6l1.5 1.5L7 5" />
+        <path d="M3 12l1.5 1.5L7 11" />
+        <path d="M3 18l1.5 1.5L7 17" />
+      </symbol>
+      <symbol id="caja-icon-printer" viewBox="0 0 24 24">
+        <path d="M6 9V2h12v7" />
+        <rect x="6" y="14" width="12" height="8" rx="1" />
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      </symbol>
+    </svg>
+
     <div class="list-container py-8 px-4 max-w-7xl mx-auto">
       <div class="list-card bg-white rounded-2xl shadow-lg p-6">
         
         <div class="list-header border-b pb-4 mb-6 flex justify-between items-center">
           <div class="header-content">
-            <h1 class="text-2xl font-black text-slate-800"><i class="ri-bank-card-line"></i> Caja Diaria</h1>
+            <h1 class="text-2xl font-black text-slate-800"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-bank-card" /></svg> Caja Diaria</h1>
             <p class="text-slate-500 text-sm mt-1">Control de ingresos, egresos y arqueo de caja.</p>
           </div>
           <div class="header-buttons flex items-center gap-2">
               <button v-if="esAdmin"
-                @click="mostrarPanelGlobal = true"
+                type="button" @click="abrirPanelGlobal"
                 class="bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 text-white font-bold py-2 px-4 rounded-xl transition-all text-sm shadow-lg shadow-sky-600/20 flex items-center gap-2">
-                <i class="ri-eye-line"></i>
+                <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-eye" /></svg>
                 Visor de Cajas
                 <span class="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{{ resumenGlobal.sucursales }}</span>
               </button>
@@ -636,13 +898,13 @@ onUnmounted(() => {
               class="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-xl transition-colors text-sm" 
               @click="mostrarHistorial = !mostrarHistorial"
             >
-              <i class="ri-history-line"></i> {{ mostrarHistorial ? 'Volver a Caja Actual' : 'Ver Historial de Cajas' }}
+              <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-history" /></svg> {{ mostrarHistorial ? 'Volver a Caja Actual' : 'Ver Historial de Cajas' }}
             </button>
           </div>
         </div>
 
         <div v-if="loading" class="flex flex-col items-center justify-center py-12 text-slate-500">
-          <i class="ri-loader-4-line animate-spin text-4xl mb-3"></i>
+          <svg class="caja-icon animate-spin text-4xl mb-3" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-loader" /></svg>
           <p class="font-medium">Cargando información de tu caja...</p>
         </div>
 
@@ -654,7 +916,7 @@ onUnmounted(() => {
             <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div class="bg-slate-800 rounded-xl p-4 col-span-2 md:col-span-1">
               <div class="flex items-center gap-2 mb-3">
-                <div class="bg-emerald-500/20 p-2 rounded-lg"><i class="ri-bank-card-line text-emerald-400 text-xl"></i></div>
+                <div class="bg-emerald-500/20 p-2 rounded-lg"><svg class="caja-icon text-emerald-400 text-xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-bank-card" /></svg></div>
                 <div><span class="block text-2xl font-black text-white">{{ resumenGlobal.cantidad }}</span><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cajas Abiertas</span></div>
               </div>
               <div class="space-y-1.5">
@@ -665,19 +927,19 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
-              <div class="bg-emerald-100 p-2 rounded-lg"><i class="ri-money-dollar-circle-line text-emerald-600 text-xl"></i></div>
+              <div class="bg-emerald-100 p-2 rounded-lg"><svg class="caja-icon text-emerald-600 text-xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-money-dollar" /></svg></div>
               <div><span class="block text-lg font-black text-emerald-700">{{ formatearMoneda(resumenGlobal.efectivo) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Efectivo</span></div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
-              <div class="bg-sky-100 p-2 rounded-lg"><i class="ri-bank-line text-sky-600 text-xl"></i></div>
+              <div class="bg-sky-100 p-2 rounded-lg"><svg class="caja-icon text-sky-600 text-xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-bank" /></svg></div>
               <div><span class="block text-lg font-black text-sky-700">{{ formatearMoneda(resumenGlobal.transferencias) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Transferencias</span></div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
-              <div class="bg-violet-100 p-2 rounded-lg"><i class="ri-bank-card-line text-violet-600 text-xl"></i></div>
+              <div class="bg-violet-100 p-2 rounded-lg"><svg class="caja-icon text-violet-600 text-xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-bank-card" /></svg></div>
               <div><span class="block text-lg font-black text-violet-700">{{ formatearMoneda(resumenGlobal.tarjetas) }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tarjetas</span></div>
             </div>
             <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
-              <div class="bg-amber-100 p-2 rounded-lg"><i class="ri-store-3-line text-amber-600 text-xl"></i></div>
+              <div class="bg-amber-100 p-2 rounded-lg"><svg class="caja-icon text-amber-600 text-xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-store" /></svg></div>
               <div><span class="block text-lg font-black text-amber-700">{{ resumenGlobal.sucursales }}</span><span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sucursales</span></div>
             </div>
             </div>
@@ -744,10 +1006,10 @@ onUnmounted(() => {
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-center flex items-center justify-center gap-3">
                       <button @click="verDetalleCajaCerrada(caja)" class="text-sky-600 hover:text-sky-800 font-bold text-xs flex items-center gap-1">
-                        <i class="ri-eye-line text-base"></i> Ver Detalles
+                        <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-eye" /></svg> Ver Detalles
                       </button>
                       <a v-if="!caja.esta_abierta" :href="BlackUrlReporteCaja(caja.id)" target="_blank" class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1">
-                        <i class="ri-printer-line text-base"></i> Imprimir Reporte
+                        <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-printer" /></svg> Imprimir Reporte
                       </a>
                     </td>
                   </tr>
@@ -761,7 +1023,7 @@ onUnmounted(() => {
           <div v-else>
             
             <div v-if="!sesionActual" class="flex flex-col items-center justify-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-              <div class="text-6xl text-slate-300 mb-4"><i class="ri-lock-2-line"></i></div>
+              <div class="text-6xl text-slate-300 mb-4"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-lock" /></svg></div>
               <h2 class="text-2xl font-bold text-slate-700">Caja Cerrada</h2>
               <p class="text-slate-500 mb-6">Para registrar cobros o pagos, necesitás iniciar una sesión de caja.</p>
 
@@ -803,7 +1065,7 @@ onUnmounted(() => {
                 </div>
 
                 <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 rounded-lg mt-2 transition-colors flex justify-center items-center gap-2">
-                  <i class="ri-play-circle-line"></i> INICIAR TURNO DE CAJA
+                  <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-play" /></svg> INICIAR TURNO DE CAJA
                 </button>
               </form>
             </div>
@@ -815,8 +1077,8 @@ onUnmounted(() => {
                   <span class="font-bold text-slate-800 ml-3">{{ sesionActual.caja_nombre }}</span>
                   <span class="text-sm text-slate-500 ml-2">Por {{ sesionActual.usuario_apertura_nombre }}</span>
                 </div>
-                <button @click="mostrarModalCierre = true" class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 px-5 rounded-lg text-sm shadow-sm transition-colors flex items-center gap-2">
-                  <i class="ri-lock-unlock-line"></i> Cerrar Caja (Arqueo)
+                <button type="button" @click="abrirModalCierre" class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 px-5 rounded-lg text-sm shadow-sm transition-colors flex items-center gap-2">
+                  <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-unlock" /></svg> Cerrar Caja (Arqueo)
                 </button>
               </div>
 
@@ -845,8 +1107,8 @@ onUnmounted(() => {
               <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
                 <div class="bg-slate-50 p-4 border-b flex justify-between items-center">
                   <h3 class="font-bold text-slate-700">Movimientos de la Sesión</h3>
-                  <button @click="mostrarModalGasto = true" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition-colors">
-                    <i class="ri-add-line align-middle"></i> Movimiento Manual
+                  <button type="button" @click="abrirModalGasto" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition-colors">
+                    <svg class="caja-icon align-middle" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-add" /></svg> Movimiento Manual
                   </button>
                 </div>
                 <div class="overflow-x-auto">
@@ -896,20 +1158,20 @@ onUnmounted(() => {
     </div>
 
     <!-- ADMIN: Modal visor de cajas de todas las sucursales -->
-    <div v-if="mostrarPanelGlobal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
+    <div v-if="mostrarPanelGlobal" @click.self="cerrarPanelGlobal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="caja-panel-global-title" class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
         <div class="flex justify-between items-center border-b px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-700 shrink-0">
           <div class="flex items-center gap-3">
-            <div class="bg-sky-500/20 p-2 rounded-lg"><i class="ri-eye-line text-sky-400 text-xl"></i></div>
+            <div class="bg-sky-500/20 p-2 rounded-lg"><svg class="caja-icon text-sky-400 text-xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-eye" /></svg></div>
             <div>
-              <h3 class="text-white font-black text-lg uppercase tracking-wider">Visor de Cajas</h3>
+              <h3 id="caja-panel-global-title" class="text-white font-black text-lg uppercase tracking-wider">Visor de Cajas</h3>
               <p class="text-[11px] text-slate-400 font-medium">
                 <span class="text-emerald-400 font-bold">{{ sesionesGlobal.length }} abierta{{ sesionesGlobal.length !== 1 ? 's' : '' }}</span> en {{ resumenGlobal.sucursales }} sucursal{{ resumenGlobal.sucursales !== 1 ? 'es' : '' }}
                 <template v-if="resumenGlobal.total > 0">· Total: <span class="text-white font-bold">${{ formatearMoneda(resumenGlobal.total) }}</span></template>
               </p>
             </div>
           </div>
-          <button @click="mostrarPanelGlobal = false" class="text-slate-300 hover:text-white transition-colors text-2xl hover:bg-slate-600 rounded-full w-10 h-10 flex items-center justify-center"><i class="ri-close-line"></i></button>
+          <button id="caja-panel-global-close" type="button" @click="cerrarPanelGlobal" aria-label="Cerrar visor de cajas" title="Cerrar visor de cajas" class="text-slate-300 hover:text-white transition-colors text-2xl hover:bg-slate-600 rounded-full w-10 h-10 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-close" /></svg></button>
         </div>
 
         <div class="p-6 overflow-y-auto flex-1">
@@ -937,13 +1199,13 @@ onUnmounted(() => {
             </div>
             <div>
               <button class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 rounded-lg text-sm transition-colors" @click="limpiarFiltrosGlobal">
-                <i class="ri-refresh-line align-middle mr-1"></i> Limpiar
+                <svg class="caja-icon align-middle mr-1" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-refresh" /></svg> Limpiar
               </button>
             </div>
           </div>
 
           <div v-if="mostrarAvisoSinCajas" class="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm mb-4">
-            <i class="ri-alert-line text-xl shrink-0"></i>
+            <svg class="caja-icon text-xl shrink-0" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-alert" /></svg>
             <span>No hay cajas abiertas en <strong>{{ filtroSucursalGlobal }}</strong>.</span>
           </div>
 
@@ -980,7 +1242,7 @@ onUnmounted(() => {
                     <td class="px-4 py-3 whitespace-nowrap text-center">
                       <button @click="verDetalleSesionGlobal(sesion)"
                         class="bg-sky-100 hover:bg-sky-200 text-sky-700 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1">
-                        <i class="ri-eye-line"></i> Ver
+                        <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-eye" /></svg> Ver
                       </button>
                     </td>
                   </tr>
@@ -990,27 +1252,27 @@ onUnmounted(() => {
           </div>
 
           <div class="mt-4 flex items-center gap-2 text-[11px] text-slate-400 bg-slate-50 rounded-lg p-3 border border-slate-200">
-            <i class="ri-information-line text-sky-500"></i>
+            <svg class="caja-icon text-sky-500" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-information" /></svg>
             <span>Modo <strong class="text-slate-700">solo lectura</strong>. No podés realizar movimientos en estas cajas. Solo quién abrió la caja puede registrar movimientos o cerrarla.</span>
           </div>
         </div>
 
         <div class="px-6 py-4 bg-slate-50 border-t shrink-0 flex justify-end">
-          <button @click="mostrarPanelGlobal = false" class="px-6 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase tracking-wider">
-            <i class="ri-close-line text-base"></i> Cerrar Visor
+          <button type="button" @click="cerrarPanelGlobal" class="px-6 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase tracking-wider">
+            <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-close" /></svg> Cerrar Visor
           </button>
         </div>
       </div>
     </div>
 
     <!-- ADMIN: Modal de solo lectura para caja de otra sucursal -->
-    <div v-if="mostrarModalDetalleGlobal" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
+    <div v-if="mostrarModalDetalleGlobal" @click.self="cerrarDetalleGlobal" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="caja-detalle-global-title" class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
         <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-800 text-white shrink-0">
-          <h3 class="text-xl font-bold flex items-center gap-2">
-            <i class="ri-store-2-line"></i> {{ sesionGlobalSeleccionada?.sucursal_nombre }} — {{ sesionGlobalSeleccionada?.caja_nombre }}
+          <h3 id="caja-detalle-global-title" class="text-xl font-bold flex items-center gap-2">
+            <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-store" /></svg> {{ sesionGlobalSeleccionada?.sucursal_nombre }} — {{ sesionGlobalSeleccionada?.caja_nombre }}
           </h3>
-          <button @click="mostrarModalDetalleGlobal = false" class="text-slate-300 hover:text-white transition-colors text-2xl"><i class="ri-close-line"></i></button>
+          <button id="caja-detalle-global-close" type="button" @click="cerrarDetalleGlobal" aria-label="Cerrar detalle de caja" title="Cerrar detalle de caja" class="text-slate-300 hover:text-white transition-colors text-2xl rounded-full w-10 h-10 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-close" /></svg></button>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 p-6 bg-slate-50 border-b shrink-0">
@@ -1034,12 +1296,12 @@ onUnmounted(() => {
 
         <div class="flex-1 overflow-auto p-6 bg-white">
           <div class="flex items-center gap-2 mb-4 pb-2 border-b">
-            <span class="bg-sky-100 text-sky-800 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1"><i class="ri-eye-line"></i> Solo lectura</span>
+            <span class="bg-sky-100 text-sky-800 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-eye" /></svg> Solo lectura</span>
             <span class="text-xs text-slate-400">No podés realizar movimientos en esta caja.</span>
           </div>
 
           <div v-if="cargandoMovimientosGlobal" class="flex justify-center items-center py-12 text-slate-400">
-            <i class="ri-loader-4-line animate-spin text-4xl mr-3"></i> Cargando movimientos...
+            <svg class="caja-icon animate-spin text-4xl mr-3" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-loader" /></svg> Cargando movimientos...
           </div>
 
           <table v-else class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden">
@@ -1074,25 +1336,25 @@ onUnmounted(() => {
         </div>
 
         <div class="px-6 py-4 bg-slate-100 border-t shrink-0 flex justify-end">
-          <button @click="mostrarModalDetalleGlobal = false" class="px-8 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase">
-            <i class="ri-arrow-go-back-line text-base"></i> Cerrar
+          <button type="button" @click="cerrarDetalleGlobal" class="px-8 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase">
+            <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-arrow-back" /></svg> Cerrar
           </button>
         </div>
       </div>
     </div>
 
     <div v-if="mostrarModalCierre" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
+      <div role="dialog" aria-modal="true" aria-labelledby="caja-cierre-title" class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up">
         
         <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-50">
-          <h3 class="text-2xl font-black text-slate-800"><i class="ri-scales-3-line text-sky-600 mr-2"></i> Arqueo y Cierre de Caja</h3>
-          <button @click="mostrarModalCierre = false" class="text-slate-400 hover:text-rose-500 transition-colors"><i class="ri-close-line text-3xl"></i></button>
+          <h3 id="caja-cierre-title" class="text-2xl font-black text-slate-800"><svg class="caja-icon text-sky-600 mr-2" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-scales" /></svg> Arqueo y Cierre de Caja</h3>
+          <button id="caja-cierre-close" type="button" @click="cerrarModalCierre" aria-label="Cerrar arqueo y cierre" title="Cerrar arqueo y cierre" class="text-slate-400 hover:text-rose-500 transition-colors rounded-full w-10 h-10 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"><svg class="caja-icon text-3xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-close" /></svg></button>
         </div>
         
         <div class="p-6 overflow-y-auto">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div class="bg-slate-50 rounded-xl p-5 border border-slate-200">
-              <h4 class="text-sm uppercase tracking-wider font-bold text-slate-500 mb-4"><i class="ri-computer-line"></i> Según el sistema</h4>
+              <h4 class="text-sm uppercase tracking-wider font-bold text-slate-500 mb-4"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-computer" /></svg> Según el sistema</h4>
               
               <div class="space-y-3">
                 <div class="bg-white border-l-4 border-emerald-500 p-3 rounded shadow-sm flex justify-between items-center">
@@ -1116,7 +1378,7 @@ onUnmounted(() => {
             </div>
 
             <div>
-              <h4 class="text-sm uppercase tracking-wider font-bold text-slate-500 mb-4"><i class="ri-money-dollar-circle-line"></i> Dinero real en caja</h4>
+              <h4 class="text-sm uppercase tracking-wider font-bold text-slate-500 mb-4"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-money-dollar" /></svg> Dinero real en caja</h4>
               
               <div class="space-y-4">
                 <div>
@@ -1144,7 +1406,9 @@ onUnmounted(() => {
 
               <div v-if="hayDiferencia" class="mt-6 p-4 rounded-lg border flex items-start gap-3" 
                    :class="diferenciaCierre < 0 ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'">
-                <i class="text-2xl mt-1" :class="diferenciaCierre < 0 ? 'ri-error-warning-fill text-rose-500' : 'ri-alert-fill text-amber-500'"></i>
+                <svg class="caja-icon caja-icon--solid text-2xl mt-1" :class="diferenciaCierre < 0 ? 'text-rose-500' : 'text-amber-500'" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use :href="diferenciaCierre < 0 ? '#caja-icon-alert-circle-solid' : '#caja-icon-alert-triangle-solid'" />
+                </svg>
                 <div>
                   <p class="font-black" :class="diferenciaCierre < 0 ? 'text-rose-800' : 'text-amber-800'">
                     Diferencia de: {{ formatearMoneda(diferenciaCierre) }} ({{ tipoDiferencia }})
@@ -1176,21 +1440,21 @@ onUnmounted(() => {
         </div>
 
         <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-2xl">
-          <button @click="mostrarModalCierre = false" class="px-5 py-2.5 bg-white border border-gray-300 text-slate-700 font-bold rounded-xl hover:bg-gray-50 transition-colors">
+          <button type="button" @click="cerrarModalCierre" class="px-5 py-2.5 bg-white border border-gray-300 text-slate-700 font-bold rounded-xl hover:bg-gray-50 transition-colors">
             Cancelar
           </button>
           <button @click="cerrarCaja" class="px-6 py-2.5 bg-rose-600 text-white font-black rounded-xl hover:bg-rose-700 transition-colors shadow-md flex items-center gap-2">
-            <i class="ri-check-double-line"></i> Confirmar Cierre
+            <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-check-double" /></svg> Confirmar Cierre
           </button>
         </div>
       </div>
     </div>
 
     <div v-if="mostrarModalGasto" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+      <div role="dialog" aria-modal="true" aria-labelledby="caja-gasto-title" class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
         <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-50">
-          <h3 class="text-xl font-bold text-slate-800">Movimiento Manual</h3>
-          <button @click="mostrarModalGasto = false" class="text-slate-400 hover:text-slate-600 transition-colors"><i class="ri-close-line text-2xl"></i></button>
+          <h3 id="caja-gasto-title" class="text-xl font-bold text-slate-800">Movimiento Manual</h3>
+          <button id="caja-gasto-close" type="button" @click="cerrarModalGasto" aria-label="Cerrar movimiento manual" title="Cerrar movimiento manual" class="text-slate-400 hover:text-slate-600 transition-colors rounded-full w-10 h-10 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"><svg class="caja-icon text-2xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-close" /></svg></button>
         </div>
         <div class="p-6 space-y-4">
           <div>
@@ -1246,21 +1510,21 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-2xl">
-          <button @click="mostrarModalGasto = false" class="px-4 py-2 bg-white border border-gray-300 rounded-lg font-bold text-slate-600 hover:bg-gray-50">Cancelar</button>
+          <button type="button" @click="cerrarModalGasto" class="px-4 py-2 bg-white border border-gray-300 rounded-lg font-bold text-slate-600 hover:bg-gray-50">Cancelar</button>
           <button @click="registrarGastoManual" class="px-4 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow-sm">Guardar Movimiento</button>
         </div>
       </div>
     </div>
 
-    <div v-if="mostrarModalDetalleHistorial" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
+    <div v-if="mostrarModalDetalleHistorial" @click.self="cerrarDetalleHistorial" class="fixed inset-0 bg-slate-900 bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="caja-historial-title" class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col h-[85vh] overflow-hidden">
         
         <div class="flex justify-between items-center border-b px-6 py-4 bg-slate-800 text-white shrink-0">
-          <h3 class="text-xl font-bold flex items-center gap-2">
-            <i class="ri-file-list-3-line"></i> Detalle de Caja #{{ cajaSeleccionada?.id }}
+          <h3 id="caja-historial-title" class="text-xl font-bold flex items-center gap-2">
+            <svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-file-list" /></svg> Detalle de Caja #{{ cajaSeleccionada?.id }}
           </h3>
-          <button @click="mostrarModalDetalleHistorial = false" class="text-slate-300 hover:text-white transition-colors">
-            <i class="ri-close-line text-3xl"></i>
+          <button id="caja-historial-close" type="button" @click="cerrarDetalleHistorial" aria-label="Cerrar detalle de historial" title="Cerrar detalle de historial" class="text-slate-300 hover:text-white transition-colors rounded-full w-10 h-10 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800">
+            <svg class="caja-icon text-3xl" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-close" /></svg>
           </button>
         </div>
 
@@ -1283,7 +1547,7 @@ onUnmounted(() => {
 
         <div v-if="cajaSeleccionada?.observaciones" class="px-6 py-4 bg-amber-50 border-b border-amber-200 shrink-0">
           <h4 class="text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1">
-            <i class="ri-error-warning-line text-base"></i> Justificación de Cierre / Observaciones
+            <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-alert" /></svg> Justificación de Cierre / Observaciones
           </h4>
           <p class="text-sm text-amber-900 bg-amber-100/50 p-3 rounded border border-amber-200 italic">
             "{{ cajaSeleccionada.observaciones }}"
@@ -1291,10 +1555,10 @@ onUnmounted(() => {
         </div>
         
         <div class="flex-1 overflow-auto p-6 bg-white">
-          <h4 class="font-black text-slate-700 mb-4 border-b pb-2"><i class="ri-list-check"></i> Historial de Movimientos</h4>
+          <h4 class="font-black text-slate-700 mb-4 border-b pb-2"><svg class="caja-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-list-check" /></svg> Historial de Movimientos</h4>
           
           <div v-if="cargandoMovimientosHistorial" class="flex justify-center items-center py-12 text-slate-400">
-            <i class="ri-loader-4-line animate-spin text-4xl mr-3"></i> Cargando registros...
+            <svg class="caja-icon animate-spin text-4xl mr-3" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-loader" /></svg> Cargando registros...
           </div>
           
           <table class="min-w-full divide-y divide-gray-200 border rounded-lg overflow-hidden" v-else>
@@ -1341,11 +1605,11 @@ onUnmounted(() => {
             target="_blank" 
             class="px-6 py-2.5 bg-emerald-600 text-white font-black rounded-xl hover:bg-emerald-700 transition-colors shadow-md flex items-center gap-2 text-xs uppercase"
           >
-            <i class="ri-printer-line text-base"></i> Imprimir Reporte
+            <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-printer" /></svg> Imprimir Reporte
           </a>
           <div v-else></div>
-          <button @click="mostrarModalDetalleHistorial = false" class="px-8 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase">
-            <i class="ri-arrow-go-back-line text-base"></i> Volver al Historial
+          <button type="button" @click="cerrarDetalleHistorial" class="px-8 py-2.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-colors shadow-lg flex items-center gap-2 text-xs uppercase">
+            <svg class="caja-icon text-base" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#caja-icon-arrow-back" /></svg> Volver al Historial
           </button>
         </div>
       </div>
@@ -1354,6 +1618,22 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.caja-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.caja-icon--solid {
+  fill: currentColor;
+  stroke: none;
+}
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(20px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
