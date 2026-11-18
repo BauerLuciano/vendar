@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Enums\PaymentChannel;
+use App\Models\PaymentMethodConfiguration;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCaseMultiTenant;
 
 class CrossTenantAttackTest extends TestCaseMultiTenant
@@ -104,5 +107,89 @@ class CrossTenantAttackTest extends TestCaseMultiTenant
             'saldo_final_transf_real' => 0,
             'observaciones' => 'Test',
         ])->assertNotFound();
+    }
+
+    public function test_ct11_index_configuracion_no_muestra_pmc_de_otro_comercio(): void
+    {
+        PaymentMethodConfiguration::create([
+            'comercio_id' => 1,
+            'metodo_pago' => 'TRANSFERENCIA',
+            'provider' => 'transfer-a',
+            'channel' => PaymentChannel::MANUAL,
+            'display_data' => [
+                'alias' => 'alias.a',
+                'titular' => 'Titular A',
+            ],
+            'enabled' => true,
+        ]);
+
+        $this->actingAsAdminB()
+            ->get(route('configuracion.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Configuracion/Index')
+                ->has('paymentMethodConfigs', 0));
+    }
+
+    public function test_ct12_eliminar_pmc_de_otro_comercio_da_403(): void
+    {
+        $pmc = PaymentMethodConfiguration::create([
+            'comercio_id' => 1,
+            'metodo_pago' => 'TRANSFERENCIA',
+            'provider' => 'transfer-a',
+            'channel' => PaymentChannel::MANUAL,
+            'display_data' => [
+                'alias' => 'alias.a',
+                'titular' => 'Titular A',
+            ],
+            'enabled' => true,
+        ]);
+
+        $this->actingAsAdminB()
+            ->delete(route('configuracion.metodo-pago.destroy', $pmc->id))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('payment_method_configurations', [
+            'id' => $pmc->id,
+            'comercio_id' => 1,
+        ]);
+    }
+
+    public function test_ct13_store_pmc_crea_en_el_comercio_del_admin_autenticado(): void
+    {
+        $pmcA = PaymentMethodConfiguration::create([
+            'comercio_id' => 1,
+            'metodo_pago' => 'TRANSFERENCIA',
+            'provider' => 'transfer-a',
+            'channel' => PaymentChannel::MANUAL,
+            'display_data' => [
+                'alias' => 'alias.a',
+                'titular' => 'Titular A',
+            ],
+            'enabled' => true,
+        ]);
+
+        $response = $this->actingAsAdminB()->post(route('configuracion.metodo-pago.store'), [
+            'metodo_pago' => 'TRANSFERENCIA',
+            'provider' => 'transfer-b',
+            'display_data' => [
+                'alias' => 'alias.b',
+                'titular' => 'Titular B',
+            ],
+            'enabled' => true,
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('payment_method_configurations', [
+            'comercio_id' => 2,
+            'metodo_pago' => 'TRANSFERENCIA',
+            'provider' => 'transfer-b',
+        ]);
+
+        $pmcA->refresh();
+        $this->assertSame('alias.a', $pmcA->display_data['alias']);
+        $this->assertSame('Titular A', $pmcA->display_data['titular']);
     }
 }

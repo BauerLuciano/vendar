@@ -10,8 +10,9 @@ use App\Models\PaymentGateway;
 use App\Models\PaymentMethodConfiguration;
 use App\Models\StoreConfig;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
+use Inertia\Inertia;
 
 class ConfiguracionController extends Controller
 {
@@ -180,15 +181,21 @@ class ConfiguracionController extends Controller
         $user = $request->user();
         $comercioId = $user->comercio_id ?? $user->branch?->comercio_id;
 
-        $request->validate([
-            'metodo_pago' => 'required|string|in:' . implode(',', MetodoPago::values()),
+        $esTransferencia = $request->input('metodo_pago') === MetodoPago::TRANSFERENCIA->value;
+        $displayData = $request->input('display_data');
+        $displayDataEsArray = is_array($displayData) || is_null($displayData);
+
+        $validator = Validator::make($request->all(), [
+            'metodo_pago' => 'required|string|in:'.implode(',', MetodoPago::values()),
             'provider' => 'nullable|string|max:100',
             'display_data' => 'nullable|array',
             'display_data.alias' => 'nullable|string|max:255',
             'display_data.cvu' => 'nullable|string|regex:/^[0-9]*$/|max:255',
             'display_data.cbu' => 'nullable|string|regex:/^[0-9]*$/|max:255',
             'display_data.banco' => 'nullable|string|regex:/^[\pL\s\.]*$/u|max:255',
-            'display_data.titular' => 'nullable|string|regex:/^[\pL\s\.\,]*$/u|max:255',
+            'display_data.titular' => $esTransferencia && $displayDataEsArray
+                ? ['bail', 'required', 'string', 'regex:/^[\pL\s\.\,]*$/u', 'max:255']
+                : ['bail', 'nullable', 'string', 'regex:/^[\pL\s\.\,]*$/u', 'max:255'],
             'enabled' => 'boolean',
         ], [
             'metodo_pago.required' => 'Seleccioná un método de pago.',
@@ -202,10 +209,54 @@ class ConfiguracionController extends Controller
             'display_data.cbu.max' => 'El CBU no debe superar los 255 caracteres.',
             'display_data.banco.regex' => 'El banco solo puede contener letras.',
             'display_data.banco.max' => 'El banco no debe superar los 255 caracteres.',
+            'display_data.titular.required' => 'Ingresá el nombre del titular.',
             'display_data.titular.regex' => 'El nombre del titular solo puede contener letras.',
             'display_data.titular.max' => 'El nombre del titular no debe superar los 255 caracteres.',
             'enabled.boolean' => 'El estado de habilitación no es válido.',
         ]);
+
+        $validator->after(function ($validator) use ($esTransferencia, $displayDataEsArray, $displayData) {
+            if (! $esTransferencia || ! $displayDataEsArray) {
+                return;
+            }
+
+            $data = is_array($displayData) ? $displayData : [];
+
+            $tieneDatoDeCuenta = filled($data['alias'] ?? null)
+                || filled($data['cbu'] ?? null)
+                || filled($data['cvu'] ?? null);
+
+            if (! $tieneDatoDeCuenta) {
+                $validator->errors()->add(
+                    'display_data',
+                    'Completá al menos uno de Alias, CBU o CVU.'
+                );
+            }
+
+            // Los campos opcionales con sólo espacios se tratan como faltantes.
+            // No se descarta el error required de titular.
+            foreach (['alias', 'cbu', 'cvu', 'banco'] as $campo) {
+                $valor = $data[$campo] ?? null;
+
+                if (is_string($valor) && trim($valor) === '') {
+                    $validator->errors()->forget('display_data.'.$campo);
+                }
+            }
+        });
+
+        $validator->validate();
+
+        $displayDataParaGuardar = $request->input('display_data');
+
+        if ($esTransferencia && is_array($displayDataParaGuardar)) {
+            foreach (['alias', 'cbu', 'cvu', 'banco', 'titular'] as $campo) {
+                $valor = $displayDataParaGuardar[$campo] ?? null;
+
+                if ($valor === null || (is_string($valor) && trim($valor) === '')) {
+                    unset($displayDataParaGuardar[$campo]);
+                }
+            }
+        }
 
         PaymentMethodConfiguration::updateOrCreate(
             [
@@ -215,7 +266,7 @@ class ConfiguracionController extends Controller
             ],
             [
                 'channel' => PaymentChannel::MANUAL,
-                'display_data' => $request->display_data,
+                'display_data' => $displayDataParaGuardar,
                 'enabled' => $request->boolean('enabled', true),
             ]
         );

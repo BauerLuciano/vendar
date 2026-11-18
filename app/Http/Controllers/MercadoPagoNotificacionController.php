@@ -3,18 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
-use App\Models\User;
-use Illuminate\Http\Request;
 use App\Models\Comercio;
 use App\Models\PedidoWeb;
 use App\Models\Plan;
+use App\Models\User;
+use App\Services\Payment\Contracts\WebhookPayload;
+use App\Services\Payment\PaymentConfirmationService;
+use App\Services\Payment\PaymentRecorder;
+use App\Services\Payment\PaymentService;
+use App\Services\Suscripcion\SuscripcionService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Services\Payment\PaymentService;
-use App\Services\Payment\PaymentRecorder;
-use App\Services\Payment\PaymentConfirmationService;
-use App\Services\Payment\Contracts\PaymentStatusResponse;
-use App\Services\Suscripcion\SuscripcionService;
 
 class MercadoPagoNotificacionController extends Controller
 {
@@ -35,7 +36,7 @@ class MercadoPagoNotificacionController extends Controller
 
         $comercio = Comercio::with('paymentGateways')->find($request->input('comercio_id'));
 
-        if (!$comercio) {
+        if (! $comercio) {
             return response()->json(['error' => 'Comercio not found'], 404);
         }
 
@@ -43,11 +44,11 @@ class MercadoPagoNotificacionController extends Controller
             ->forCommerce($comercio)
             ->gateway('mercadopago');
 
-        if (!$gateway->verifyWebhookSignature($request)) {
+        if (! $gateway->verifyWebhookSignature($request)) {
             return response()->json(['error' => 'Invalid signature'], 401);
         }
 
-        if (!$paymentId) {
+        if (! $paymentId) {
             return response()->json(['error' => 'Invalid notification'], 400);
         }
 
@@ -58,7 +59,7 @@ class MercadoPagoNotificacionController extends Controller
         }
 
         $externalRef = $status->referenceId;
-        if (!$externalRef) {
+        if (! $externalRef) {
             return response()->json(['error' => 'No external reference in payment'], 400);
         }
 
@@ -87,7 +88,7 @@ class MercadoPagoNotificacionController extends Controller
             $pedido->save();
 
             if ($pedido->estado_pago === 'rechazado' && $estadoPagoAnterior !== 'rechazado'
-                && !in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
+                && ! in_array($pedido->estado_pedido, ['entregado', 'cancelado'])) {
                 foreach ($pedido->items as $item) {
                     $ps = DB::table('producto_sucursal')
                         ->where('sucursal_id', $pedido->sucursal_id)
@@ -110,21 +111,21 @@ class MercadoPagoNotificacionController extends Controller
                     }
 
                     DB::table('movimientos_stock')->insert([
-                        'producto_id'         => $item->producto_id,
-                        'sucursal_id'         => $pedido->sucursal_id,
-                        'user_id'             => auth()->id() ?? User::whereHas('roles', fn($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1,
-                        'tipo_movimiento'     => 'Liberación Reserva Web',
-                        'cantidad_anterior'   => $reservadaAnterior,
+                        'producto_id' => $item->producto_id,
+                        'sucursal_id' => $pedido->sucursal_id,
+                        'user_id' => auth()->id() ?? User::whereHas('roles', fn ($q) => $q->where('name', 'SuperAdmin'))->first()?->id ?? 1,
+                        'tipo_movimiento' => 'Liberación Reserva Web',
+                        'cantidad_anterior' => $reservadaAnterior,
                         'cantidad_movimiento' => (float) $item->cantidad,
-                        'cantidad_actual'     => $ps ? (float) $ps->cantidad_fisica : 0,
-                        'motivo'              => "Rechazo de pago MercadoPago - pedido web #{$pedido->id}",
-                        'created_at'          => now(),
-                        'updated_at'          => now(),
+                        'cantidad_actual' => $ps ? (float) $ps->cantidad_fisica : 0,
+                        'motivo' => "Rechazo de pago MercadoPago - pedido web #{$pedido->id}",
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ]);
                 }
             }
 
-            $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new \App\Services\Payment\Contracts\WebhookPayload(
+            $this->paymentRecorder->recordWebhook($pedido, 'mercadopago', new WebhookPayload(
                 gatewayTransactionId: $status->gatewayTransactionId,
                 status: $status->status,
                 referenceId: $status->referenceId,
@@ -136,13 +137,13 @@ class MercadoPagoNotificacionController extends Controller
         });
     }
 
-    private function procesarUpgradePlan(string $paymentId, Request $request): \Illuminate\Http\JsonResponse
+    private function procesarUpgradePlan(string $paymentId, Request $request): JsonResponse
     {
         $gateway = $this->paymentService
             ->forPlatform()
             ->gateway('mercadopago');
 
-        if (!$gateway->verifyWebhookSignature($request)) {
+        if (! $gateway->verifyWebhookSignature($request)) {
             return response()->json(['error' => 'Invalid signature'], 401);
         }
 
@@ -175,12 +176,12 @@ class MercadoPagoNotificacionController extends Controller
         }
 
         $externalRef = $status->referenceId;
-        if (!$externalRef) {
+        if (! $externalRef) {
             return response()->json(['error' => 'No external reference'], 400);
         }
 
         $comercio = Comercio::find($externalRef);
-        if (!$comercio) {
+        if (! $comercio) {
             return response()->json(['error' => 'Comercio not found'], 404);
         }
 
@@ -189,13 +190,23 @@ class MercadoPagoNotificacionController extends Controller
         }
 
         $plan = Plan::find($comercio->pending_plan_id);
-        if (!$plan) {
+        if (! $plan) {
             // Pago aprobado sin intención registrada: no aplicamos nada para
             // no cambiar el plan por un pago que no coincide con una
-            // preferencia generada desde esta pantalla.
-            Log::warning('Webhook de plan aprobado sin pending_plan_id', [
+            // preferencia generada desde esta pantalla. Se conserva el pago
+            // como `superseded` para que el cobro no quede sin conciliación.
+            $pago = $this->suscripcionService->registrarPagoSuperseded(
+                $comercio,
+                $paymentId,
+                $status->amount,
+            );
+
+            $this->suscripcionService->limpiarPagoEnVuelo($comercio->id);
+
+            Log::warning('Webhook de plan aprobado sin pending_plan_id; registrado para conciliación', [
                 'payment_id' => $paymentId,
                 'comercio_id' => $comercio->id,
+                'payment_record_id' => $pago->id,
             ]);
 
             return response()->json(['status' => 'already_processed']);

@@ -179,11 +179,13 @@ class SuscripcionService
      * Calcula el período que cubre un pago aprobado, sin acortar nunca un
      * período vigente.
      *
-     * Regla comercial acordada para los cobros manuales:
+     * Regla comercial acordada para los cobros:
      *  - si el vencimiento actual todavía está vigente (incluido el día del
      *    vencimiento, porque el acceso se corta recién al finalizar ese día),
      *    el nuevo período empieza después del vencimiento;
-     *  - si ya venció, empieza en la fecha de pago.
+     *  - si ya venció, empieza en la fecha actual. La fecha de pago se usa
+     *    para el registro contable (`approved_at`), no para acortar ni
+     *    regalar días de suscripción.
      *
      * La duración se toma del plan (`duracion_meses`) cuando exista. Los
      * planes actuales no tienen esa columna y se asumen mensuales, pero el
@@ -197,7 +199,14 @@ class SuscripcionService
         ?Plan $plan = null,
         ?Carbon $fechaPago = null,
     ): array {
-        $fechaPago = ($fechaPago ?? now())->copy()->startOfDay();
+        $hoy = now()->startOfDay();
+        $fechaPago = ($fechaPago ?? $hoy)->copy()->startOfDay();
+
+        // Un pago cargado con fecha pasada no puede retrasar el inicio del
+        // período: la suscripción arranca hoy, no el día del comprobante.
+        if ($fechaPago->lessThan($hoy)) {
+            $fechaPago = $hoy->copy();
+        }
 
         $vencimiento = $vencimientoActual?->copy()->startOfDay();
         $periodoVigente = $vencimiento !== null
@@ -259,7 +268,13 @@ class SuscripcionService
             }
 
             $venciaVencido = $comercio->status === 'suspendido'
-                || ($comercio->vencimiento_pago && Carbon::parse($comercio->vencimiento_pago)->isPast());
+                || ($comercio->vencimiento_pago
+                    && Carbon::parse($comercio->vencimiento_pago)->endOfDay()->isPast());
+
+            $periodo = $this->calcularPeriodo(
+                $comercio->vencimiento_pago ? Carbon::parse($comercio->vencimiento_pago) : null,
+                $plan,
+            );
 
             if (! $mismoPlan) {
                 $comercio->plan_id = $plan->id;
@@ -269,11 +284,11 @@ class SuscripcionService
             }
 
             $comercio->pending_plan_id = null;
-            $comercio->vencimiento_pago = $this->nuevaFechaVencimiento($comercio->vencimiento_pago)->toDateString();
+            $comercio->vencimiento_pago = $periodo['fin']->toDateString();
             $comercio->status = 'activo';
             $comercio->save();
 
-            $nuevoVencimiento = $comercio->vencimiento_pago->toDateString();
+            $nuevoVencimiento = $periodo['fin']->toDateString();
 
             $activity = activity()->performedOn($comercio);
 
@@ -291,6 +306,8 @@ class SuscripcionService
                     'via' => $via,
                     'payment_id' => $paymentId,
                     'reactivated' => $venciaVencido,
+                    'periodo_inicio' => $periodo['inicio']->toDateString(),
+                    'periodo_fin' => $periodo['fin']->toDateString(),
                     'vencimiento_pago' => $nuevoVencimiento,
                 ])
                 ->log($this->descripcionActividad($mismoPlan, $venciaVencido, $via));
@@ -300,6 +317,8 @@ class SuscripcionService
                 paymentId: $paymentId,
                 amount: $amount ?? (float) $plan->precio_mensual,
                 mismoPlan: $mismoPlan,
+                periodo: $periodo,
+                createdBy: $via === 'webhook' ? null : auth()->id(),
             );
 
             return $mismoPlan ? 'renovacion' : 'upgrade';
@@ -316,6 +335,50 @@ class SuscripcionService
             ->where('provider', 'mercadopago')
             ->where('gateway_transaction_id', $paymentId)
             ->exists();
+    }
+
+    /**
+     * Registra un pago aprobado de Mercado Pago que llegó cuando ya no había
+     * una intención pendiente (por ejemplo, porque el Administrador Global
+     * registró un pago manual mientras el checkout seguía abierto).
+     *
+     * No se aplica sobre la suscripción: se conserva como pago `superseded`
+     * para conciliación y auditoría. Es idempotente por
+     * `provider + gateway_transaction_id`.
+     */
+    public function registrarPagoSuperseded(
+        Comercio $comercio,
+        string $paymentId,
+        ?float $amount = null,
+    ): Payment {
+        return DB::transaction(function () use ($comercio, $paymentId, $amount) {
+            // El lock sobre el comercio serializa webhooks concurrentes del
+            // mismo tenant, igual que en `aplicarPago()`.
+            $comercio = Comercio::lockForUpdate()->findOrFail($comercio->id);
+
+            return Payment::firstOrCreate(
+                [
+                    'provider' => 'mercadopago',
+                    'gateway_transaction_id' => $paymentId,
+                ],
+                [
+                    'payable_type' => Comercio::class,
+                    'payable_id' => $comercio->id,
+                    'channel' => PaymentChannel::API,
+                    'status' => PaymentStatus::APPROVED,
+                    'reference' => (string) $comercio->id,
+                    'amount' => $amount,
+                    'currency' => 'ARS',
+                    'approved_at' => now(),
+                    'metadata' => [
+                        'tipo' => 'suscripcion',
+                        'origen' => 'mercadopago',
+                        'conciliacion' => 'superseded',
+                        'motivo' => 'sin_pending_plan_id',
+                    ],
+                ],
+            );
+        });
     }
 
     /**
@@ -489,8 +552,14 @@ class SuscripcionService
         ];
     }
 
-    private function registrarPago(Comercio $comercio, string $paymentId, ?float $amount, bool $mismoPlan): void
-    {
+    private function registrarPago(
+        Comercio $comercio,
+        string $paymentId,
+        ?float $amount,
+        bool $mismoPlan,
+        ?array $periodo = null,
+        ?int $createdBy = null,
+    ): void {
         Payment::firstOrCreate(
             [
                 'provider' => 'mercadopago',
@@ -503,6 +572,10 @@ class SuscripcionService
                 'status' => PaymentStatus::APPROVED,
                 'reference' => (string) $comercio->id,
                 'amount' => $amount,
+                'currency' => 'ARS',
+                'period_start' => $periodo ? $periodo['inicio']->toDateString() : null,
+                'period_end' => $periodo ? $periodo['fin']->toDateString() : null,
+                'created_by_id' => $createdBy,
                 'approved_at' => now(),
                 'metadata' => [
                     'tipo' => 'suscripcion',

@@ -3,6 +3,12 @@ import GlobalAdminLayout from '@/Layouts/GlobalAdminLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { reactive } from 'vue';
 import Swal from 'sweetalert2';
+import {
+    MODAL_PAGO_MANUAL_HTML,
+    inicializarModalPagoManual,
+    mensajeErrorPago,
+    mensajeExitoPago,
+} from '@/Utils/pagoManual';
 
 const props = defineProps({
     comercios: { type: Array, default: () => [] },
@@ -11,6 +17,8 @@ const props = defineProps({
     historial_filtros: { type: Object, default: () => ({}) },
     comercios_filtro: { type: Array, default: () => [] },
     estados_pago: { type: Array, default: () => [] },
+    metodos_pago: { type: Array, default: () => ['efectivo', 'transferencia', 'tarjeta', 'otro'] },
+    hoy: { type: String, default: '' },
     precios_confirmados: { type: Boolean, default: false },
     cobros_habilitados: { type: Boolean, default: false },
     aviso_precios: { type: String, default: '' },
@@ -97,25 +105,74 @@ const limpiarFiltros = () => {
 };
 
 const registrarPago = (comercio) => {
+    const idempotencyKey = globalThis.crypto?.randomUUID?.()
+        ?? `pago-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    // Fecha de hoy según el backend; si no vino, se usa la local en formato
+    // YYYY-MM-DD. `toISOString()` usa UTC y puede devolver el día siguiente.
+    const hoy = props.hoy || new Date().toLocaleDateString('en-CA');
+
     Swal.fire({
         title: 'Registrar pago manual',
-        html: `
-            <p class="text-sm text-slate-600 mb-3">Comercio: <strong>${comercio.nombre}</strong></p>
-            <p class="text-sm text-slate-600 mb-3">Importe configurado de referencia: <strong>${formatearDinero(comercio.precio_configurado)}</strong></p>
-            <p class="text-xs text-amber-700 bg-amber-50 rounded-lg p-2">El precio comercial todavía no está confirmado. Este registro sólo debe usarse cuando el negocio habilite los cobros.</p>
-        `,
+        // El HTML es estático. Los valores del comercio y del formulario se
+        // completan en `didOpen` con textContent/value, nunca por interpolación.
+        html: MODAL_PAGO_MANUAL_HTML,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Registrar',
         cancelButtonText: 'Cancelar',
         confirmButtonColor: '#4f46e5',
         cancelButtonColor: '#64748b',
+        focusConfirm: false,
+        didOpen: () => inicializarModalPagoManual({
+            nombre: comercio.nombre,
+            importe: comercio.precio_configurado,
+            hoy,
+            metodos: props.metodos_pago,
+        }),
         preConfirm: () => {
+            const importe = document.getElementById('b3-importe')?.value;
+            const payment_method = document.getElementById('b3-metodo')?.value;
+            const referencia = document.getElementById('b3-referencia')?.value?.trim();
+            const fecha_pago = document.getElementById('b3-fecha')?.value;
+
+            if (!importe || Number(importe) <= 0) {
+                Swal.showValidationMessage('Ingresá un importe mayor a cero.');
+                return false;
+            }
+
+            if (!payment_method) {
+                Swal.showValidationMessage('Elegí un método de pago.');
+                return false;
+            }
+
             return router.post(route('admin.facturacion.pagar', comercio.id), {
-                importe: comercio.precio_configurado,
-                payment_method: 'efectivo',
+                importe,
+                payment_method,
+                referencia: referencia || null,
+                fecha_pago: fecha_pago || null,
+                idempotency_key: idempotencyKey,
             }, {
                 preserveScroll: true,
+                onSuccess: (page) => {
+                    Swal.close();
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Pago registrado',
+                        text: mensajeExitoPago(page),
+                        timer: 3000,
+                        showConfirmButton: false,
+                        timerProgressBar: true,
+                    });
+                },
+                onError: (errors) => {
+                    Swal.close();
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'No se pudo registrar el pago',
+                        text: mensajeErrorPago(errors),
+                        confirmButtonColor: '#e11d48',
+                    });
+                },
             });
         },
     });

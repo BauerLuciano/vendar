@@ -3,20 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
+use App\Exceptions\PagoManualDeshabilitadoException;
 use App\Exceptions\PagoManualInvalidoException;
 use App\Models\Comercio;
 use App\Models\Payment;
+use App\Models\Plan;
 use App\Models\Sucursal;
 use App\Models\User;
-use App\Models\Plan;
 use App\Services\Suscripcion\PagoManualService;
 use App\Services\Suscripcion\SuscripcionService;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
 
 class GlobalAdminController extends Controller
 {
@@ -32,7 +33,7 @@ class GlobalAdminController extends Controller
                 ['id' => 'proveedores', 'nombre' => 'Gestión de Proveedores'],
                 ['id' => 'auditoria', 'nombre' => 'Auditoría de Caja y Stock'],
                 ['id' => 'transferencias', 'nombre' => 'Optimización de Stock (Sugerencias)'],
-            ]
+            ],
         ]);
     }
 
@@ -52,10 +53,10 @@ class GlobalAdminController extends Controller
             $plan = Plan::find($validated['plan_id']);
             $validated['modulos_habilitados'] = $plan ? $plan->modulos : ['pos' => true];
         }
-        
+
         $validated['slug'] = Str::slug($request->nombre);
 
-        $comercio = new Comercio();
+        $comercio = new Comercio;
         $comercio->nombre = $validated['nombre'];
         $comercio->slug = $validated['slug'];
         $comercio->plan_id = $validated['plan_id'];
@@ -68,16 +69,15 @@ class GlobalAdminController extends Controller
 
         Sucursal::create([
             'comercio_id' => $comercio->id,
-            'nombre'      => 'Casa Central',
-            'direccion'   => 'Dirección a definir',
-            'latitud'     => -27.367, 
-            'longitud'    => -55.896,
-            'estado'      => true,
+            'nombre' => 'Casa Central',
+            'direccion' => 'Dirección a definir',
+            'latitud' => -27.367,
+            'longitud' => -55.896,
+            'estado' => true,
         ]);
 
         return redirect()->back()->with('exito', 'Comercio y sucursal base registrados con éxito.');
     }
-
 
     public function update(Request $request, Comercio $comercio)
     {
@@ -141,10 +141,10 @@ class GlobalAdminController extends Controller
                 return [
                     'id' => $c->id,
                     'nombre' => $c->nombre,
-                    'plan' => $c->planContratado?->nombre
-                        ?? ($c->plan ? strtoupper($c->plan) : 'N/A'),
+                    'plan' => $c->planContratado?->nombre ?? 'Sin plan',
+                    'plan_legacy' => $c->plan,
                     'fecha' => $c->created_at ? $c->created_at->format('d/m/Y') : 'N/A',
-                    'estado' => ucfirst($c->status)
+                    'estado' => ucfirst($c->status),
                 ];
             });
 
@@ -152,9 +152,9 @@ class GlobalAdminController extends Controller
             'kpis' => [
                 'comercios_activos' => $comerciosActivos,
                 'comercios_totales' => $totalComercios,
-                'mrr_estimado'      => $mrr,
-                'sucursales_nube'   => $totalSucursales,
-                'usuarios_totales'  => $totalUsuarios,
+                'mrr_estimado' => $mrr,
+                'sucursales_nube' => $totalSucursales,
+                'usuarios_totales' => $totalUsuarios,
             ],
             'ultimosComercios' => $ultimosComercios,
             'precios_confirmados' => $preciosConfirmados,
@@ -184,12 +184,12 @@ class GlobalAdminController extends Controller
 
                 // El día del vencimiento todavía es un día con acceso: el
                 // middleware corta al finalizar la jornada. Por eso `dias === 0`
-                // no puede mostrarse como Vencido.
+                // no puede mostrarse como Vencido; se muestra Por Vencer para
+                // alinearse con `SuscripcionService::estadoSuscripcion()`.
                 $estadoCobro = match (true) {
                     $suspendido => 'Suspendido',
                     $vencimiento === null => 'Sin vencimiento',
                     $diasRestantes < 0 => 'Vencido',
-                    $diasRestantes === 0 => 'Al Día',
                     $diasRestantes <= SuscripcionService::UMBRAL_AVISO_DIAS => 'Por Vencer',
                     default => 'Al Día',
                 };
@@ -201,9 +201,12 @@ class GlobalAdminController extends Controller
                 return [
                     'id' => $c->id,
                     'nombre' => $c->nombre,
-                    'plan' => $plan?->nombre
-                        ?? ($c->plan ? strtoupper($c->plan) : 'Sin plan'),
-                    'slug' => $plan?->slug ?? $c->plan,
+                    // Si no hay relación al plan, no se inventa un nombre ni
+                    // un precio con la columna legacy. Se muestra Sin plan y
+                    // se conserva el slug legacy aparte para diagnóstico.
+                    'plan' => $plan?->nombre ?? 'Sin plan',
+                    'slug' => $plan?->slug,
+                    'plan_legacy' => $c->plan,
                     // Precio configurado en el plan, no tarifa comercial.
                     'precio_configurado' => $precioConfigurado,
                     'precio_es_referencia' => ! $preciosConfirmados,
@@ -220,6 +223,15 @@ class GlobalAdminController extends Controller
         $vencidos = $comercios->where('estado_cobro', 'Vencido')->count();
         $suspendidos = $comercios->where('estado_cobro', 'Suspendido')->count();
 
+        // Mora = deuda vencida, sin importar si el comercio está suspendido o
+        // no. Un suspendido manual con vencimiento futuro no es moroso: sigue
+        // listado como Suspendido, pero no engrosa la deuda. Un suspendido sin
+        // vencimiento sí se cuenta porque no tiene período pago vigente.
+        $enMora = $comercios->filter(function (array $c) {
+            return ($c['dias_restantes'] !== null && $c['dias_restantes'] < 0)
+                || ($c['suspendido'] && $c['dias_restantes'] === null);
+        })->count();
+
         $historial = $this->construirHistorial($request);
 
         return Inertia::render('AdminGlobal/Facturacion', [
@@ -231,14 +243,17 @@ class GlobalAdminController extends Controller
                 'vencidos' => $vencidos,
                 'suspendidos' => $suspendidos,
                 'sin_vencimiento' => $comercios->where('estado_cobro', 'Sin vencimiento')->count(),
-                // Los suspendidos siguen siendo deuda: no desaparecen de mora.
-                'en_mora' => $vencidos + $suspendidos,
-                'clientes_morosos' => $vencidos + $suspendidos,
+                'en_mora' => $enMora,
+                'clientes_morosos' => $enMora,
             ],
             'historial' => $historial['pagos'],
             'historial_filtros' => $historial['filtros'],
             'comercios_filtro' => Comercio::orderBy('nombre')->get(['id', 'nombre']),
             'estados_pago' => array_map(fn (PaymentStatus $e) => $e->value, PaymentStatus::cases()),
+            'metodos_pago' => PagoManualService::METODOS_VALIDOS,
+            // Fecha de hoy según el backend, para que el `max` del formulario
+            // no se desalinee por la zona horaria del navegador.
+            'hoy' => now()->toDateString(),
             'precios_confirmados' => $preciosConfirmados,
             'cobros_habilitados' => (bool) config('vendar.facturacion.cobros_habilitados', false),
             'aviso_precios' => 'Los precios comerciales de VendAR todavía están pendientes de definición. El registro de cobros permanece deshabilitado.',
@@ -282,6 +297,7 @@ class GlobalAdminController extends Controller
 
         $query = Payment::query()
             ->where('payable_type', Comercio::class)
+            ->where('metadata->tipo', 'suscripcion')
             ->with(['createdBy:id,name,email', 'payable:id,nombre'])
             ->orderByDesc('approved_at')
             ->orderByDesc('id');
@@ -368,7 +384,7 @@ class GlobalAdminController extends Controller
         DB::transaction(function () use ($user, $validated) {
             // 1. Activar usuario y asignar rol de SuperAdmin (dueño de comercio)
             $user->is_active = true;
-        $user->save();
+            $user->save();
             $user->syncRoles(['SuperAdmin']);
 
             // 2. Buscar plan en DB
@@ -381,7 +397,7 @@ class GlobalAdminController extends Controller
             $plan = Plan::where('slug', $planSlug)->first();
 
             // 3. Crear Comercio
-            $comercio = new Comercio();
+            $comercio = new Comercio;
             $comercio->nombre = $validated['nombre_comercio'];
             $comercio->slug = Str::slug($validated['nombre_comercio']);
             $comercio->plan = $plan?->slug ?? 'basico';
@@ -437,18 +453,18 @@ class GlobalAdminController extends Controller
 
         // La fecha de vencimiento NO se acepta desde el formulario. Sólo se
         // registra la fecha en que se recibió el pago; el período lo calcula
-        // el servicio a partir del vencimiento vigente.
+        // el servicio a partir del vencimiento vigente o de la fecha actual.
         $validated = $request->validate([
-            'importe' => 'required|numeric|min:0',
+            'importe' => 'required|numeric|gt:0',
             'payment_method' => ['required', 'string', Rule::in(PagoManualService::METODOS_VALIDOS)],
             'referencia' => 'nullable|string|max:255',
             'idempotency_key' => 'nullable|string|max:191',
-            'fecha_pago' => 'nullable|date',
+            'fecha_pago' => 'nullable|date|before_or_equal:today',
         ]);
 
         try {
             $pago = $pagoManualService->registrar($comercio, $validated, $request->user());
-        } catch (PagoManualInvalidoException $e) {
+        } catch (PagoManualInvalidoException|PagoManualDeshabilitadoException $e) {
             return redirect()->back()->withErrors(['pago' => $e->getMessage()]);
         }
 

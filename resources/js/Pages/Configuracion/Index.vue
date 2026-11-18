@@ -114,21 +114,31 @@ const camposPmcConErrorInline = [
     'provider',
     'display_data',
     'display_data.alias',
-    'display_data.cvu',
     'display_data.cbu',
+    'display_data.cvu',
     'display_data.banco',
     'display_data.titular',
     'enabled',
 ];
+
+const MENSAJE_GRUPO_PMC = 'Completá al menos uno de Alias, CBU o CVU.';
+const MENSAJE_TITULAR_PMC = 'Ingresá el nombre del titular.';
 
 const mensajeErrorPmc = (campo) => {
     const error = pmcForm.errors[campo];
     return Array.isArray(error) ? error.join(' ') : (error || '');
 };
 
+const valorCompletadoPmc = (valor) => {
+    if (valor === null || valor === undefined) return false;
+    if (typeof valor === 'string') return valor.trim().length > 0;
+    if (Array.isArray(valor)) return valor.length > 0;
+    return true;
+};
+
 const idCampoPmc = (campo) => `pmc-${campo.replace(/[._]/g, '-')}`;
 const idErrorPmc = (campo) => `${idCampoPmc(campo)}-error`;
-const idCampoEnfocablePmc = (campo) => (campo === 'display_data.cbu' ? idCampoPmc('display_data.cvu') : idCampoPmc(campo));
+const idCampoEnfocablePmc = (campo) => idCampoPmc(campo);
 
 const erroresPmc = computed(() => Object.entries(pmcForm.errors).map(([campo, error]) => ({
     campo,
@@ -140,10 +150,53 @@ const erroresGeneralesPmc = computed(() => erroresPmc.value.filter(
     ({ campo }) => !camposPmcConErrorInline.includes(campo)
 ));
 
+const esTransferenciaPmc = computed(
+    () => pmcForm.metodo_pago === 'TRANSFERENCIA'
+);
+
+const faltaTitularPmc = computed(() =>
+    esTransferenciaPmc.value &&
+    mensajeErrorPmc('display_data.titular') === MENSAJE_TITULAR_PMC
+);
+
+const faltaCuentaPmc = computed(() =>
+    esTransferenciaPmc.value &&
+    mensajeErrorPmc('display_data') === MENSAJE_GRUPO_PMC
+);
+
+const hayErrorRequisitoTransferenciaPmc = computed(() =>
+    faltaTitularPmc.value || faltaCuentaPmc.value
+);
+
+const mensajeResumenPmc = computed(() => {
+    if (faltaTitularPmc.value && faltaCuentaPmc.value) {
+        return 'Completá el nombre del titular y al menos uno de Alias, CBU o CVU.';
+    }
+
+    if (faltaTitularPmc.value) {
+        return 'Faltan los datos del titular de la transferencia.';
+    }
+
+    if (faltaCuentaPmc.value) {
+        return 'Faltan los datos de la cuenta para la transferencia.';
+    }
+
+    return 'Revisá los datos marcados y volvé a intentar.';
+});
+
 const mostrarResumenErroresPmc = computed(() => {
     if (!erroresPmc.value.length) return false;
+    if (hayErrorRequisitoTransferenciaPmc.value) return true;
 
     return erroresPmc.value.length > 1 || erroresGeneralesPmc.value.length > 0;
+});
+
+const descripcionGrupoPmc = computed(() => {
+    if (!esTransferenciaPmc.value) return undefined;
+
+    return mensajeErrorPmc('display_data')
+        ? `pmc-display-data-grupo-ayuda ${idErrorPmc('display_data')}`
+        : 'pmc-display-data-grupo-ayuda';
 });
 
 function limpiarErrorPmc(campo) {
@@ -154,12 +207,55 @@ function limpiarErrorPmc(campo) {
     }
 }
 
+function validarTransferenciaPmc() {
+    if (!esTransferenciaPmc.value) return true;
+
+    pmcForm.clearErrors('display_data', 'display_data.titular');
+
+    let valido = true;
+    const data = pmcForm.display_data || {};
+
+    if (!valorCompletadoPmc(data.titular)) {
+        pmcForm.setError('display_data.titular', MENSAJE_TITULAR_PMC);
+        valido = false;
+    }
+
+    if (![data.alias, data.cbu, data.cvu].some(valorCompletadoPmc)) {
+        pmcForm.setError('display_data', MENSAJE_GRUPO_PMC);
+        valido = false;
+    }
+
+    return valido;
+}
+
+function enfocarPrimerErrorPmc() {
+    const primerCampoConError = camposPmcConErrorInline.find(
+        (campo) => campo !== 'display_data' && Boolean(mensajeErrorPmc(campo))
+    );
+
+    if (primerCampoConError) {
+        document.getElementById(idCampoEnfocablePmc(primerCampoConError))?.focus();
+        return;
+    }
+
+    document.getElementById('pmc-error-summary')?.focus();
+}
+
 function editPmc(pmc) {
     pmcForm.clearErrors();
     editingPmcId.value = pmc.id;
     pmcForm.metodo_pago = pmc.metodo_pago;
     pmcForm.provider = pmc.provider || '';
-    pmcForm.display_data = { ...(pmc.display_data || {}) };
+    pmcForm.display_data = pmc.metodo_pago === 'TRANSFERENCIA'
+        ? {
+            ...(pmc.display_data || {}),
+            alias: pmc.display_data?.alias ?? '',
+            cbu: pmc.display_data?.cbu ?? '',
+            cvu: pmc.display_data?.cvu ?? '',
+            banco: pmc.display_data?.banco ?? '',
+            titular: pmc.display_data?.titular ?? '',
+        }
+        : { ...(pmc.display_data || {}) };
     pmcForm.enabled = pmc.enabled;
 }
 
@@ -170,8 +266,26 @@ function resetPmcForm() {
     pmcForm.display_data = { alias: '', cvu: '', cbu: '', banco: '', titular: '' };
 }
 
+function cambiarMetodoPagoPmc() {
+    limpiarErrorPmc('metodo_pago');
+
+    pmcForm.clearErrors(
+        'display_data',
+        'display_data.alias',
+        'display_data.cbu',
+        'display_data.cvu',
+        'display_data.banco',
+        'display_data.titular'
+    );
+}
+
 function guardarPmc() {
     if (pmcForm.processing) return;
+
+    if (!validarTransferenciaPmc()) {
+        nextTick(enfocarPrimerErrorPmc);
+        return;
+    }
 
     pmcForm.post(route('configuracion.metodo-pago.store'), {
         preserveScroll: true,
@@ -194,18 +308,7 @@ function guardarPmc() {
                 });
             }
 
-            nextTick(() => {
-                const primerCampoConError = camposPmcConErrorInline.find(
-                    (campo) => campo !== 'display_data' && Boolean(mensajeErrorPmc(campo))
-                );
-
-                if (primerCampoConError) {
-                    document.getElementById(idCampoEnfocablePmc(primerCampoConError))?.focus();
-                    return;
-                }
-
-                document.getElementById('pmc-error-summary')?.focus();
-            });
+            nextTick(enfocarPrimerErrorPmc);
         },
     });
 }
@@ -698,7 +801,7 @@ const guardarConfiguracion = (event) => {
                                         class="rounded-xl border border-rose-200 bg-rose-50 p-4 outline-none focus:ring-2 focus:ring-rose-400"
                                     >
                                         <p class="text-sm font-black text-rose-700">No se pudo guardar el medio de pago.</p>
-                                        <p class="mt-1 text-xs font-medium text-rose-600">Revisá los datos marcados y volvé a intentar.</p>
+                                        <p class="mt-1 text-xs font-medium text-rose-600">{{ mensajeResumenPmc }}</p>
                                         <ul v-if="erroresGeneralesPmc.length" class="mt-2 space-y-1 text-xs text-rose-700">
                                             <li v-for="error in erroresGeneralesPmc" :key="error.campo">
                                                 <span class="font-bold">{{ error.etiqueta }}:</span> {{ error.mensaje }}
@@ -714,7 +817,7 @@ const guardarConfiguracion = (event) => {
                                                 :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('metodo_pago')}"
                                                 :aria-invalid="Boolean(mensajeErrorPmc('metodo_pago'))"
                                                 :aria-describedby="mensajeErrorPmc('metodo_pago') ? idErrorPmc('metodo_pago') : undefined"
-                                                @change="limpiarErrorPmc('metodo_pago')"
+                                                @change="cambiarMetodoPagoPmc()"
                                             >
                                                 <option v-for="opt in metodoPagoOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                                             </select>
@@ -737,35 +840,54 @@ const guardarConfiguracion = (event) => {
                                     </div>
 
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label for="pmc-display-data-alias" class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
-                                            <input id="pmc-display-data-alias" v-model="pmcForm.display_data.alias" type="text" placeholder="ej: mercopago.pago.facil" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
-                                                :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.alias')}"
-                                                :aria-invalid="Boolean(mensajeErrorPmc('display_data.alias'))"
-                                                :aria-describedby="mensajeErrorPmc('display_data.alias') ? idErrorPmc('display_data.alias') : undefined"
-                                                @input="limpiarErrorPmc('display_data.alias')"
-                                            >
-                                            <p v-if="mensajeErrorPmc('display_data.alias')" :id="idErrorPmc('display_data.alias')" class="mt-1 text-xs font-bold text-rose-500">
-                                                {{ mensajeErrorPmc('display_data.alias') }}
+                                        <div class="md:col-span-2" role="group" aria-label="Alias, CBU o CVU" :aria-describedby="descripcionGrupoPmc">
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div>
+                                                    <label for="pmc-display-data-alias" class="block text-xs font-bold text-slate-500 uppercase mb-1">Alias</label>
+                                                    <input id="pmc-display-data-alias" v-model="pmcForm.display_data.alias" type="text" placeholder="ej: mercopago.pago.facil" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
+                                                        :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.alias')}"
+                                                        :aria-invalid="Boolean(mensajeErrorPmc('display_data.alias'))"
+                                                        :aria-describedby="mensajeErrorPmc('display_data.alias') ? idErrorPmc('display_data.alias') : undefined"
+                                                        @input="limpiarErrorPmc('display_data.alias')"
+                                                    >
+                                                    <p v-if="mensajeErrorPmc('display_data.alias')" :id="idErrorPmc('display_data.alias')" class="mt-1 text-xs font-bold text-rose-500">
+                                                        {{ mensajeErrorPmc('display_data.alias') }}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <label for="pmc-display-data-cbu" class="block text-xs font-bold text-slate-500 uppercase mb-1">CBU</label>
+                                                    <input id="pmc-display-data-cbu" v-model="pmcForm.display_data.cbu" type="text" placeholder="0000000000000000000000" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
+                                                        :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.cbu')}"
+                                                        :aria-invalid="Boolean(mensajeErrorPmc('display_data.cbu'))"
+                                                        :aria-describedby="mensajeErrorPmc('display_data.cbu') ? idErrorPmc('display_data.cbu') : undefined"
+                                                        @input="limpiarErrorPmc('display_data.cbu')"
+                                                    >
+                                                    <p v-if="mensajeErrorPmc('display_data.cbu')" :id="idErrorPmc('display_data.cbu')" class="mt-1 text-xs font-bold text-rose-500">
+                                                        {{ mensajeErrorPmc('display_data.cbu') }}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <label for="pmc-display-data-cvu" class="block text-xs font-bold text-slate-500 uppercase mb-1">CVU</label>
+                                                    <input id="pmc-display-data-cvu" v-model="pmcForm.display_data.cvu" type="text" placeholder="0000003100000000000000" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
+                                                        :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.cvu')}"
+                                                        :aria-invalid="Boolean(mensajeErrorPmc('display_data.cvu'))"
+                                                        :aria-describedby="mensajeErrorPmc('display_data.cvu') ? idErrorPmc('display_data.cvu') : undefined"
+                                                        @input="limpiarErrorPmc('display_data.cvu')"
+                                                    >
+                                                    <p v-if="mensajeErrorPmc('display_data.cvu')" :id="idErrorPmc('display_data.cvu')" class="mt-1 text-xs font-bold text-rose-500">
+                                                        {{ mensajeErrorPmc('display_data.cvu') }}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <p v-if="esTransferenciaPmc" id="pmc-display-data-grupo-ayuda" class="mt-1 text-xs text-slate-500">
+                                                Completá al menos uno de Alias, CBU o CVU.
+                                            </p>
+                                            <p v-if="mensajeErrorPmc('display_data')" :id="idErrorPmc('display_data')" class="mt-1 text-xs font-bold text-rose-500">
+                                                {{ mensajeErrorPmc('display_data') }}
                                             </p>
                                         </div>
                                         <div>
-                                            <label for="pmc-display-data-cvu" class="block text-xs font-bold text-slate-500 uppercase mb-1">CVU / CBU</label>
-                                            <input id="pmc-display-data-cvu" v-model="pmcForm.display_data.cvu" type="text" placeholder="0000003100000000000000" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
-                                                :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.cvu') || mensajeErrorPmc('display_data.cbu')}"
-                                                :aria-invalid="Boolean(mensajeErrorPmc('display_data.cvu') || mensajeErrorPmc('display_data.cbu'))"
-                                                :aria-describedby="mensajeErrorPmc('display_data.cvu') ? idErrorPmc('display_data.cvu') : (mensajeErrorPmc('display_data.cbu') ? idErrorPmc('display_data.cbu') : undefined)"
-                                                @input="limpiarErrorPmc('display_data.cvu'); limpiarErrorPmc('display_data.cbu')"
-                                            >
-                                            <p v-if="mensajeErrorPmc('display_data.cvu')" :id="idErrorPmc('display_data.cvu')" class="mt-1 text-xs font-bold text-rose-500">
-                                                {{ mensajeErrorPmc('display_data.cvu') }}
-                                            </p>
-                                            <p v-if="mensajeErrorPmc('display_data.cbu')" :id="idErrorPmc('display_data.cbu')" class="mt-1 text-xs font-bold text-rose-500">
-                                                {{ mensajeErrorPmc('display_data.cbu') }}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <label for="pmc-display-data-banco" class="block text-xs font-bold text-slate-500 uppercase mb-1">Banco</label>
+                                            <label for="pmc-display-data-banco" class="block text-xs font-bold text-slate-500 uppercase mb-1">Banco <span v-if="esTransferenciaPmc" class="text-slate-400 normal-case">(opcional)</span></label>
                                             <input id="pmc-display-data-banco" v-model="pmcForm.display_data.banco" type="text" placeholder="Banco Ejemplo" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
                                                 :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.banco')}"
                                                 :aria-invalid="Boolean(mensajeErrorPmc('display_data.banco'))"
@@ -777,10 +899,11 @@ const guardarConfiguracion = (event) => {
                                             </p>
                                         </div>
                                         <div>
-                                            <label for="pmc-display-data-titular" class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular</label>
+                                            <label for="pmc-display-data-titular" class="block text-xs font-bold text-slate-500 uppercase mb-1">Titular <span v-if="esTransferenciaPmc" class="text-rose-500">*</span></label>
                                             <input id="pmc-display-data-titular" v-model="pmcForm.display_data.titular" type="text" placeholder="Nombre del titular" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-sky-500 font-medium text-slate-800"
                                                 :class="{'border-rose-500 ring-1 ring-rose-200': mensajeErrorPmc('display_data.titular')}"
                                                 :aria-invalid="Boolean(mensajeErrorPmc('display_data.titular'))"
+                                                :aria-required="esTransferenciaPmc ? 'true' : undefined"
                                                 :aria-describedby="mensajeErrorPmc('display_data.titular') ? idErrorPmc('display_data.titular') : undefined"
                                                 @input="limpiarErrorPmc('display_data.titular')"
                                             >
@@ -789,10 +912,6 @@ const guardarConfiguracion = (event) => {
                                             </p>
                                         </div>
                                     </div>
-
-                                    <p v-if="mensajeErrorPmc('display_data')" :id="idErrorPmc('display_data')" class="text-xs font-bold text-rose-500">
-                                        {{ mensajeErrorPmc('display_data') }}
-                                    </p>
 
                                     <label for="pmc-enabled" class="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer"
                                         :class="{'border-rose-300 bg-rose-50': mensajeErrorPmc('enabled')}"

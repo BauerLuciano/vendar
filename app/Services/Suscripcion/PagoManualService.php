@@ -82,7 +82,13 @@ class PagoManualService
             ? Carbon::parse($datos['fecha_pago'])
             : now();
 
-        return DB::transaction(function () use (
+        if ($fechaPago->copy()->startOfDay()->isFuture()) {
+            throw new PagoManualInvalidoException('La fecha de pago no puede ser futura.');
+        }
+
+        $referencia = $referencia !== '' ? $referencia : null;
+
+        $resultado = DB::transaction(function () use (
             $comercio,
             $responsable,
             $metodo,
@@ -90,7 +96,7 @@ class PagoManualService
             $referencia,
             $idempotencyKey,
             $fechaPago,
-        ): Payment {
+        ): array {
             /** @var Comercio $comercio */
             $comercio = Comercio::lockForUpdate()->findOrFail($comercio->id);
 
@@ -100,9 +106,17 @@ class PagoManualService
                 throw new PagoManualInvalidoException('El comercio no tiene un plan contratado.');
             }
 
+            if ($plan->precio_mensual === null) {
+                throw new PagoManualInvalidoException('El plan no tiene un precio configurado.');
+            }
+
             $precioConfigurado = (float) $plan->precio_mensual;
 
-            if ($importe === null || abs($importe - $precioConfigurado) > 0.009) {
+            if ($importe === null || $importe <= 0) {
+                throw new PagoManualInvalidoException('El importe debe ser mayor a cero.');
+            }
+
+            if (abs($importe - $precioConfigurado) > 0.009) {
                 throw new PagoManualInvalidoException(
                     'El importe no coincide con el precio configurado del plan.'
                 );
@@ -114,10 +128,23 @@ class PagoManualService
                     ->lockForUpdate()
                     ->first();
 
-                // Misma operación reintentada: devolvemos el pago original
-                // sin volver a extender el vencimiento.
+                // La clave es única global. Si pertenece a otro comercio, no
+                // se puede reutilizar ni devolver ese pago: sería una fuga
+                // entre tenants y extendería el comercio equivocado.
                 if ($existente) {
-                    return $existente;
+                    $mismaOperacion = $existente->payable_type === Comercio::class
+                        && (int) $existente->payable_id === (int) $comercio->id;
+
+                    if (! $mismaOperacion) {
+                        throw new PagoManualInvalidoException(
+                            'La clave de idempotencia ya fue utilizada por otro comercio.'
+                        );
+                    }
+
+                    // Misma operación reintentada: devolvemos el pago original
+                    // sin volver a extender el vencimiento ni invalidar una
+                    // preferencia nueva que se haya generado después.
+                    return ['pago' => $existente, 'creado' => false];
                 }
             }
 
@@ -129,13 +156,14 @@ class PagoManualService
                 $fechaPago,
             );
 
+            // Un mismo período no puede quedar aprobado dos veces, sin
+            // importar el proveedor (manual o Mercado Pago). El lock sobre el
+            // comercio serializa los intentos concurrentes.
             $duplicado = Payment::query()
                 ->where('payable_type', Comercio::class)
                 ->where('payable_id', $comercio->id)
-                ->where('provider', 'manual')
                 ->where('status', PaymentStatus::APPROVED->value)
                 ->whereDate('period_end', $periodo['fin']->toDateString())
-                ->lockForUpdate()
                 ->exists();
 
             if ($duplicado) {
@@ -193,7 +221,17 @@ class PagoManualService
                 ])
                 ->log('pago_manual_registrado');
 
-            return $pago;
+            return ['pago' => $pago, 'creado' => true];
         });
+
+        // El pago manual reemplaza cualquier intención de Mercado Pago que
+        // estuviera abierta. Se limpia después del commit para no invalidar
+        // una preferencia si la transacción falla. En un reintento idempotente
+        // no se toca: puede existir una preferencia nueva legítima.
+        if ($resultado['creado']) {
+            $this->suscripcionService->limpiarPagoEnVuelo($comercio->id);
+        }
+
+        return $resultado['pago'];
     }
 }

@@ -70,7 +70,7 @@ Route::get('/cuenta-suspendida', function () {
         $sucursalId = session('sucursal_activa_id', $user->branch_id);
 
         $sucursal = $sucursalId
-            ? Sucursal::with('comercio.plan')->find($sucursalId)
+            ? Sucursal::with('comercio.planContratado')->find($sucursalId)
             : null;
 
         $comercio = $sucursal?->comercio;
@@ -80,12 +80,16 @@ Route::get('/cuenta-suspendida', function () {
                 ? Carbon::parse($comercio->vencimiento_pago)
                 : null;
 
-            $suspendidaPorVencimiento = $vencimiento !== null && $vencimiento->isPast();
+            // El acceso se corta al finalizar el día de vencimiento, igual que
+            // en VerificarEstadoCuenta. No se puede marcar la cuenta como
+            // vencida a las 00:00 del mismo día.
+            $suspendidaPorVencimiento = $vencimiento !== null
+                && $vencimiento->copy()->endOfDay()->isPast();
 
             $data['comercio'] = [
                 'nombre' => $comercio->nombre,
                 'vencimiento_pago' => $vencimiento?->format('d/m/Y'),
-                'plan' => $comercio->plan?->nombre ?? strtoupper($comercio->plan ?? 'Sin plan'),
+                'plan' => $comercio->planContratado?->nombre ?? 'Sin plan',
             ];
             $data['sucursal'] = [
                 'nombre' => $sucursal->nombre,
@@ -97,7 +101,7 @@ Route::get('/cuenta-suspendida', function () {
             $data['cuit'] = $comercio->configuracionFiscal?->cuit;
             $data['suspendida_por_vencimiento'] = $suspendidaPorVencimiento;
             $data['dias_vencidos'] = $suspendidaPorVencimiento
-                ? (int) abs($vencimiento->diffInDays(now()))
+                ? (int) abs($vencimiento->copy()->startOfDay()->diffInDays(now()->startOfDay()))
                 : null;
         }
     }
